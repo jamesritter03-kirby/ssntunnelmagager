@@ -14,6 +14,14 @@ final class TerminalSessionManager: ObservableObject {
         sessions.first { $0.id == selectedSessionID }
     }
 
+    /// IDs of sessions currently shown in their own floating window.
+    @Published var detachedSessionIDs: Set<UUID> = []
+
+    /// Sessions shown as tabs in the main window (everything not detached).
+    var attachedSessions: [TerminalSession] {
+        sessions.filter { !detachedSessionIDs.contains($0.id) }
+    }
+
     /// Open a new tab running the user's login shell.
     func openLocalShell() {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
@@ -57,11 +65,11 @@ final class TerminalSessionManager: ObservableObject {
     func close(_ session: TerminalSession) {
         guard let idx = sessions.firstIndex(where: { $0.id == session.id }) else { return }
         sessions.remove(at: idx)
+        detachedSessionIDs.remove(session.id)
         // Removing the last strong reference tears down the PTY, which sends SIGHUP
         // to the child process (ssh) and cleans up its tunnels.
         if selectedSessionID == session.id {
-            let next = sessions[safe: idx] ?? sessions.last
-            selectedSessionID = next?.id
+            selectedSessionID = (attachedSessions[safe: idx] ?? attachedSessions.last)?.id
         }
     }
 
@@ -80,6 +88,20 @@ final class TerminalSessionManager: ObservableObject {
     }
 
     func select(_ session: TerminalSession) {
+        selectedSessionID = session.id
+    }
+
+    /// Mark a session as detached (shown in its own window) and move tab focus.
+    func markDetached(_ session: TerminalSession) {
+        detachedSessionIDs.insert(session.id)
+        if selectedSessionID == session.id {
+            selectedSessionID = attachedSessions.first?.id
+        }
+    }
+
+    /// Mark a session as re-attached to the main window's tab bar and focus it.
+    func markAttached(_ session: TerminalSession) {
+        detachedSessionIDs.remove(session.id)
         selectedSessionID = session.id
     }
 

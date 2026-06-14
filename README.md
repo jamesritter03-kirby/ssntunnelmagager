@@ -24,6 +24,10 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
   examples (local `-L`, dynamic `-D`, remote `-R`, and a jump‑host `-J` with a shell) so the
   options are easy to learn. Edit or delete them freely — they're only ever added once.
 - 🧵 **Tunnels stay alive in the background** while you switch between tabs.
+- 🪟 **Detachable terminal windows** — pull any tab out into its own floating window
+  (right‑click the tab → **Detach into New Window**, or **⌃⌘D**) and toggle **Always on
+  Top** so it stays above other apps. The session keeps running while it moves; close the
+  window to snap the tab back into the main window.
 - 🕒 **Per‑tab command history** — each terminal records the commands you type; reopen them
   from a menu to re‑run with one click. Passwords/passphrases are never recorded.
 - 🎨 **Terminal themes** — per‑profile color themes modelled on macOS Terminal (Pro, Basic,
@@ -137,6 +141,15 @@ Open a plain shell anytime with **⌘T** (or the **Local Terminal** button).
 > **Clipboard:** ⌘C / ⌘V work as usual, and **right‑clicking pastes** the clipboard (like
 > PuTTY). When a full‑screen app has mouse reporting on (vim, htop, tmux…), the right‑click
 > is passed through to that app instead.
+
+### Detachable windows
+
+Pull any tab out into its **own floating window** — right‑click the tab and choose
+**Detach into New Window**, or press **⌃⌘D** for the active tab. Detaching only changes
+*where* the terminal is shown: the session and its tunnels **keep running** the whole time.
+Each detached window has a **📌 pin** button that toggles **Always on Top** (so the window
+floats above other apps) and a **re‑attach** button. **Closing** a detached window snaps the
+tab back into the main window's tab bar; closing the tab (⌘W) still ends the session as usual.
 
 ### Command history
 

@@ -37,6 +37,15 @@ struct SSHTunnelManagerApp: App {
                 Button("Disconnect All Tunnels") { sessions.disconnectAllTunnels() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
             }
+            CommandGroup(after: .windowArrangement) {
+                Button("Detach Tab into New Window") {
+                    if let session = sessions.selectedSession {
+                        DetachedTerminalController.shared.detach(session)
+                    }
+                }
+                .keyboardShortcut("d", modifiers: [.command, .control])
+                .disabled(sessions.selectedSession == nil)
+            }
         }
 
         Settings {

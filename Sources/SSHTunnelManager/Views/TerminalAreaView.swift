@@ -6,15 +6,19 @@ struct TerminalAreaView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if sessions.sessions.isEmpty {
-                WelcomeView()
+            if sessions.attachedSessions.isEmpty {
+                if sessions.sessions.isEmpty {
+                    WelcomeView()
+                } else {
+                    AllDetachedView()
+                }
             } else {
                 TabBar()
                 Divider()
                 // Keep ALL terminals mounted (so background tunnels stay alive) and
                 // only show the selected one.
                 ZStack {
-                    ForEach(sessions.sessions) { session in
+                    ForEach(sessions.attachedSessions) { session in
                         TerminalContainer(session: session)
                             .opacity(session.id == sessions.selectedSessionID ? 1 : 0)
                             .allowsHitTesting(session.id == sessions.selectedSessionID)
@@ -33,12 +37,13 @@ private struct TabBar: View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(sessions.sessions) { session in
+                    ForEach(sessions.attachedSessions) { session in
                         TabChip(
                             session: session,
                             isSelected: session.id == sessions.selectedSessionID,
                             onSelect: { sessions.select(session) },
-                            onClose: { sessions.close(session) }
+                            onClose: { sessions.close(session) },
+                            onDetach: { DetachedTerminalController.shared.detach(session) }
                         )
                     }
                     Button {
@@ -136,6 +141,7 @@ private struct TabChip: View {
     let isSelected: Bool
     var onSelect: () -> Void
     var onClose: () -> Void
+    var onDetach: () -> Void
 
     var body: some View {
         HStack(spacing: 7) {
@@ -165,6 +171,19 @@ private struct TabChip: View {
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
+        .contextMenu {
+            Button {
+                onDetach()
+            } label: {
+                Label("Detach into New Window", systemImage: "macwindow.badge.plus")
+            }
+            Divider()
+            Button(role: .destructive) {
+                onClose()
+            } label: {
+                Label("Close Tab", systemImage: "xmark")
+            }
+        }
     }
 
     private var statusColor: Color {
@@ -174,7 +193,7 @@ private struct TabChip: View {
     }
 }
 
-private struct TerminalContainer: View {
+struct TerminalContainer: View {
     @ObservedObject var session: TerminalSession
     @EnvironmentObject var sessions: TerminalSessionManager
 
@@ -267,6 +286,33 @@ private struct WelcomeView: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+}
+
+/// Shown when every open terminal has been detached into its own window.
+private struct AllDetachedView: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "macwindow.on.rectangle")
+                .font(.system(size: 46))
+                .foregroundStyle(.tint)
+            Text("All terminals are in separate windows")
+                .font(.title3.weight(.semibold))
+            Text("\(sessions.detachedSessionIDs.count) detached window(s) — their tunnels are still running. Close a window to bring its tab back, or open a new terminal here.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 400)
+            Button {
+                sessions.openLocalShell()
+            } label: {
+                Label("New Local Terminal", systemImage: "terminal")
+            }
+            .controlSize(.large)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
