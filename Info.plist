@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>SSH Tunnel Manager</string>
+    <key>CFBundleDisplayName</key>
+    <string>SSH Tunnel Manager</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.local.sshtunnelmanager</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>SSHTunnelManager</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
+
+    <!-- ===== Sparkle auto-update ===== -->
+    <!-- appcast.xml is published to GitHub Pages from the docs/ folder.
+         Update binaries are hosted on the rolling 'updates' GitHub Release.
+         See README and ./publish-release.sh. -->
+    <key>SUFeedURL</key>
+    <string>https://jamesritter03-kirby.github.io/ssntunnelmagager/appcast.xml</string>
+    <!-- EdDSA public key; the matching private key lives in your login Keychain. -->
+    <key>SUPublicEDKey</key>
+    <string>i+qLun2Im/D3TFG0EUh48ZAGFRyyxY5L193bIv3azTM=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+</dict>
+</plist>

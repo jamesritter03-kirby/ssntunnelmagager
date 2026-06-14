@@ -1,0 +1,31 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Built app bundle
+*.app/
+
+# Distribution artifacts
+dist/
+
+# Xcode / DerivedData
+DerivedData/
+*.xcodeproj/xcuserdata/
+
+# macOS
+.DS_Store
+
+# Icon build scratch (AppIcon.icns itself is kept)
+AppIcon.iconset/
+
+# Sparkle update archives — large binaries live on the GitHub 'updates' release,
+# the published feed is docs/appcast.xml (tracked). Everything here is local-only.
+sparkle-updates/*.zip
+sparkle-updates/*.dmg
+sparkle-updates/*.delta
+sparkle-updates/appcast.xml
+
+# Python (the appcast verifier in scripts/)
+__pycache__/
+*.pyc

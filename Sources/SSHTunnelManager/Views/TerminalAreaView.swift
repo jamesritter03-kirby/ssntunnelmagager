@@ -1,0 +1,274 @@
+import SwiftUI
+
+/// The detail pane: a tab bar plus the active terminal, or a welcome screen.
+struct TerminalAreaView: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if sessions.sessions.isEmpty {
+                WelcomeView()
+            } else {
+                TabBar()
+                Divider()
+                // Keep ALL terminals mounted (so background tunnels stay alive) and
+                // only show the selected one.
+                ZStack {
+                    ForEach(sessions.sessions) { session in
+                        TerminalContainer(session: session)
+                            .opacity(session.id == sessions.selectedSessionID ? 1 : 0)
+                            .allowsHitTesting(session.id == sessions.selectedSessionID)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+}
+
+private struct TabBar: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(sessions.sessions) { session in
+                        TabChip(
+                            session: session,
+                            isSelected: session.id == sessions.selectedSessionID,
+                            onSelect: { sessions.select(session) },
+                            onClose: { sessions.close(session) }
+                        )
+                    }
+                    Button {
+                        sessions.openLocalShell()
+                    } label: {
+                        Image(systemName: "plus")
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 5)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("New local terminal (⌘T)")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+            }
+
+            if let session = sessions.selectedSession {
+                Divider().frame(height: 22)
+                SnippetsMenuButton(session: session)
+                HistoryMenuButton(session: session)
+                    .padding(.horizontal, 8)
+            }
+        }
+        .background(.bar)
+    }
+}
+
+/// A drop-down of the active profile's saved commands; click one to insert it.
+private struct SnippetsMenuButton: View {
+    @ObservedObject var session: TerminalSession
+    @EnvironmentObject var store: ProfileStore
+
+    private var snippets: [CommandSnippet] {
+        guard let pid = session.profileID,
+              let profile = store.profiles.first(where: { $0.id == pid }) else { return [] }
+        return profile.snippets
+    }
+
+    var body: some View {
+        if !snippets.isEmpty {
+            Menu {
+                ForEach(snippets) { snippet in
+                    Menu(snippet.label.isEmpty ? snippet.command : snippet.label) {
+                        Button("Run") { session.run(snippet.command) }
+                        Button("Insert at Prompt") { session.paste(snippet.command) }
+                    }
+                    .disabled(!session.isRunning || snippet.command.isEmpty)
+                }
+            } label: {
+                Image(systemName: "text.badge.plus")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .padding(.leading, 8)
+            .help("Insert a saved command into the terminal")
+        }
+    }
+}
+
+/// A drop-down of the selected tab's previous commands; click one to run it again.
+private struct HistoryMenuButton: View {
+    @ObservedObject var session: TerminalSession
+
+    var body: some View {
+        Menu {
+            if session.commandHistory.isEmpty {
+                Text("No commands yet")
+            } else {
+                ForEach(Array(session.commandHistory.reversed().prefix(40).enumerated()), id: \.offset) { entry in
+                    Button(displayTitle(entry.element)) {
+                        session.rerun(entry.element)
+                    }
+                    .disabled(!session.isRunning)
+                }
+                Divider()
+                Button("Clear History", role: .destructive) {
+                    session.clearHistory()
+                }
+            }
+        } label: {
+            Image(systemName: "clock.arrow.circlepath")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Command history — click a command to run it again")
+    }
+
+    private func displayTitle(_ command: String) -> String {
+        command.count > 60 ? String(command.prefix(59)) + "…" : command
+    }
+}
+
+private struct TabChip: View {
+    @ObservedObject var session: TerminalSession
+    let isSelected: Bool
+    var onSelect: () -> Void
+    var onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 7, height: 7)
+            Image(systemName: session.kind == .ssh ? "network" : "terminal")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(session.title)
+                .lineLimit(1)
+                .font(.callout)
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .buttonStyle(.borderless)
+            .help("Close tab")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(isSelected ? Color.accentColor.opacity(0.20) : Color.secondary.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(isSelected ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+    }
+
+    private var statusColor: Color {
+        if session.isRunning { return .green }
+        if let code = session.exitCode, code != 0 { return .red }
+        return .secondary
+    }
+}
+
+private struct TerminalContainer: View {
+    @ObservedObject var session: TerminalSession
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            TerminalViewRepresentable(session: session)
+                .id(session.id)
+
+            if !session.isRunning {
+                ExitBanner(
+                    session: session,
+                    onReconnect: { session.restart() },
+                    onClose: { sessions.close(session) }
+                )
+                .padding(10)
+            }
+        }
+    }
+}
+
+private struct ExitBanner: View {
+    @ObservedObject var session: TerminalSession
+    var onReconnect: () -> Void
+    var onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "bolt.horizontal.circle.fill")
+                .foregroundStyle(.orange)
+                .font(.title3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(exitText).fontWeight(.semibold)
+                Text(session.commandPreview)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+            Button("Reconnect", action: onReconnect)
+                .buttonStyle(.borderedProminent)
+            Button("Close", action: onClose)
+        }
+        .padding(12)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .shadow(radius: 8, y: 2)
+    }
+
+    private var exitText: String {
+        if let code = session.exitCode, code != 0 {
+            return "Session ended — exit code \(code)"
+        }
+        return "Session ended"
+    }
+}
+
+private struct WelcomeView: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    @EnvironmentObject var store: ProfileStore
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .font(.system(size: 52))
+                .foregroundStyle(.tint)
+            VStack(spacing: 6) {
+                Text("SSH Tunnel Manager")
+                    .font(.largeTitle.bold())
+                Text("Open a local terminal, or pick a profile from the sidebar to start its SSH tunnels.")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
+            HStack(spacing: 12) {
+                Button {
+                    sessions.openLocalShell()
+                } label: {
+                    Label("New Local Terminal", systemImage: "terminal")
+                }
+                .controlSize(.large)
+
+                if let first = store.profiles.first {
+                    Button {
+                        sessions.connect(profile: first)
+                    } label: {
+                        Label("Connect “\(first.name)”", systemImage: "play.fill")
+                    }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+}

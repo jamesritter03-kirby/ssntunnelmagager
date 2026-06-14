@@ -1,0 +1,15 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>SSH Tunnel Manager</title>
+        <item>
+            <title>1.0</title>
+            <pubDate>Sat, 13 Jun 2026 15:09:26 -0500</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH-Tunnel-Manager-1.0-1.zip" length="2480985" type="application/octet-stream" sparkle:edSignature="X04eNCMbOw7GyIkp6rDCkblH6VSzqNFccxIAbG9XL/lfgmvOLNquO7o03bHKRMS+GHYF0U3rSlz+z/DI5pYPBg=="/>
+        </item>
+    </channel>
+</rss>

@@ -1,0 +1,45 @@
+import SwiftUI
+
+struct ContentView: View {
+    @EnvironmentObject var store: ProfileStore
+    @EnvironmentObject var sessions: TerminalSessionManager
+    @ObservedObject private var palette = CommandPaletteModel.shared
+
+    @State private var selectedProfileID: UUID?
+    @State private var editingProfile: SSHProfile?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(
+                selectedProfileID: $selectedProfileID,
+                onConnect: { sessions.connect(profile: $0) },
+                onEdit: { editingProfile = $0 },
+                onNew: { editingProfile = SSHProfile() }
+            )
+            .navigationSplitViewColumnWidth(min: 250, ideal: 290, max: 420)
+        } detail: {
+            TerminalAreaView()
+                .navigationTitle("SSH Tunnel Manager")
+        }
+        .background(WindowAccessor())
+        .sheet(item: $editingProfile) { profile in
+            ProfileEditorView(
+                profile: profile,
+                onSave: { saved in
+                    store.update(saved)
+                    sessions.applyTheme(TerminalTheme.theme(id: saved.theme), toProfileID: saved.id)
+                    selectedProfileID = saved.id
+                    editingProfile = nil
+                },
+                onCancel: { editingProfile = nil }
+            )
+            .frame(minWidth: 580, minHeight: 640)
+        }
+        .sheet(isPresented: $palette.isPresented) {
+            CommandPaletteView(palette: palette)
+                .environmentObject(store)
+                .environmentObject(sessions)
+        }
+    }
+}

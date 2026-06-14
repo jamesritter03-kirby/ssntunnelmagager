@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SSH Tunnel Manager</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #1d2b34 0%, #0c0f12 60%) fixed;
+    color: #e6edf3;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+  .card {
+    max-width: 640px;
+    width: 100%;
+    text-align: center;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #7ee787;
+    background: rgba(46, 160, 67, 0.12);
+    border: 1px solid rgba(46, 160, 67, 0.3);
+    border-radius: 999px;
+    padding: 6px 14px;
+    margin-bottom: 24px;
+  }
+  h1 { font-size: 38px; margin: 0 0 10px; letter-spacing: -0.5px; }
+  .tagline { font-size: 18px; color: #9aa7b2; margin: 0 0 32px; line-height: 1.5; }
+  .btn {
+    display: inline-block;
+    background: linear-gradient(180deg, #2ea043, #238636);
+    color: #fff;
+    text-decoration: none;
+    font-size: 17px;
+    font-weight: 600;
+    padding: 14px 30px;
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(35, 134, 54, 0.35);
+    transition: transform 0.08s ease, box-shadow 0.2s ease;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 26px rgba(35, 134, 54, 0.45); }
+  .sub { margin-top: 14px; font-size: 13px; color: #6e7b86; }
+  .features {
+    margin: 40px auto 0;
+    text-align: left;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 24px;
+    max-width: 560px;
+  }
+  .features div { font-size: 14px; color: #c2ccd6; padding-left: 22px; position: relative; }
+  .features div::before { content: "›"; position: absolute; left: 6px; color: #7ee787; }
+  .note {
+    margin-top: 36px;
+    font-size: 13px;
+    color: #8b97a2;
+    line-height: 1.6;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 16px 18px;
+    text-align: left;
+  }
+  a.inline { color: #58a6ff; text-decoration: none; }
+  a.inline:hover { text-decoration: underline; }
+  code { background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+  footer { margin-top: 32px; font-size: 12px; color: #59636e; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="badge">● Auto-updating · Apple Silicon · macOS 13+</div>
+    <h1>SSH Tunnel Manager</h1>
+    <p class="tagline">
+      A native macOS terminal that saves your SSH tunnel profiles and launches them
+      with one click — real interactive terminal tabs, themes, and a menu-bar quick-connect.
+    </p>
+
+    <a class="btn" href="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH-Tunnel-Manager.dmg">
+      Download for macOS
+    </a>
+    <div class="sub">
+      Apple Silicon (.dmg) ·
+      <a class="inline" href="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases">all releases</a>
+    </div>
+
+    <div class="features">
+      <div>Saved tunnel profiles (-L / -R / -D)</div>
+      <div>Real PTY terminal tabs</div>
+      <div>Keychain passwords + Touch ID</div>
+      <div>Searchable command palette (⌘K)</div>
+      <div>Menu-bar quick-connect</div>
+      <div>Built-in automatic updates</div>
+    </div>
+
+    <p class="note">
+      <strong>First launch:</strong> because the app is signed locally (not notarized),
+      right-click it in Applications → <strong>Open</strong> → <strong>Open</strong> the first time.
+      If macOS still blocks it, go to System Settings → Privacy &amp; Security →
+      <em>Open Anyway</em>. After that, just double-click — and the app keeps itself
+      up to date automatically.
+    </p>
+
+    <footer>
+      Open source · <a class="inline" href="https://github.com/jamesritter03-kirby/ssntunnelmagager">github.com/jamesritter03-kirby/ssntunnelmagager</a>
+    </footer>
+  </main>
+</body>
+</html>

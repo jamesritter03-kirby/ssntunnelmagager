@@ -1,0 +1,41 @@
+name: Verify appcast
+
+# Safety net: whenever the update feed or the app's public key changes, confirm
+# the appcast is well-formed and every advertised update is correctly signed for
+# this app's SUPublicEDKey. A mismatch would mean users can't install the update,
+# so we catch it here instead of in the field.
+
+on:
+  push:
+    paths:
+      - 'docs/appcast.xml'
+      - 'Info.plist'
+      - 'scripts/verify_appcast.py'
+      - '.github/workflows/verify-appcast.yml'
+  pull_request:
+    paths:
+      - 'docs/appcast.xml'
+      - 'Info.plist'
+      - 'scripts/verify_appcast.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: python -m pip install --quiet cryptography
+
+      - name: Verify appcast signatures
+        run: python3 scripts/verify_appcast.py
