@@ -39,11 +39,20 @@ final class ProfileStore: ObservableObject {
     private func load() {
         isLoading = true
         defer { isLoading = false }
-        guard let data = try? Data(contentsOf: fileURL),
-              let decoded = try? JSONDecoder().decode([SSHProfile].self, from: data) else {
-            return
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([SSHProfile].self, from: data) {
+            profiles = decoded
         }
-        profiles = decoded
+
+        // On the very first launch (no saved profiles yet, and we've never seeded
+        // before) populate a few example profiles that showcase the options. The
+        // flag means deleting the examples won't bring them back next launch.
+        let seededKey = "didSeedExampleProfiles"
+        if profiles.isEmpty && !UserDefaults.standard.bool(forKey: seededKey) {
+            profiles = SSHProfile.examples
+            UserDefaults.standard.set(true, forKey: seededKey)
+            save(profiles)
+        }
     }
 
     private func save(_ profiles: [SSHProfile]) {

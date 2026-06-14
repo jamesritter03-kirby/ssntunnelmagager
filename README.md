@@ -20,6 +20,9 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
   - **Remote (`-R`)** — open a port on the server that tunnels back to your Mac.
   - **Dynamic (`-D`)** — a SOCKS proxy on your Mac that routes traffic through the server.
 - 👀 **Live command preview** — see (and copy) the exact `ssh` command a profile generates.
+- 📚 **Example profiles on first launch** — a fresh install starts with four ready‑to‑read
+  examples (local `-L`, dynamic `-D`, remote `-R`, and a jump‑host `-J` with a shell) so the
+  options are easy to learn. Edit or delete them freely — they're only ever added once.
 - 🧵 **Tunnels stay alive in the background** while you switch between tabs.
 - 🕒 **Per‑tab command history** — each terminal records the commands you type; reopen them
   from a menu to re‑run with one click. Passwords/passphrases are never recorded.
