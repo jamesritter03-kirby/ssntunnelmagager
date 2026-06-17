@@ -206,4 +206,32 @@ final class TerminalSessionManager: ObservableObject {
     func increaseFontSize() { focusedTerminalSession?.zoom(.increase) }
     func decreaseFontSize() { focusedTerminalSession?.zoom(.decrease) }
     func resetFontSize()    { focusedTerminalSession?.zoom(.reset) }
+
+    // MARK: - Tab reordering
+
+    /// Move an attached session (tab) from one index to another.
+    func moveAttachedSession(from fromIndex: Int, to toIndex: Int) {
+        let attached = attachedSessions
+        guard fromIndex != toIndex,
+              fromIndex >= 0, fromIndex < attached.count,
+              toIndex >= 0, toIndex < attached.count else { return }
+        var newOrder = attached.map { $0.id }
+        let moving = newOrder.remove(at: fromIndex)
+        newOrder.insert(moving, at: toIndex)
+        // Reorder sessions array to match the new attached order, keeping detached sessions in place
+        var reordered: [TerminalSession] = []
+        var attachedIdx = 0
+        for session in sessions {
+            if detachedSessionIDs.contains(session.id) {
+                reordered.append(session)
+            } else {
+                if attachedIdx < newOrder.count,
+                   let s = attached.first(where: { $0.id == newOrder[attachedIdx] }) {
+                    reordered.append(s)
+                    attachedIdx += 1
+                }
+            }
+        }
+        sessions = reordered
+    }
 }

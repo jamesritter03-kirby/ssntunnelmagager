@@ -88,6 +88,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Runs before the SwiftUI window is shown — the right place to suppress it.
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Single-instance check: if another copy is already running, activate it and quit.
+        let dominated = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .filter { $0 != NSRunningApplication.current }
+        if let existing = dominated.first {
+            existing.activate(options: [.activateIgnoringOtherApps])
+            // Slight delay so the other instance comes forward before we exit.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                NSApp.terminate(nil)
+            }
+            return
+        }
+
         if AppSettings.shared.startInMenuBarOnly {
             WindowManager.shared.pendingInitialHide = true
             NSApp.setActivationPolicy(.accessory)   // no Dock icon / window flash

@@ -53,6 +53,23 @@ private struct TabBar: View {
                             onClose: { sessions.close(session) },
                             onDetach: { DetachedTerminalController.shared.detach(session) }
                         )
+                        .onDrag {
+                            NSItemProvider(object: session.id.uuidString as NSString)
+                        }
+                        .onDrop(of: [UTType.text], isTargeted: nil) { providers in
+                            guard let provider = providers.first else { return false }
+                            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                                guard let idString = object as? String,
+                                      let uuid = UUID(uuidString: idString),
+                                      let fromIndex = sessions.attachedSessions.firstIndex(where: { $0.id == uuid }),
+                                      let toIndex = sessions.attachedSessions.firstIndex(where: { $0.id == session.id }),
+                                      fromIndex != toIndex else { return }
+                                DispatchQueue.main.async {
+                                    sessions.moveAttachedSession(from: fromIndex, to: toIndex)
+                                }
+                            }
+                            return true
+                        }
                     }
                     Button {
                         sessions.openLocalShell()
@@ -239,6 +256,21 @@ private struct TabChip: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .contextMenu {
+            // Snippets submenu for quick access
+            if let profile, !profile.snippets.isEmpty, session.kind != .sftp && session.kind != .vnc {
+                Menu {
+                    ForEach(profile.snippets) { snippet in
+                        Menu(snippet.label.isEmpty ? snippet.command : snippet.label) {
+                            Button("Run") { session.run(snippet.command) }
+                            Button("Insert at Prompt") { session.paste(snippet.command) }
+                        }
+                        .disabled(!session.isRunning || snippet.command.isEmpty)
+                    }
+                } label: {
+                    Label("Snippets", systemImage: "text.badge.plus")
+                }
+                Divider()
+            }
             Button {
                 session.disconnect()
             } label: {
@@ -281,32 +313,27 @@ private struct TabChip: View {
     }
 }
 
-/// Lays out every attached terminal in a balanced grid (all kept live), with a
-/// header per tile and a highlight on the selected one.
+/// Lays out every attached terminal in a resizable grid (all kept live), with a
+/// header per tile and a highlight on the selected one. Uses nested split views
+/// so the user can drag dividers to resize panes.
 private struct TiledTerminalsView: View {
     @EnvironmentObject var sessions: TerminalSessionManager
     let items: [TerminalSession]
 
     var body: some View {
         let cols = columnCount(for: items.count)
-        let rows = stride(from: 0, to: items.count, by: cols).map { start in
+        let rows: [[TerminalSession]] = stride(from: 0, to: items.count, by: cols).map { start in
             Array(items[start..<min(start + cols, items.count)])
         }
-        VStack(spacing: 6) {
+        VSplitView {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 6) {
+                HSplitView {
                     ForEach(row) { session in
                         TerminalTile(session: session,
                                      isSelected: session.id == sessions.selectedSessionID)
-                    }
-                    // Pad a short final row so every tile keeps an equal width.
-                    if row.count < cols {
-                        ForEach(0..<(cols - row.count), id: \.self) { _ in
-                            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
+                            .frame(minWidth: 200, minHeight: 120)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .padding(6)
