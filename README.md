@@ -32,6 +32,9 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
   from a menu to re‑run with one click. Passwords/passphrases are never recorded.
 - 🎨 **Terminal themes** — per‑profile color themes modelled on macOS Terminal (Pro, Basic,
   Homebrew, Ocean, Novel, Solarized Dark/Light, Dracula) with a live preview.
+- 🔎 **Adjustable text size** — grow/shrink the terminal text live with **⌘+ / ⌘−** (**⌘0**
+  resets). The size is **saved to the profile** (or to the local‑terminal default), so new
+  tabs open at your preferred size.
 - 📌 **Saved commands** — store commonly used commands per profile and insert them into the
   terminal from a menu.
 - � **Keychain passwords + Touch ID** — optionally save a profile's password in the macOS
@@ -104,10 +107,39 @@ This produces **`dist/SSH Tunnel Manager.dmg`**. The recipient:
    down and click **Open Anyway**, then confirm.
 3. After that first approval, it opens with a normal double‑click. **No Terminal required.**
 
+> **Run it from Applications so updates work.** Because the app isn't notarized, macOS keeps
+> a *quarantine* flag on it and may run it from a temporary, read‑only location (“App
+> Translocation”). From there Sparkle can't replace the app in place, which can leave
+> **duplicate copies that never seem to update**. To prevent this, the app **detects that
+> situation on launch and offers to move itself into your Applications folder** (clearing the
+> quarantine flag) and relaunch — after which updates replace it cleanly. Always launch it
+> from **Applications**, not from the `.dmg` window or Downloads.
+
 > The first‑launch step exists because the app is **ad‑hoc signed, not notarized**. A pure,
 > zero‑click double‑click on another Mac requires notarization, which needs a paid Apple
 > Developer ID ($99/yr). With one, run `codesign` with your *Developer ID Application*
 > certificate, then `xcrun notarytool submit` + `xcrun stapler staple` on the `.dmg`.
+
+#### Updates leave duplicate copies / don't apply
+
+If an earlier version was run from the `.dmg` window or Downloads (not Applications), macOS
+may have **translocated** it (run it from a random read‑only path). Sparkle installs each
+update next to wherever the app is currently running, so from a translocated/read‑only spot
+it can't replace the app and you can end up with several copies (e.g. “SSH Tunnel
+Manager 2.app”). Newer versions self‑correct by offering to move into Applications on launch,
+but to clean up an already‑affected Mac:
+
+1. **Quit** SSH Tunnel Manager.
+2. In **Applications** (and anywhere else copies landed, like **Downloads**), drag **every**
+   copy of *SSH Tunnel Manager* to the Trash.
+3. Open the latest **`.dmg`** and **drag the app into Applications** (replace if asked).
+4. Open it from **Applications** (right‑click → **Open** the first time). If it offers to move
+   itself to Applications, click **Move to Applications Folder**.
+
+From then on, **Check for Updates…** (and the automatic daily check) will replace the single
+Applications copy in place. Your saved profiles are stored separately in
+`~/Library/Application Support/SSHTunnelManager/` and are **not** affected by deleting app
+copies.
 
 > **Tip:** Running `make-dmg.sh` from your own Terminal will prompt *"Terminal wants to
 > control Finder."* Allow it once to get the polished window background + icon layout. If you
@@ -156,7 +188,8 @@ tab back into the main window's tab bar; closing the tab (⌘W) still ends the s
 Each terminal tab keeps a history of the commands you type in it. Click the **clock icon**
 (🕒) at the right of the tab bar to see recent commands (newest first) and click any one to
 **run it again** in that tab — handy for repetitive tunnel/diagnostic commands. It works for
-both local shells and remote SSH sessions. **Clear History** empties the list.
+both local shells and remote SSH sessions. **Save History…** exports the list to a text file
+(oldest first, with a header), and **Clear History** empties the list.
 
 > History is reconstructed from your keystrokes, so anything typed at a **password or
 > passphrase prompt is deliberately skipped**. (Because it's keystroke‑based, tab‑completed
@@ -170,6 +203,14 @@ terminal's background, text, cursor and full 16‑color ANSI palette. Choose fro
 modelled on macOS Terminal — **Pro, Basic, Homebrew, Ocean, Novel, Solarized Dark, Solarized
 Light, Dracula** — with a live preview as you pick. Saving a profile **re‑colors its open
 tabs immediately**. Set a **default theme for plain local terminals** in **Settings…** (⌘,).
+
+### Text size
+
+Press **⌘+** (bigger) and **⌘−** (smaller) to zoom the text in the active terminal, and
+**⌘0** to return to the default. The new size is **remembered on the profile** (for SSH
+tabs) or as the **local‑terminal default** (for plain shells), so the next tab you open uses
+it. You can also set an exact size in the profile editor's *Appearance* section, or the
+local‑terminal default in **Settings…** (⌘,). The commands also live in the **Commands** menu.
 
 ### Saved commands
 
@@ -222,6 +263,8 @@ anywhere:
 - **Show Main Window / New Local Terminal**.
 - **Options** — toggle **Start at Login** and **Launch to Menu Bar** right from the menu
   (also available in **Settings…**, ⌘,).
+- **Check for Updates…** — manually check for a new version (also in the app menu); handy
+  when running in menu‑bar‑only mode with no window open.
 
 When one or more SSH tunnels are running, the menu bar icon shows a **green number badge**
 with the active tunnel count.

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Combine
 
 /// Owns the open terminal tabs and routes "open shell" / "connect profile" actions.
@@ -31,7 +32,8 @@ final class TerminalSessionManager: ObservableObject {
             executable: shell,
             args: ["-l"],
             commandPreview: "\(shell) -l",
-            theme: TerminalTheme.theme(id: AppSettings.shared.defaultThemeID)
+            theme: TerminalTheme.theme(id: AppSettings.shared.defaultThemeID),
+            fontSize: AppSettings.shared.defaultFontSize
         )
         addAndStart(session)
     }
@@ -47,6 +49,7 @@ final class TerminalSessionManager: ObservableObject {
             commandPreview: SSHCommandBuilder.commandPreview(for: profile),
             profileID: profile.id,
             theme: TerminalTheme.theme(id: profile.theme),
+            fontSize: profile.fontSize,
             autofillPassword: KeychainStore.shared.hasPassword(for: profile.id),
             requireAuthForPassword: profile.requireAuthForSavedPassword
         )
@@ -111,4 +114,22 @@ final class TerminalSessionManager: ObservableObject {
             session.applyTheme(theme)
         }
     }
+
+    // MARK: - Terminal text size
+
+    /// The terminal a menu-driven zoom should affect: a focused detached window's
+    /// terminal, otherwise the selected main-window tab. (When a terminal itself
+    /// has keyboard focus it handles ⌘+/⌘− directly, before the menu.)
+    var focusedTerminalSession: TerminalSession? {
+        if let responder = NSApp.keyWindow?.firstResponder as? NSView,
+           let session = sessions.first(where: { $0.terminalView === responder }),
+           detachedSessionIDs.contains(session.id) {
+            return session
+        }
+        return selectedSession
+    }
+
+    func increaseFontSize() { focusedTerminalSession?.zoom(.increase) }
+    func decreaseFontSize() { focusedTerminalSession?.zoom(.decrease) }
+    func resetFontSize()    { focusedTerminalSession?.zoom(.reset) }
 }

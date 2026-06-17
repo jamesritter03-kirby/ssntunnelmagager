@@ -29,3 +29,7 @@ sparkle-updates/appcast.xml
 # Python (the appcast verifier in scripts/)
 __pycache__/
 *.pyc
+.venv/
+
+# Editor
+.vscode/

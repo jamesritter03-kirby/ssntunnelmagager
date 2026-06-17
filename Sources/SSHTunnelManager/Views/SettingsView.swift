@@ -26,6 +26,11 @@ struct SettingsView: View {
                     }
                 }
                 ThemePreview(theme: TerminalTheme.theme(id: settings.defaultThemeID))
+                Stepper(value: $settings.defaultFontSize,
+                        in: TerminalFontMetrics.min...TerminalFontMetrics.max,
+                        step: TerminalFontMetrics.step) {
+                    Text("Default text size for local terminals: \(Int(settings.defaultFontSize)) pt")
+                }
             }
 
             Section {

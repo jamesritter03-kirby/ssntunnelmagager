@@ -34,6 +34,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     let profileID: UUID?
     /// The color theme applied to this terminal.
     private(set) var theme: TerminalTheme
+    /// The terminal text size in points (live-adjustable with ⌘+ / ⌘−).
+    @Published private(set) var fontSize: Double
     /// Whether a Keychain password should be typed at the password prompt.
     let autofillPassword: Bool
     /// Whether to require Touch ID / login password before using it.
@@ -52,7 +54,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     private let historyLimit = 300
     private var didAutofillPassword = false
 
-    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true) {
+    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true) {
         self.kind = kind
         self.title = title
         self.executable = executable
@@ -60,6 +62,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         self.commandPreview = commandPreview
         self.profileID = profileID
         self.theme = theme
+        self.fontSize = TerminalFontMetrics.clamp(fontSize)
         self.autofillPassword = autofillPassword
         self.requireAuthForPassword = requireAuthForPassword
         self.terminalView = HistoryTerminalView(frame: NSRect(x: 0, y: 0, width: 820, height: 480))
@@ -67,14 +70,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         terminalView.processDelegate = self
         terminalView.onUserInput = { [weak self] data in self?.handleInput(data) }
         terminalView.onProcessOutput = { [weak self] data in self?.handleOutput(data) }
+        terminalView.onZoom = { [weak self] direction in self?.zoom(direction) }
         applyAppearance()
     }
 
     private func applyAppearance() {
-        if let font = NSFont(name: "SF Mono", size: 13) ?? NSFont(name: "Menlo", size: 13) {
-            terminalView.font = font
-        }
+        terminalView.font = TerminalSession.font(ofSize: fontSize)
         theme.apply(to: terminalView)
+    }
+
+    /// The monospaced font used for the terminal at a given point size.
+    private static func font(ofSize size: Double) -> NSFont {
+        let s = CGFloat(size)
+        return NSFont(name: "SF Mono", size: s)
+            ?? NSFont(name: "Menlo", size: s)
+            ?? NSFont.monospacedSystemFont(ofSize: s, weight: .regular)
     }
 
     func start() {
@@ -209,6 +219,23 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         commandHistory.removeAll()
     }
 
+    /// A plain-text rendering of this tab's command history for export (oldest
+    /// first), with a short header. The header lines start with `#` so the file
+    /// can still be sourced by a shell if desired.
+    var historyExportText: String {
+        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
+        var lines = ["# Command history — \(title)", "# Saved \(stamp)", ""]
+        lines.append(contentsOf: commandHistory)
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// A sensible default file name for the exported history.
+    var suggestedHistoryFileName: String {
+        let safe = title.components(separatedBy: CharacterSet(charactersIn: "/:")).joined(separator: "-")
+        let trimmed = safe.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\(trimmed.isEmpty ? "Terminal" : trimmed) history.txt"
+    }
+
     /// Insert text (e.g. a saved command snippet) at the prompt without running it.
     func paste(_ text: String) {
         guard isRunning else { return }
@@ -233,6 +260,43 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         theme = newTheme
         newTheme.apply(to: terminalView)
         terminalView.needsDisplay = true
+    }
+
+    // MARK: - Text size (⌘+ / ⌘− / ⌘0)
+
+    /// Grow, shrink, or reset the terminal text — and remember the new size on the
+    /// profile (SSH tabs) or the app default (plain local shells), so future tabs
+    /// open at the same size.
+    func zoom(_ direction: HistoryTerminalView.Zoom) {
+        let target: Double
+        switch direction {
+        case .increase: target = fontSize + TerminalFontMetrics.step
+        case .decrease: target = fontSize - TerminalFontMetrics.step
+        case .reset:    target = TerminalFontMetrics.default
+        }
+        setFontSize(target)
+    }
+
+    /// Apply a specific text size to this terminal and persist it.
+    func setFontSize(_ size: Double) {
+        let clamped = TerminalFontMetrics.clamp(size)
+        guard clamped != fontSize else { return }
+        fontSize = clamped
+        terminalView.font = TerminalSession.font(ofSize: clamped)
+        terminalView.needsDisplay = true
+        persistFontSize(clamped)
+    }
+
+    private func persistFontSize(_ size: Double) {
+        if let id = profileID,
+           var profile = ProfileStore.shared.profiles.first(where: { $0.id == id }) {
+            if profile.fontSize != size {
+                profile.fontSize = size
+                ProfileStore.shared.update(profile)
+            }
+        } else {
+            AppSettings.shared.defaultFontSize = size
+        }
     }
 
     /// Build a sensible environment for the child process.

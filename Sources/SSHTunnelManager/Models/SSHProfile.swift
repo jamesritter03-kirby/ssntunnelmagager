@@ -1,5 +1,19 @@
 import Foundation
 
+/// Shared limits for the terminal text size (points). Used by profiles, the
+/// local-terminal default, and the ⌘+/⌘− zoom commands.
+enum TerminalFontMetrics {
+    static let `default`: Double = 13
+    static let min: Double = 8
+    static let max: Double = 36
+    static let step: Double = 1
+
+    /// Keep a size within the allowed range (and rounded to a whole point).
+    static func clamp(_ size: Double) -> Double {
+        Swift.min(max, Swift.max(min, (size).rounded()))
+    }
+}
+
 /// The kind of SSH port forwarding.
 enum ForwardType: String, Codable, CaseIterable, Identifiable {
     case local
@@ -93,6 +107,8 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     var extraOptions: String = ""
     /// The terminal color theme id (see `TerminalTheme`).
     var theme: String = TerminalTheme.defaultID
+    /// The terminal text size in points (adjustable live with ⌘+ / ⌘−).
+    var fontSize: Double = TerminalFontMetrics.default
     /// Commonly used commands the user can insert into the session's terminal.
     var snippets: [CommandSnippet] = []
     /// Require Touch ID / login password before using the Keychain-stored password.
@@ -114,6 +130,7 @@ extension SSHProfile {
         case id, name, host, port, username, identityFile, forwards, openShell
         case compression, keepAlive, verbose, jumpHost, extraOptions, theme, snippets
         case requireAuthForSavedPassword
+        case fontSize
     }
 
     init(from decoder: Decoder) throws {
@@ -134,5 +151,6 @@ extension SSHProfile {
         theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? TerminalTheme.defaultID
         snippets = try c.decodeIfPresent([CommandSnippet].self, forKey: .snippets) ?? []
         requireAuthForSavedPassword = try c.decodeIfPresent(Bool.self, forKey: .requireAuthForSavedPassword) ?? true
+        fontSize = TerminalFontMetrics.clamp(try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? TerminalFontMetrics.default)
     }
 }

@@ -9,6 +9,7 @@ final class AppSettings: ObservableObject {
     private let defaults = UserDefaults.standard
     private let menuBarOnlyKey = "startInMenuBarOnly"
     private let defaultThemeKey = "defaultThemeID"
+    private let defaultFontSizeKey = "defaultFontSize"
 
     /// Avoids re-entrancy when we correct `launchAtLogin` back to the system value.
     private var isSyncing = false
@@ -23,6 +24,15 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(defaultThemeID, forKey: defaultThemeKey) }
     }
 
+    /// The text size (points) for plain local terminals (profiles carry their own).
+    @Published var defaultFontSize: Double {
+        didSet {
+            let clamped = TerminalFontMetrics.clamp(defaultFontSize)
+            if clamped != defaultFontSize { defaultFontSize = clamped; return }
+            defaults.set(defaultFontSize, forKey: defaultFontSizeKey)
+        }
+    }
+
     /// When true, the app is registered to start automatically at login.
     @Published var launchAtLogin: Bool {
         didSet {
@@ -34,6 +44,8 @@ final class AppSettings: ObservableObject {
     private init() {
         startInMenuBarOnly = defaults.bool(forKey: menuBarOnlyKey)
         defaultThemeID = defaults.string(forKey: defaultThemeKey) ?? TerminalTheme.defaultID
+        let storedFont = defaults.object(forKey: defaultFontSizeKey) as? Double ?? TerminalFontMetrics.default
+        defaultFontSize = TerminalFontMetrics.clamp(storedFont)
         // Reflect the real system state (property observers don't fire in init).
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
     }

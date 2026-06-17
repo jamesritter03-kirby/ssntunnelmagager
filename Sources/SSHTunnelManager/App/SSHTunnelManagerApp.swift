@@ -36,6 +36,16 @@ struct SSHTunnelManagerApp: App {
                 Divider()
                 Button("Disconnect All Tunnels") { sessions.disconnectAllTunnels() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
+                Divider()
+                Button("Increase Terminal Text") { sessions.increaseFontSize() }
+                    .keyboardShortcut("+", modifiers: .command)
+                    .disabled(sessions.selectedSession == nil)
+                Button("Decrease Terminal Text") { sessions.decreaseFontSize() }
+                    .keyboardShortcut("-", modifiers: .command)
+                    .disabled(sessions.selectedSession == nil)
+                Button("Actual Size") { sessions.resetFontSize() }
+                    .keyboardShortcut("0", modifiers: .command)
+                    .disabled(sessions.selectedSession == nil)
             }
             CommandGroup(after: .windowArrangement) {
                 Button("Detach Tab into New Window") {
@@ -66,6 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // If we're running from a read-only / translocated spot (which breaks
+        // auto-update and leaves duplicate copies), offer to move to /Applications
+        // and relaunch — this may terminate the app, so do it first.
+        InstallLocationGuard.checkAndOfferMoveToApplications()
+
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: url) {
             NSApp.applicationIconImage = icon

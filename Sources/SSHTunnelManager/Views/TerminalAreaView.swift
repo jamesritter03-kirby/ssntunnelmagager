@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 /// The detail pane: a tab bar plus the active terminal, or a welcome screen.
 struct TerminalAreaView: View {
@@ -119,6 +121,9 @@ private struct HistoryMenuButton: View {
                     .disabled(!session.isRunning)
                 }
                 Divider()
+                Button("Save History…") {
+                    saveHistory()
+                }
                 Button("Clear History", role: .destructive) {
                     session.clearHistory()
                 }
@@ -133,6 +138,22 @@ private struct HistoryMenuButton: View {
 
     private func displayTitle(_ command: String) -> String {
         command.count > 60 ? String(command.prefix(59)) + "…" : command
+    }
+
+    /// Write the tab's command history to a user-chosen text file.
+    private func saveHistory() {
+        let panel = NSSavePanel()
+        panel.title = "Save Command History"
+        panel.nameFieldStringValue = session.suggestedHistoryFileName
+        panel.allowedContentTypes = [.plainText]
+        panel.isExtensionHidden = false
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try session.historyExportText.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
     }
 }
 

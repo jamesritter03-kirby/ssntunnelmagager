@@ -105,6 +105,12 @@ struct ProfileEditorView: View {
                         }
                     }
                     ThemePreview(theme: TerminalTheme.theme(id: profile.theme))
+                    Stepper(value: $profile.fontSize,
+                            in: TerminalFontMetrics.min...TerminalFontMetrics.max,
+                            step: TerminalFontMetrics.step) {
+                        Text("Text size: \(Int(profile.fontSize)) pt")
+                    }
+                    .help("The terminal text size for this profile. You can also adjust it live with ⌘+ / ⌘− in the terminal.")
                 }
 
                 Section {

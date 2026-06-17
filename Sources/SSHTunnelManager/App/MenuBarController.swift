@@ -5,7 +5,7 @@ import Combine
 ///
 /// The menu is rebuilt every time it opens (`menuNeedsUpdate`) so it always
 /// reflects the current profiles and running sessions.
-final class MenuBarController: NSObject, NSMenuDelegate {
+final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private let store: ProfileStore
     private let sessions: TerminalSessionManager
     private let settings = AppSettings.shared
@@ -149,6 +149,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         mbOnly.toolTip = "Start in the menu bar without opening the window (applies next launch)."
 
         menu.addItem(.separator())
+        let updates = addAction("Check for Updates…", #selector(checkForUpdates), to: menu)
+        updates.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+        updates.toolTip = "Check for a newer version of SSH Tunnel Manager"
+
         let quit = NSMenuItem(title: "Quit SSH Tunnel Manager",
                               action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
@@ -215,5 +219,19 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func disconnectAll() {
         sessions.disconnectAllTunnels()
+    }
+
+    @objc private func checkForUpdates() {
+        WindowManager.shared.showMainWindow()   // so Sparkle's dialog has a home
+        UpdaterController.shared.checkForUpdates()
+    }
+
+    // Grey out "Check for Updates…" while Sparkle isn't ready (e.g. a check is
+    // already in flight); every other item stays enabled.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(checkForUpdates) {
+            return UpdaterController.shared.canCheckForUpdates
+        }
+        return true
     }
 }
