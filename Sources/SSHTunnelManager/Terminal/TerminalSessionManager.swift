@@ -148,6 +148,16 @@ final class TerminalSessionManager: ObservableObject {
     /// or, for a **local** profile, a login shell starting in its folder.
     func connect(profile: SSHProfile) {
         if profile.isLocal { connectLocalProfile(profile); return }
+        // A profile's tunnel binds fixed forwarded ports, so a second identical
+        // tunnel can't bind them (ssh runs with ExitOnForwardFailure=yes) and dies
+        // the instant it connects. If one is already running, reveal it instead of
+        // launching a doomed duplicate — which is what made reconnecting look broken.
+        if let existing = sessions.first(where: {
+            $0.profileID == profile.id && $0.kind == .ssh && $0.isRunning
+        }) {
+            reveal(existing)
+            return
+        }
         let args = SSHCommandBuilder.arguments(for: profile)
         let session = TerminalSession(
             kind: .ssh,
@@ -222,6 +232,19 @@ final class TerminalSessionManager: ObservableObject {
             requireAuthForPassword: profile.requireAuthForSavedPassword
         )
         addAndStart(session)
+    }
+
+    /// Bring an existing session into view: switch to the workspace that holds it
+    /// and select it, or focus its floating window if it's detached.
+    private func reveal(_ session: TerminalSession) {
+        if detachedSessionIDs.contains(session.id) {
+            DetachedTerminalController.shared.detach(session)   // focuses the window
+            return
+        }
+        if let ws = workspaces.first(where: { $0.tabIDs.contains(session.id) }) {
+            currentWorkspaceID = ws.id
+            selectedSessionID = session.id
+        }
     }
 
     private func addAndStart(_ session: TerminalSession) {
@@ -538,6 +561,11 @@ final class TerminalSessionManager: ObservableObject {
 
     /// Recreate the workspaces saved from a previous run. No-op if nothing saved.
     func restoreSavedSessions() {
+        // Only restore into a clean slate. Re-running this while tabs are already
+        // open would replace the `workspaces` array and leave the old sessions'
+        // ssh processes running but unreferenced — invisible "zombie" tunnels that
+        // keep holding their forwarded ports and break the next real connection.
+        guard sessions.isEmpty else { return }
         guard let state = savedOpenState(), !state.workspaces.isEmpty else { return }
         let built = state.workspaces.map { Workspace(name: $0.name, isTiled: $0.isTiled) }
         workspaces = built

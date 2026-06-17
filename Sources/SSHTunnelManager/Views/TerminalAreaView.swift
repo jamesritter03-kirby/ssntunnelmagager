@@ -210,6 +210,7 @@ private struct WorkspacePill: View {
 
 private struct TabBar: View {
     @EnvironmentObject var sessions: TerminalSessionManager
+    @EnvironmentObject var store: ProfileStore
 
     var body: some View {
         HStack(spacing: 0) {
@@ -252,17 +253,29 @@ private struct TabBar: View {
                         } label: {
                             Label("New Browser Tab", systemImage: "globe")
                         }
+                        if !store.profiles.isEmpty {
+                            Divider()
+                            Menu {
+                                ForEach(store.profiles) { profile in
+                                    Button {
+                                        sessions.connect(profile: profile)
+                                    } label: {
+                                        Label(profile.name, systemImage: profile.displayIcon)
+                                    }
+                                }
+                            } label: {
+                                Label("Connect to Profile", systemImage: "network")
+                            }
+                        }
                     } label: {
                         Image(systemName: "plus")
                             .padding(.horizontal, 6)
                             .padding(.vertical, 5)
-                    } primaryAction: {
-                        sessions.openLocalShell()
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    .help("New tab — terminal (⌘T) or browser")
+                    .help("New tab — terminal, browser, or a profile connection")
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -747,7 +760,7 @@ private struct WelcomeView: View {
 
             HStack(spacing: 12) {
                 let saved = sessions.savedSessionCount
-                if saved > 0 {
+                if saved > 0 && sessions.sessions.isEmpty {
                     Button {
                         sessions.restoreSavedSessions()
                     } label: {
