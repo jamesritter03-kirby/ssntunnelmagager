@@ -18,6 +18,15 @@ final class HistoryTerminalView: LocalProcessTerminalView {
     var onProcessOutput: ((ArraySlice<UInt8>) -> Void)?
     /// Called for ⌘+ / ⌘− / ⌘0 while this terminal is focused.
     var onZoom: ((Zoom) -> Void)?
+    /// Fires when the view becomes part of a window. PTY-backed sessions wait for
+    /// this before spawning, so the process starts against a real on-screen size
+    /// (e.g. when restoring a saved session before the window is shown).
+    var onAttachedToWindow: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { onAttachedToWindow?() }
+    }
 
     override func send(source: TerminalView, data: ArraySlice<UInt8>) {
         onUserInput?(data)

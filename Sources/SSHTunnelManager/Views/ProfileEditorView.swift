@@ -50,6 +50,7 @@ struct ProfileEditorView: View {
                     localSection
                     terminalSection
                     snippetsSection
+                    linksSection
                 } else {
                     connectionSection
                     authenticationSection
@@ -57,6 +58,7 @@ struct ProfileEditorView: View {
                     optionsSection
                     terminalSection
                     snippetsSection
+                    linksSection
                 }
             }
             .formStyle(.grouped)
@@ -428,6 +430,33 @@ struct ProfileEditorView: View {
 
     // MARK: - Command preview + actions
 
+    private var linksSection: some View {
+        Section {
+            if profile.links.isEmpty {
+                Text("No links yet. Add web pages — like a tunnel's web UI — to open them in an in-app browser tab.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach($profile.links) { $link in
+                LinkEditor(link: $link,
+                           onOpen: { TerminalSessionManager.shared.openLink(link, profile: profile) },
+                           onDelete: { profile.links.removeAll { $0.id == link.id } })
+                Divider()
+            }
+            Button {
+                profile.links.append(ProfileLink())
+            } label: {
+                Label("Add Link", systemImage: "plus.circle.fill")
+            }
+        } header: {
+            Label("Links", systemImage: "globe")
+        } footer: {
+            Text("Open a link from the globe menu in the tab bar, a tab's right-click menu, or the sidebar. Opening a link starts this profile's tunnel if it isn't already running. If the profile has a dynamic (SOCKS) forward, the browser routes through it (macOS 14+). A URL without a scheme defaults to http for localhost / IPs and https otherwise.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private var commandPreview: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -516,6 +545,10 @@ struct ProfileEditorView: View {
         p.host = p.host.trimmingCharacters(in: .whitespaces)
         p.username = p.username.trimmingCharacters(in: .whitespaces)
         if !p.isLocal, p.port.trimmingCharacters(in: .whitespaces).isEmpty { p.port = "22" }
+        p.links.removeAll {
+            $0.label.trimmingCharacters(in: .whitespaces).isEmpty
+                && $0.url.trimmingCharacters(in: .whitespaces).isEmpty
+        }
         return p
     }
 
@@ -597,6 +630,38 @@ struct ThemePreview: View {
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 1)
         )
+    }
+}
+
+/// One row in the Links editor: a label, a URL, an Open button and delete.
+struct LinkEditor: View {
+    @Binding var link: ProfileLink
+    var onOpen: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField("Label (e.g. Web UI)", text: $link.label)
+                    .textFieldStyle(.roundedBorder)
+                Button(action: onOpen) {
+                    Image(systemName: "arrow.up.forward.app")
+                }
+                .buttonStyle(.borderless)
+                .disabled(link.normalizedURL == nil)
+                .help("Open this link in a browser tab")
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .help("Remove this link")
+            }
+            TextField("URL (e.g. localhost:8080 or https://example.com)", text: $link.url)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.callout, design: .monospaced))
+                .autocorrectionDisabled()
+        }
+        .padding(.vertical, 4)
     }
 }
 

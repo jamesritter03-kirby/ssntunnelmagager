@@ -14,11 +14,12 @@ private enum LineEscapeState {
 final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProcessTerminalViewDelegate {
     let id = UUID()
 
-    enum Kind: Equatable {
+    enum Kind: String, Equatable, Codable {
         case localShell
         case ssh
         case sftp
         case vnc
+        case web
     }
 
     let kind: Kind
@@ -53,6 +54,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// For `.vnc` sessions: the headless ssh-tunnel driver behind the console.
     let vncClient: VNCClient?
 
+    /// For `.web` sessions: the in-app browser tab's navigation model.
+    let webModel: WebTabModel?
+
     /// The SF Symbol used to represent this session in tabs, tiles and lists.
     var symbolName: String {
         // A profile's chosen icon wins for shell / ssh tabs; sftp and vnc keep
@@ -68,6 +72,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case .ssh:        return "network"
         case .sftp:       return "arrow.up.arrow.down"
         case .vnc:        return "display"
+        case .web:        return "globe"
         }
     }
 
@@ -84,8 +89,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     private var recentOutputTail = ""
     private let historyLimit = 300
     private var didAutofillPassword = false
+    /// Set when a PTY start was requested before the view was on screen; the
+    /// pending start runs once `startIfPending()` sees the view attached.
+    private var pendingStart = false
 
-    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil) {
+    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil) {
         self.kind = kind
         self.title = title
         self.executable = executable
@@ -112,11 +120,17 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         } else {
             self.vncClient = nil
         }
+        if kind == .web {
+            self.webModel = WebTabModel(initialURL: webURL, proxy: webProxy)
+        } else {
+            self.webModel = nil
+        }
         super.init()
         terminalView.processDelegate = self
         terminalView.onUserInput = { [weak self] data in self?.handleInput(data) }
         terminalView.onProcessOutput = { [weak self] data in self?.handleOutput(data) }
         terminalView.onZoom = { [weak self] direction in self?.zoom(direction) }
+        terminalView.onAttachedToWindow = { [weak self] in self?.startIfPending() }
         sftpClient?.onRunningChanged = { [weak self] running in
             self?.isRunning = running
             if !running { self?.exitCode = self?.exitCode ?? 0 }
@@ -124,6 +138,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         vncClient?.onRunningChanged = { [weak self] running in
             self?.isRunning = running
             if !running { self?.exitCode = self?.exitCode ?? 0 }
+        }
+        webModel?.onTitleChange = { [weak self] newTitle in
+            let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty { self?.title = trimmed }
         }
         applyAppearance()
     }
@@ -143,17 +161,41 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     func start() {
         guard !hasStarted else { return }
-        hasStarted = true
-        isRunning = true
-        exitCode = nil
+
+        if kind == .web {
+            hasStarted = true
+            isRunning = true
+            exitCode = nil
+            return
+        }
         if kind == .sftp {
+            hasStarted = true
+            isRunning = true
+            exitCode = nil
             sftpClient?.start()
             return
         }
         if kind == .vnc {
+            hasStarted = true
+            isRunning = true
+            exitCode = nil
             vncClient?.start()
             return
         }
+
+        // PTY-backed terminals (.localShell / .ssh) must be inside a window before
+        // we spawn, or SwiftTerm starts against a placeholder size and the first
+        // screen never paints — exactly what happens when a saved session is
+        // restored before the window is shown. Defer until the view is attached;
+        // `startIfPending()` (driven by `onAttachedToWindow`) resumes the start.
+        guard terminalView.window != nil else {
+            pendingStart = true
+            return
+        }
+
+        hasStarted = true
+        isRunning = true
+        exitCode = nil
         didAutofillPassword = false
         secretPromptActive = false
         terminalView.startProcess(executable: executable,
@@ -163,8 +205,23 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
                                   currentDirectory: startDirectory)
     }
 
+    /// Called when the terminal view becomes part of a window. If a PTY start was
+    /// deferred (view not yet on screen), run it now that the size is real.
+    private func startIfPending() {
+        guard pendingStart, !hasStarted else { return }
+        pendingStart = false
+        // One runloop turn so Auto Layout has given the view its final size.
+        DispatchQueue.main.async { [weak self] in self?.start() }
+    }
+
     /// Re-run the same command in this tab after it exited.
     func restart() {
+        if kind == .web {
+            isRunning = true
+            exitCode = nil
+            webModel?.reload()
+            return
+        }
         if kind == .sftp {
             isRunning = true
             exitCode = nil
@@ -188,6 +245,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// exactly as if the session had ended on its own. Use `close` on the manager
     /// to remove the tab entirely.
     func disconnect() {
+        if kind == .web {
+            return
+        }
         if kind == .sftp {
             sftpClient?.disconnect()
             return

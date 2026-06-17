@@ -31,6 +31,16 @@ struct SidebarView: View {
                                 Button("Open SFTP") { sessions.connectSFTP(profile: profile) }
                                 Button("Open VNC") { sessions.connectVNC(profile: profile) }
                             }
+                            if !profile.links.isEmpty {
+                                Menu("Open Link") {
+                                    ForEach(profile.links) { link in
+                                        Button(link.displayLabel) {
+                                            sessions.openLink(link, profile: profile)
+                                        }
+                                        .disabled(link.normalizedURL == nil)
+                                    }
+                                }
+                            }
                             Button("Edit…") { onEdit(profile) }
                             Button("Duplicate") { store.duplicate(profile) }
                             Button("Export…") {

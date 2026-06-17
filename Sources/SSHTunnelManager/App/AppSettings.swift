@@ -10,6 +10,7 @@ final class AppSettings: ObservableObject {
     private let menuBarOnlyKey = "startInMenuBarOnly"
     private let defaultThemeKey = "defaultThemeID"
     private let defaultFontSizeKey = "defaultFontSize"
+    private let resumeLastSessionKey = "resumeLastSession"
 
     /// Avoids re-entrancy when we correct `launchAtLogin` back to the system value.
     private var isSyncing = false
@@ -17,6 +18,11 @@ final class AppSettings: ObservableObject {
     /// When true, the app launches into the menu bar without opening the main window.
     @Published var startInMenuBarOnly: Bool {
         didSet { defaults.set(startInMenuBarOnly, forKey: menuBarOnlyKey) }
+    }
+
+    /// When true, the app reopens the tabs that were open when it last quit.
+    @Published var resumeLastSession: Bool {
+        didSet { defaults.set(resumeLastSession, forKey: resumeLastSessionKey) }
     }
 
     /// The theme used for plain local terminals (profiles carry their own theme).
@@ -43,6 +49,7 @@ final class AppSettings: ObservableObject {
 
     private init() {
         startInMenuBarOnly = defaults.bool(forKey: menuBarOnlyKey)
+        resumeLastSession = defaults.object(forKey: resumeLastSessionKey) as? Bool ?? true
         defaultThemeID = defaults.string(forKey: defaultThemeKey) ?? TerminalTheme.defaultID
         let storedFont = defaults.object(forKey: defaultFontSizeKey) as? Double ?? TerminalFontMetrics.default
         defaultFontSize = TerminalFontMetrics.clamp(storedFont)

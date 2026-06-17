@@ -85,6 +85,35 @@ struct CommandSnippet: Codable, Identifiable, Hashable {
     var command: String = ""
 }
 
+/// A saved web link the user can open in an in-app browser tab. Handy for the
+/// web UI a tunnel exposes (e.g. `localhost:8080`) or any related page.
+struct ProfileLink: Codable, Identifiable, Hashable {
+    var id: UUID = UUID()
+    var label: String = ""
+    var url: String = ""
+
+    /// The label to show, falling back to the URL when no label is set.
+    var displayLabel: String {
+        let l = label.trimmingCharacters(in: .whitespaces)
+        return l.isEmpty ? url.trimmingCharacters(in: .whitespaces) : l
+    }
+
+    /// A best-effort `URL`, adding a scheme when the user omitted one. Local
+    /// hosts / bare IPs default to `http://` (typical for tunneled dev UIs);
+    /// everything else defaults to `https://`.
+    var normalizedURL: URL? {
+        var s = url.trimmingCharacters(in: .whitespaces)
+        guard !s.isEmpty else { return nil }
+        if !s.contains("://") {
+            let lower = s.lowercased()
+            let looksLocal = lower.hasPrefix("localhost")
+                || lower.range(of: #"^\d{1,3}(\.\d{1,3}){3}"#, options: .regularExpression) != nil
+            s = (looksLocal ? "http://" : "https://") + s
+        }
+        return URL(string: s)
+    }
+}
+
 /// A saved SSH connection + tunnel configuration.
 struct SSHProfile: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
@@ -121,6 +150,8 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     var fontSize: Double = TerminalFontMetrics.default
     /// Commonly used commands the user can insert into the session's terminal.
     var snippets: [CommandSnippet] = []
+    /// Saved web links openable in an in-app browser tab.
+    var links: [ProfileLink] = []
     /// Require Touch ID / login password before using the Keychain-stored password.
     var requireAuthForSavedPassword: Bool = true
 
@@ -150,6 +181,15 @@ struct SSHProfile: Codable, Identifiable, Hashable {
         if !chosen.isEmpty { return chosen }
         return isLocal ? "terminal" : "point.3.connected.trianglepath.dotted"
     }
+
+    /// The local endpoint of this profile's first dynamic (SOCKS / `-D`) forward,
+    /// if any. A web tab opened from this profile routes its traffic through it.
+    var socksProxy: (host: String, port: Int)? {
+        guard let dyn = forwards.first(where: { $0.type == .dynamic }),
+              let port = Int(dyn.listenPort.trimmingCharacters(in: .whitespaces)) else { return nil }
+        let bind = dyn.bindAddress.trimmingCharacters(in: .whitespaces)
+        return (bind.isEmpty ? "127.0.0.1" : bind, port)
+    }
 }
 
 // Defining `init(from:)` in an extension keeps the synthesized memberwise
@@ -161,6 +201,7 @@ extension SSHProfile {
         case requireAuthForSavedPassword
         case fontSize
         case isLocal, startPath, icon
+        case links
     }
 
     init(from decoder: Decoder) throws {
@@ -183,6 +224,7 @@ extension SSHProfile {
         extraOptions = try c.decodeIfPresent(String.self, forKey: .extraOptions) ?? ""
         theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? TerminalTheme.defaultID
         snippets = try c.decodeIfPresent([CommandSnippet].self, forKey: .snippets) ?? []
+        links = try c.decodeIfPresent([ProfileLink].self, forKey: .links) ?? []
         requireAuthForSavedPassword = try c.decodeIfPresent(Bool.self, forKey: .requireAuthForSavedPassword) ?? true
         fontSize = TerminalFontMetrics.clamp(try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? TerminalFontMetrics.default)
     }

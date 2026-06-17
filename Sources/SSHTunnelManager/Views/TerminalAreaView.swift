@@ -8,8 +8,10 @@ struct TerminalAreaView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            WorkspaceBar()
+            Divider()
             if sessions.attachedSessions.isEmpty {
-                if sessions.sessions.isEmpty {
+                if sessions.currentWorkspaceSessions.isEmpty {
                     WelcomeView()
                 } else {
                     AllDetachedView()
@@ -33,6 +35,174 @@ struct TerminalAreaView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+            }
+        }
+    }
+}
+
+/// The top-level bar of "workspace" tabs — each a saveable collection of
+/// terminal / browser tabs. Lets the user switch, add, rename, close and save
+/// workspaces, and reopen previously saved ones.
+private struct WorkspaceBar: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    @State private var renamingID: UUID?
+    @State private var nameField = ""
+    @State private var isSaving = false
+    @State private var saveField = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(sessions.workspaces) { ws in
+                        WorkspacePill(
+                            workspace: ws,
+                            isCurrent: ws.id == sessions.currentWorkspaceID,
+                            tabCount: sessions.tabCount(in: ws.id),
+                            canClose: sessions.workspaces.count > 1,
+                            onSelect: { sessions.switchWorkspace(to: ws.id) },
+                            onClose: { sessions.closeWorkspace(ws.id) },
+                            onRename: { beginRename(ws) },
+                            onSave: { beginSave(ws) }
+                        )
+                    }
+                    Button { sessions.addWorkspace() } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .semibold))
+                            .padding(.horizontal, 7).padding(.vertical, 5)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("New workspace (⌘⇧N)")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+            }
+
+            Spacer(minLength: 0)
+            savedMenu.padding(.trailing, 8)
+        }
+        .background(.bar)
+        .alert("Rename Workspace", isPresented: renamingBinding) {
+            TextField("Name", text: $nameField)
+            Button("Cancel", role: .cancel) { renamingID = nil }
+            Button("Rename") {
+                if let id = renamingID { sessions.renameWorkspace(id, to: nameField) }
+                renamingID = nil
+            }
+        }
+        .alert("Save Workspace", isPresented: $isSaving) {
+            TextField("Name", text: $saveField)
+            Button("Cancel", role: .cancel) { isSaving = false }
+            Button("Save") {
+                sessions.saveCurrentWorkspace(name: saveField)
+                isSaving = false
+            }
+        } message: {
+            Text("Save this workspace's tabs so you can reopen them later from the workspaces menu.")
+        }
+    }
+
+    private var savedMenu: some View {
+        Menu {
+            Button {
+                beginSave(sessions.currentWorkspace)
+            } label: {
+                Label("Save Current Workspace…", systemImage: "square.and.arrow.down")
+            }
+            if !sessions.savedWorkspaces.isEmpty {
+                Section("Open Saved Workspace") {
+                    ForEach(sessions.savedWorkspaces) { saved in
+                        Button {
+                            sessions.openSavedWorkspace(saved)
+                        } label: {
+                            Label("\(saved.name) (\(saved.tabs.count))",
+                                  systemImage: "square.stack.3d.up.fill")
+                        }
+                    }
+                }
+                Menu {
+                    ForEach(sessions.savedWorkspaces) { saved in
+                        Button(role: .destructive) {
+                            sessions.deleteSavedWorkspace(saved.id)
+                        } label: {
+                            Label(saved.name, systemImage: "trash")
+                        }
+                    }
+                } label: {
+                    Label("Delete Saved Workspace", systemImage: "trash")
+                }
+            }
+        } label: {
+            Image(systemName: "square.stack.3d.up.fill")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Save or open workspaces")
+    }
+
+    private var renamingBinding: Binding<Bool> {
+        Binding(get: { renamingID != nil }, set: { if !$0 { renamingID = nil } })
+    }
+
+    private func beginRename(_ ws: Workspace) {
+        nameField = ws.name
+        renamingID = ws.id
+    }
+
+    private func beginSave(_ ws: Workspace?) {
+        saveField = ws?.name ?? ""
+        isSaving = true
+    }
+}
+
+/// One workspace "pill" in the workspace bar.
+private struct WorkspacePill: View {
+    let workspace: Workspace
+    let isCurrent: Bool
+    let tabCount: Int
+    let canClose: Bool
+    var onSelect: () -> Void
+    var onClose: () -> Void
+    var onRename: () -> Void
+    var onSave: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "square.stack.3d.up")
+                .font(.caption2)
+                .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+            Text(workspace.name)
+                .font(.callout.weight(isCurrent ? .semibold : .regular))
+                .lineLimit(1)
+            Text("\(tabCount)")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(Color.secondary.opacity(0.18)))
+            if canClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                }
+                .buttonStyle(.borderless)
+                .help("Close workspace")
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(isCurrent ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isCurrent ? Color.accentColor.opacity(0.7) : .clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .contextMenu {
+            Button("Rename…", action: onRename)
+            Button("Save as Workspace…", action: onSave)
+            if canClose {
+                Divider()
+                Button("Close Workspace", role: .destructive, action: onClose)
             }
         }
     }
@@ -71,15 +241,28 @@ private struct TabBar: View {
                             return true
                         }
                     }
-                    Button {
-                        sessions.openLocalShell()
+                    Menu {
+                        Button {
+                            sessions.openLocalShell()
+                        } label: {
+                            Label("New Local Terminal", systemImage: "terminal")
+                        }
+                        Button {
+                            sessions.openBlankWeb()
+                        } label: {
+                            Label("New Browser Tab", systemImage: "globe")
+                        }
                     } label: {
                         Image(systemName: "plus")
                             .padding(.horizontal, 6)
                             .padding(.vertical, 5)
+                    } primaryAction: {
+                        sessions.openLocalShell()
                     }
-                    .buttonStyle(.borderless)
-                    .help("New local terminal (⌘T)")
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("New tab — terminal (⌘T) or browser")
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -87,11 +270,14 @@ private struct TabBar: View {
 
             if let session = sessions.selectedSession {
                 Divider().frame(height: 22)
-                if session.kind != .sftp && session.kind != .vnc {
+                if session.kind == .ssh || session.kind == .localShell {
                     SnippetsMenuButton(session: session)
                     HistoryMenuButton(session: session)
                 }
-                DisconnectButton(session: session)
+                LinksMenuButton(session: session)
+                if session.kind != .web {
+                    DisconnectButton(session: session)
+                }
             }
 
             Divider().frame(height: 22)
@@ -137,6 +323,40 @@ private struct SnippetsMenuButton: View {
             .fixedSize()
             .padding(.leading, 8)
             .help("Insert a saved command into the terminal")
+        }
+    }
+}
+
+/// A drop-down of the active profile's saved links; click one to open it in an
+/// in-app browser tab.
+private struct LinksMenuButton: View {
+    @ObservedObject var session: TerminalSession
+    @EnvironmentObject var store: ProfileStore
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    private var profile: SSHProfile? {
+        guard let pid = session.profileID else { return nil }
+        return store.profiles.first(where: { $0.id == pid })
+    }
+
+    var body: some View {
+        if let profile, !profile.links.isEmpty {
+            Menu {
+                ForEach(profile.links) { link in
+                    Button {
+                        sessions.openLink(link, profile: profile)
+                    } label: {
+                        Label(link.displayLabel, systemImage: "globe")
+                    }
+                    .disabled(link.normalizedURL == nil)
+                }
+            } label: {
+                Image(systemName: "globe")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .padding(.leading, 8)
+            .help("Open a saved link in a browser tab")
         }
     }
 }
@@ -256,8 +476,9 @@ private struct TabChip: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .contextMenu {
-            // Snippets submenu for quick access
-            if let profile, !profile.snippets.isEmpty, session.kind != .sftp && session.kind != .vnc {
+            // Snippets submenu (terminal tabs only)
+            if let profile, !profile.snippets.isEmpty,
+               session.kind == .ssh || session.kind == .localShell {
                 Menu {
                     ForEach(profile.snippets) { snippet in
                         Menu(snippet.label.isEmpty ? snippet.command : snippet.label) {
@@ -269,15 +490,36 @@ private struct TabChip: View {
                 } label: {
                     Label("Snippets", systemImage: "text.badge.plus")
                 }
+            }
+            // Links submenu (any tab whose profile has links)
+            if let profile, !profile.links.isEmpty {
+                Menu {
+                    ForEach(profile.links) { link in
+                        Button {
+                            sessions.openLink(link, profile: profile)
+                        } label: {
+                            Label(link.displayLabel, systemImage: "globe")
+                        }
+                        .disabled(link.normalizedURL == nil)
+                    }
+                } label: {
+                    Label("Links", systemImage: "globe")
+                }
+            }
+            if let profile,
+               (!profile.snippets.isEmpty && (session.kind == .ssh || session.kind == .localShell))
+               || !profile.links.isEmpty {
                 Divider()
             }
-            Button {
-                session.disconnect()
-            } label: {
-                Label(session.isRemote ? "Disconnect" : "Stop",
-                      systemImage: "bolt.horizontal.circle")
+            if session.kind != .web {
+                Button {
+                    session.disconnect()
+                } label: {
+                    Label(session.isRemote ? "Disconnect" : "Stop",
+                          systemImage: "bolt.horizontal.circle")
+                }
+                .disabled(!session.isRunning)
             }
-            .disabled(!session.isRunning)
             if let profile, !profile.isLocal, session.kind != .sftp {
                 Button {
                     sessions.connectSFTP(profile: profile)
@@ -422,6 +664,8 @@ struct TerminalContainer: View {
             SFTPBrowserView(session: session)
         } else if session.kind == .vnc {
             VNCConsoleView(session: session)
+        } else if session.kind == .web {
+            WebTabView(session: session)
         } else {
             terminal
         }
@@ -485,20 +729,35 @@ private struct WelcomeView: View {
     @EnvironmentObject var sessions: TerminalSessionManager
     @EnvironmentObject var store: ProfileStore
 
+    private let columns = [GridItem(.adaptive(minimum: 180, maximum: 280), spacing: 10)]
+
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
-                .font(.system(size: 52))
-                .foregroundStyle(.tint)
-            VStack(spacing: 6) {
+        VStack(spacing: 20) {
+            VStack(spacing: 12) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 52))
+                    .foregroundStyle(.tint)
                 Text("SSH Tunnel Manager")
                     .font(.largeTitle.bold())
-                Text("Open a local terminal, or pick a profile from the sidebar to start its SSH tunnels.")
+                Text("Resume your last session, open a local terminal, or click a profile to connect.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 420)
+                    .frame(maxWidth: 460)
             }
+
             HStack(spacing: 12) {
+                let saved = sessions.savedSessionCount
+                if saved > 0 {
+                    Button {
+                        sessions.restoreSavedSessions()
+                    } label: {
+                        Label("Resume Last Session (\(saved) tab\(saved == 1 ? "" : "s"))",
+                              systemImage: "arrow.clockwise.circle.fill")
+                    }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .help("Reopen the tabs that were open when you last quit")
+                }
                 Button {
                     sessions.openLocalShell()
                 } label: {
@@ -506,19 +765,91 @@ private struct WelcomeView: View {
                 }
                 .controlSize(.large)
 
-                if let first = store.profiles.first {
-                    Button {
-                        sessions.connect(profile: first)
-                    } label: {
-                        Label("Connect “\(first.name)”", systemImage: "play.fill")
-                    }
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
+                Button {
+                    sessions.openBlankWeb()
+                } label: {
+                    Label("New Browser Tab", systemImage: "globe")
                 }
+                .controlSize(.large)
+            }
+
+            if !store.profiles.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Profiles")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    ScrollView {
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                            ForEach(store.profiles) { profile in
+                                ProfileLaunchButton(profile: profile)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .frame(maxHeight: 280)
+                }
+                .frame(maxWidth: 580)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
+        .padding(28)
+    }
+}
+
+/// A clickable card on the welcome screen that connects a profile. Right-click
+/// for SFTP / VNC on remote profiles.
+private struct ProfileLaunchButton: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    let profile: SSHProfile
+
+    var body: some View {
+        Button {
+            sessions.connect(profile: profile)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: profile.displayIcon)
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(profile.name)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                    Text(profile.rowSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                sessions.connect(profile: profile)
+            } label: {
+                Label("Connect", systemImage: "play.fill")
+            }
+            if !profile.isLocal {
+                Button {
+                    sessions.connectSFTP(profile: profile)
+                } label: {
+                    Label("Open SFTP", systemImage: "arrow.up.arrow.down")
+                }
+                Button {
+                    sessions.connectVNC(profile: profile)
+                } label: {
+                    Label("Open VNC", systemImage: "display")
+                }
+            }
+        }
+        .help(profile.isLocal ? "Open this local profile" : "Connect this SSH tunnel")
     }
 }
 

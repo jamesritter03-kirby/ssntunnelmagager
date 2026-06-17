@@ -6,10 +6,40 @@ import Combine
 /// Owns the open terminal tabs and routes "open shell" / "connect profile" actions.
 final class TerminalSessionManager: ObservableObject {
     @Published var sessions: [TerminalSession] = []
-    @Published var selectedSessionID: UUID?
+
+    /// The open workspaces (the big top-level tabs). Always at least one.
+    @Published var workspaces: [Workspace]
+    /// The workspace currently shown in the main window.
+    @Published var currentWorkspaceID: UUID
+    /// Named collections of tabs the user saved to reopen later.
+    @Published private(set) var savedWorkspaces: [SavedWorkspace] = []
 
     static let shared = TerminalSessionManager()
-    private init() {}
+
+    private init() {
+        let tiled = UserDefaults.standard.bool(forKey: "tileTerminals")
+        let first = Workspace(name: "Workspace 1", isTiled: tiled)
+        workspaces = [first]
+        currentWorkspaceID = first.id
+        loadSavedWorkspaces()
+    }
+
+    // MARK: - Current workspace
+
+    /// The workspace currently shown (falls back to the first if out of sync).
+    var currentWorkspace: Workspace? {
+        workspaces.first { $0.id == currentWorkspaceID } ?? workspaces.first
+    }
+
+    private var currentIndex: Int? {
+        workspaces.firstIndex { $0.id == currentWorkspaceID }
+    }
+
+    /// The selected tab within the current workspace.
+    var selectedSessionID: UUID? {
+        get { currentWorkspace?.selectedSessionID }
+        set { if let i = currentIndex { workspaces[i].selectedSessionID = newValue } }
+    }
 
     var selectedSession: TerminalSession? {
         sessions.first { $0.id == selectedSessionID }
@@ -18,15 +48,85 @@ final class TerminalSessionManager: ObservableObject {
     /// IDs of sessions currently shown in their own floating window.
     @Published var detachedSessionIDs: Set<UUID> = []
 
-    /// When true, the main window shows every attached tab tiled in a grid
-    /// instead of one at a time. Persisted across launches.
-    @Published var isTiled: Bool = UserDefaults.standard.bool(forKey: "tileTerminals") {
-        didSet { UserDefaults.standard.set(isTiled, forKey: "tileTerminals") }
+    /// Whether the current workspace tiles its tabs in a grid. Per-workspace, with
+    /// the last-used value remembered as the default for new workspaces.
+    var isTiled: Bool {
+        get { currentWorkspace?.isTiled ?? false }
+        set {
+            if let i = currentIndex { workspaces[i].isTiled = newValue }
+            UserDefaults.standard.set(newValue, forKey: "tileTerminals")
+        }
     }
 
-    /// Sessions shown as tabs in the main window (everything not detached).
+    /// Every session in the current workspace, in tab order (detached included).
+    var currentWorkspaceSessions: [TerminalSession] {
+        guard let ws = currentWorkspace else { return [] }
+        return ws.tabIDs.compactMap { id in sessions.first { $0.id == id } }
+    }
+
+    /// Sessions shown as tabs in the current workspace (everything not detached).
     var attachedSessions: [TerminalSession] {
-        sessions.filter { !detachedSessionIDs.contains($0.id) }
+        currentWorkspaceSessions.filter { !detachedSessionIDs.contains($0.id) }
+    }
+
+    /// Number of live tabs in a workspace (for the workspace pill badge).
+    func tabCount(in workspaceID: UUID) -> Int {
+        guard let ws = workspaces.first(where: { $0.id == workspaceID }) else { return 0 }
+        return ws.tabIDs.filter { id in sessions.contains { $0.id == id } }.count
+    }
+
+    // MARK: - Workspace operations
+
+    func addWorkspace() {
+        let tiled = UserDefaults.standard.bool(forKey: "tileTerminals")
+        let ws = Workspace(name: nextWorkspaceName(), isTiled: tiled)
+        workspaces.append(ws)
+        currentWorkspaceID = ws.id
+    }
+
+    private func nextWorkspaceName() -> String {
+        var n = workspaces.count + 1
+        let existing = Set(workspaces.map { $0.name })
+        while existing.contains("Workspace \(n)") { n += 1 }
+        return "Workspace \(n)"
+    }
+
+    func switchWorkspace(to id: UUID) {
+        guard workspaces.contains(where: { $0.id == id }) else { return }
+        currentWorkspaceID = id
+    }
+
+    func selectNextWorkspace() {
+        guard let i = currentIndex, workspaces.count > 1 else { return }
+        currentWorkspaceID = workspaces[(i + 1) % workspaces.count].id
+    }
+
+    func selectPreviousWorkspace() {
+        guard let i = currentIndex, workspaces.count > 1 else { return }
+        currentWorkspaceID = workspaces[(i - 1 + workspaces.count) % workspaces.count].id
+    }
+
+    func renameWorkspace(_ id: UUID, to name: String) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { workspaces[i].name = trimmed }
+    }
+
+    /// Close a workspace and every tab it holds. The last workspace can't close.
+    func closeWorkspace(_ id: UUID) {
+        guard workspaces.count > 1,
+              let i = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let removingCurrent = (currentWorkspaceID == id)
+        let tabIDs = workspaces[i].tabIDs
+        // Dropping the sessions tears down their PTYs / tunnels; the detached-window
+        // observer closes any floating windows that were showing them.
+        sessions.removeAll { tabIDs.contains($0.id) }
+        for sid in tabIDs { detachedSessionIDs.remove(sid) }
+        workspaces.remove(at: i)
+        if removingCurrent {
+            let newIndex = min(i, workspaces.count - 1)
+            currentWorkspaceID = workspaces[newIndex].id
+        }
     }
 
     /// Open a new tab running the user's login shell.
@@ -126,21 +226,90 @@ final class TerminalSessionManager: ObservableObject {
 
     private func addAndStart(_ session: TerminalSession) {
         sessions.append(session)
-        selectedSessionID = session.id
+        if let i = currentIndex {
+            workspaces[i].tabIDs.append(session.id)
+            workspaces[i].selectedSessionID = session.id
+        }
         // Start on the next runloop turn so the view is mounted with a real size.
         DispatchQueue.main.async {
             session.start()
         }
     }
 
+    /// Open a saved profile link in an in-app browser tab. Ensures the profile's
+    /// SSH tunnel is running first, and routes through its SOCKS proxy if it has a
+    /// dynamic (`-D`) forward — so links that depend on the tunnel actually work.
+    func openLink(_ link: ProfileLink, profile: SSHProfile? = nil) {
+        guard let url = link.normalizedURL else { return }
+        let title = link.displayLabel.isEmpty ? (url.host ?? "Web") : link.displayLabel
+        var proxy: WebProxy? = nil
+        if let profile, !profile.isLocal {
+            ensureConnected(profile)
+            if let s = profile.socksProxy { proxy = WebProxy(host: s.host, port: s.port) }
+        }
+        openWeb(url: url, title: title, profileID: profile?.id, proxy: proxy)
+    }
+
+    /// Open an arbitrary URL in an in-app browser tab.
+    func openWeb(url: URL, title: String, profileID: UUID? = nil, proxy: WebProxy? = nil) {
+        let session = TerminalSession(
+            kind: .web,
+            title: title,
+            executable: "",
+            args: [],
+            commandPreview: url.absoluteString,
+            profileID: profileID,
+            webURL: url,
+            webProxy: proxy
+        )
+        addAndStart(session)
+    }
+
+    /// Open a blank in-app browser tab the user can type any URL into.
+    func openBlankWeb() {
+        let session = TerminalSession(
+            kind: .web,
+            title: "New Tab",
+            executable: "",
+            args: [],
+            commandPreview: "",
+            webURL: nil
+        )
+        addAndStart(session)
+    }
+
+    /// Start a profile's SSH tunnel if one isn't already running, so links that
+    /// rely on its port forwards work. The tunnel opens as its own visible tab so
+    /// any password / host-key prompt can be answered.
+    func ensureConnected(_ profile: SSHProfile) {
+        guard !profile.isLocal else { return }
+        let running = sessions.contains {
+            $0.profileID == profile.id && $0.kind == .ssh && $0.isRunning
+        }
+        if !running { connect(profile: profile) }
+    }
+
     func close(_ session: TerminalSession) {
-        guard let idx = sessions.firstIndex(where: { $0.id == session.id }) else { return }
-        sessions.remove(at: idx)
-        detachedSessionIDs.remove(session.id)
+        guard sessions.contains(where: { $0.id == session.id }) else { return }
+        // Pick the neighbouring tab (next, else previous) within its workspace so
+        // selection lands somewhere sensible after the close.
+        let wsIndex = workspaces.firstIndex { $0.tabIDs.contains(session.id) }
+        var neighborID: UUID?
+        if let w = wsIndex {
+            let attachedIDs = workspaces[w].tabIDs.filter { !detachedSessionIDs.contains($0) }
+            if let pos = attachedIDs.firstIndex(of: session.id) {
+                neighborID = attachedIDs[(pos + 1)...].first ?? attachedIDs[..<pos].last
+            }
+        }
         // Removing the last strong reference tears down the PTY, which sends SIGHUP
         // to the child process (ssh) and cleans up its tunnels.
-        if selectedSessionID == session.id {
-            selectedSessionID = (attachedSessions[safe: idx] ?? attachedSessions.last)?.id
+        sessions.removeAll { $0.id == session.id }
+        detachedSessionIDs.remove(session.id)
+        if let w = wsIndex {
+            workspaces[w].tabIDs.removeAll { $0 == session.id }
+            if workspaces[w].selectedSessionID == session.id {
+                workspaces[w].selectedSessionID = neighborID
+            }
         }
     }
 
@@ -171,15 +340,22 @@ final class TerminalSessionManager: ObservableObject {
     /// Mark a session as detached (shown in its own window) and move tab focus.
     func markDetached(_ session: TerminalSession) {
         detachedSessionIDs.insert(session.id)
-        if selectedSessionID == session.id {
-            selectedSessionID = attachedSessions.first?.id
+        if let w = workspaces.firstIndex(where: { $0.tabIDs.contains(session.id) }),
+           workspaces[w].selectedSessionID == session.id {
+            let remaining = workspaces[w].tabIDs.filter { !detachedSessionIDs.contains($0) }
+            workspaces[w].selectedSessionID = remaining.first
         }
     }
 
     /// Mark a session as re-attached to the main window's tab bar and focus it.
+    /// It returns into the *current* workspace so it reappears where the user is.
     func markAttached(_ session: TerminalSession) {
         detachedSessionIDs.remove(session.id)
-        selectedSessionID = session.id
+        for i in workspaces.indices { workspaces[i].tabIDs.removeAll { $0 == session.id } }
+        if let i = currentIndex {
+            workspaces[i].tabIDs.append(session.id)
+            workspaces[i].selectedSessionID = session.id
+        }
     }
 
     /// Re-apply a theme to every open session launched from the given profile.
@@ -209,29 +385,181 @@ final class TerminalSessionManager: ObservableObject {
 
     // MARK: - Tab reordering
 
-    /// Move an attached session (tab) from one index to another.
+    /// Move an attached tab from one position to another within the current workspace.
     func moveAttachedSession(from fromIndex: Int, to toIndex: Int) {
         let attached = attachedSessions
         guard fromIndex != toIndex,
-              fromIndex >= 0, fromIndex < attached.count,
-              toIndex >= 0, toIndex < attached.count else { return }
-        var newOrder = attached.map { $0.id }
-        let moving = newOrder.remove(at: fromIndex)
-        newOrder.insert(moving, at: toIndex)
-        // Reorder sessions array to match the new attached order, keeping detached sessions in place
-        var reordered: [TerminalSession] = []
-        var attachedIdx = 0
-        for session in sessions {
-            if detachedSessionIDs.contains(session.id) {
-                reordered.append(session)
-            } else {
-                if attachedIdx < newOrder.count,
-                   let s = attached.first(where: { $0.id == newOrder[attachedIdx] }) {
-                    reordered.append(s)
-                    attachedIdx += 1
+              attached.indices.contains(fromIndex),
+              attached.indices.contains(toIndex),
+              let i = currentIndex else { return }
+        let movingID = attached[fromIndex].id
+        let targetID = attached[toIndex].id
+        guard let from = workspaces[i].tabIDs.firstIndex(of: movingID),
+              let to = workspaces[i].tabIDs.firstIndex(of: targetID) else { return }
+        workspaces[i].tabIDs.remove(at: from)
+        workspaces[i].tabIDs.insert(movingID, at: to)
+    }
+
+    // MARK: - Saved-workspace library
+
+    private let savedWorkspacesKey = "savedWorkspaces.v1"
+
+    /// Save the current workspace's tab set under a name so it can be reopened later.
+    func saveCurrentWorkspace(name: String) {
+        guard let ws = currentWorkspace else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = trimmed.isEmpty ? ws.name : trimmed
+        let tabs = snapshotTabs(for: ws)
+        if let idx = savedWorkspaces.firstIndex(where: { $0.name == finalName }) {
+            savedWorkspaces[idx].tabs = tabs
+        } else {
+            savedWorkspaces.append(SavedWorkspace(name: finalName, tabs: tabs))
+        }
+        persistSavedWorkspaces()
+    }
+
+    /// Open a saved workspace as a new top-level workspace tab.
+    func openSavedWorkspace(_ saved: SavedWorkspace) {
+        let ws = Workspace(name: saved.name)
+        workspaces.append(ws)
+        currentWorkspaceID = ws.id
+        for tab in saved.tabs { recreate(tab) }
+    }
+
+    func deleteSavedWorkspace(_ id: UUID) {
+        savedWorkspaces.removeAll { $0.id == id }
+        persistSavedWorkspaces()
+    }
+
+    private func persistSavedWorkspaces() {
+        if let data = try? JSONEncoder().encode(savedWorkspaces) {
+            UserDefaults.standard.set(data, forKey: savedWorkspacesKey)
+        }
+    }
+
+    private func loadSavedWorkspaces() {
+        guard let data = UserDefaults.standard.data(forKey: savedWorkspacesKey),
+              let saved = try? JSONDecoder().decode([SavedWorkspace].self, from: data) else { return }
+        savedWorkspaces = saved
+    }
+
+    // MARK: - Session persistence ("resume last session")
+
+    private let openStateKey = "openState.v2"
+    private let legacyOpenSessionsKey = "openSessions.v1"
+    private var persistCancellable: AnyCancellable?
+
+    /// Snapshot one workspace's live tabs into codable form (skips dead sessions).
+    private func snapshotTabs(for ws: Workspace) -> [SessionSnapshot] {
+        ws.tabIDs.compactMap { id -> SessionSnapshot? in
+            guard let s = sessions.first(where: { $0.id == id }) else { return nil }
+            return SessionSnapshot(kind: s.kind, profileID: s.profileID,
+                                   webURL: s.webModel?.currentURLString, title: s.title)
+        }
+    }
+
+    /// Start saving the open workspaces whenever they change, so the next launch
+    /// can resume them. Call once, *after* any initial restore.
+    func beginPersistingOpenSessions() {
+        guard persistCancellable == nil else { return }
+        persistCancellable = Publishers
+            .CombineLatest3($sessions, $workspaces, $currentWorkspaceID)
+            .dropFirst()
+            .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.writeOpenState() }
+    }
+
+    /// Force-save the current open workspaces (used on app termination).
+    func persistOpenSessions() { writeOpenState() }
+
+    private func writeOpenState() {
+        let snaps = workspaces.map { ws -> WorkspaceSnapshot in
+            let liveTabIDs = ws.tabIDs.filter { id in sessions.contains { $0.id == id } }
+            let selIndex = ws.selectedSessionID.flatMap { liveTabIDs.firstIndex(of: $0) }
+            return WorkspaceSnapshot(name: ws.name, isTiled: ws.isTiled,
+                                     selectedIndex: selIndex, tabs: snapshotTabs(for: ws))
+        }
+        let current = workspaces.firstIndex { $0.id == currentWorkspaceID } ?? 0
+        let state = OpenStateSnapshot(workspaces: snaps, currentIndex: current)
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: openStateKey)
+        }
+    }
+
+    /// The saved open-state, migrating a legacy flat session list if needed.
+    private func savedOpenState() -> OpenStateSnapshot? {
+        if let data = UserDefaults.standard.data(forKey: openStateKey),
+           let state = try? JSONDecoder().decode(OpenStateSnapshot.self, from: data) {
+            return state
+        }
+        if let data = UserDefaults.standard.data(forKey: legacyOpenSessionsKey),
+           let tabs = try? JSONDecoder().decode([SessionSnapshot].self, from: data),
+           !tabs.isEmpty {
+            return OpenStateSnapshot(
+                workspaces: [WorkspaceSnapshot(name: "Workspace 1", isTiled: false,
+                                               selectedIndex: nil, tabs: tabs)],
+                currentIndex: 0)
+        }
+        return nil
+    }
+
+    /// How many tabs were open when the app last quit (drives the resume button).
+    var savedSessionCount: Int {
+        savedOpenState()?.workspaces.reduce(0) { $0 + $1.tabs.count } ?? 0
+    }
+
+    /// Recreate one saved tab in the current workspace. Profiles that no longer
+    /// exist are skipped; a saved blank browser tab reopens blank.
+    private func recreate(_ snap: SessionSnapshot) {
+        let store = ProfileStore.shared
+        let profile = snap.profileID.flatMap { id in store.profiles.first { $0.id == id } }
+        switch snap.kind {
+        case .localShell:
+            if let profile { connect(profile: profile) } else { openLocalShell() }
+        case .ssh:
+            if let profile { connect(profile: profile) }
+        case .sftp:
+            if let profile { connectSFTP(profile: profile) }
+        case .vnc:
+            if let profile { connectVNC(profile: profile) }
+        case .web:
+            if let s = snap.webURL, let url = URL(string: s) {
+                var proxy: WebProxy? = nil
+                if let profile, let sx = profile.socksProxy {
+                    proxy = WebProxy(host: sx.host, port: sx.port)
                 }
+                openWeb(url: url, title: snap.title ?? (url.host ?? "Web"),
+                        profileID: snap.profileID, proxy: proxy)
+            } else {
+                openBlankWeb()
             }
         }
-        sessions = reordered
+    }
+
+    /// Recreate the workspaces saved from a previous run. No-op if nothing saved.
+    func restoreSavedSessions() {
+        guard let state = savedOpenState(), !state.workspaces.isEmpty else { return }
+        let built = state.workspaces.map { Workspace(name: $0.name, isTiled: $0.isTiled) }
+        workspaces = built
+        for (i, snap) in state.workspaces.enumerated() {
+            currentWorkspaceID = built[i].id
+            for tab in snap.tabs { recreate(tab) }
+            if let sel = snap.selectedIndex,
+               let w = workspaces.firstIndex(where: { $0.id == built[i].id }),
+               workspaces[w].tabIDs.indices.contains(sel) {
+                workspaces[w].selectedSessionID = workspaces[w].tabIDs[sel]
+            }
+        }
+        let current = min(max(0, state.currentIndex), workspaces.count - 1)
+        if workspaces.indices.contains(current) {
+            currentWorkspaceID = workspaces[current].id
+        }
+    }
+
+    /// If the user enabled "resume last session", recreate the previous tabs.
+    func restoreLastSessionIfEnabled() {
+        if AppSettings.shared.resumeLastSession {
+            restoreSavedSessions()
+        }
     }
 }

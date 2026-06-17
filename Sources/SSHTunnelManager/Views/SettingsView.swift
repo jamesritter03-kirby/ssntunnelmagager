@@ -11,10 +11,11 @@ struct SettingsView: View {
                 Toggle("Start at login", isOn: $settings.launchAtLogin)
                 Toggle("Launch into the menu bar (don't open the window at startup)",
                        isOn: $settings.startInMenuBarOnly)
+                Toggle("Resume last session at startup", isOn: $settings.resumeLastSession)
             } header: {
                 Text("Startup")
             } footer: {
-                Text("With “Launch into the menu bar”, the app starts as a menu bar item with no window or Dock icon. Use the menu bar → Show Main Window to open it. This applies the next time the app launches.")
+                Text("With “Launch into the menu bar”, the app starts as a menu bar item with no window or Dock icon. Use the menu bar → Show Main Window to open it. “Resume last session” reopens the tabs that were open when you last quit. Both apply the next time the app launches.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
