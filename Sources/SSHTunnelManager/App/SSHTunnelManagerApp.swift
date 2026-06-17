@@ -55,6 +55,10 @@ struct SSHTunnelManagerApp: App {
                 }
                 .keyboardShortcut("d", modifiers: [.command, .control])
                 .disabled(sessions.selectedSession == nil)
+
+                Toggle("Tile Tabs", isOn: $sessions.isTiled)
+                    .keyboardShortcut("t", modifiers: [.command, .control])
+                    .disabled(sessions.attachedSessions.count < 2)
             }
         }
 

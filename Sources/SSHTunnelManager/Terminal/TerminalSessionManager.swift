@@ -18,6 +18,12 @@ final class TerminalSessionManager: ObservableObject {
     /// IDs of sessions currently shown in their own floating window.
     @Published var detachedSessionIDs: Set<UUID> = []
 
+    /// When true, the main window shows every attached tab tiled in a grid
+    /// instead of one at a time. Persisted across launches.
+    @Published var isTiled: Bool = UserDefaults.standard.bool(forKey: "tileTerminals") {
+        didSet { UserDefaults.standard.set(isTiled, forKey: "tileTerminals") }
+    }
+
     /// Sessions shown as tabs in the main window (everything not detached).
     var attachedSessions: [TerminalSession] {
         sessions.filter { !detachedSessionIDs.contains($0.id) }
@@ -117,13 +123,13 @@ final class TerminalSessionManager: ObservableObject {
 
     // MARK: - Terminal text size
 
-    /// The terminal a menu-driven zoom should affect: a focused detached window's
-    /// terminal, otherwise the selected main-window tab. (When a terminal itself
-    /// has keyboard focus it handles ⌘+/⌘− directly, before the menu.)
+    /// The terminal a menu-driven zoom should affect: whichever terminal currently
+    /// has keyboard focus (a tiled tab or a detached window), else the selected
+    /// main-window tab. (When a terminal itself has focus it also handles ⌘+/⌘−
+    /// directly, before the menu.)
     var focusedTerminalSession: TerminalSession? {
         if let responder = NSApp.keyWindow?.firstResponder as? NSView,
-           let session = sessions.first(where: { $0.terminalView === responder }),
-           detachedSessionIDs.contains(session.id) {
+           let session = sessions.first(where: { $0.terminalView === responder }) {
             return session
         }
         return selectedSession

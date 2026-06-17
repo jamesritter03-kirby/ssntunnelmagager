@@ -17,16 +17,22 @@ struct TerminalAreaView: View {
             } else {
                 TabBar()
                 Divider()
-                // Keep ALL terminals mounted (so background tunnels stay alive) and
-                // only show the selected one.
-                ZStack {
-                    ForEach(sessions.attachedSessions) { session in
-                        TerminalContainer(session: session)
-                            .opacity(session.id == sessions.selectedSessionID ? 1 : 0)
-                            .allowsHitTesting(session.id == sessions.selectedSessionID)
+                // Keep ALL terminals mounted (so background tunnels stay alive).
+                // Tiled: lay them out in a grid. Single: stack them and show only
+                // the selected one.
+                if sessions.isTiled && sessions.attachedSessions.count > 1 {
+                    TiledTerminalsView(items: sessions.attachedSessions)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ZStack {
+                        ForEach(sessions.attachedSessions) { session in
+                            TerminalContainer(session: session)
+                                .opacity(session.id == sessions.selectedSessionID ? 1 : 0)
+                                .allowsHitTesting(session.id == sessions.selectedSessionID)
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
@@ -66,8 +72,18 @@ private struct TabBar: View {
                 Divider().frame(height: 22)
                 SnippetsMenuButton(session: session)
                 HistoryMenuButton(session: session)
-                    .padding(.horizontal, 8)
             }
+
+            Divider().frame(height: 22)
+            Button {
+                sessions.isTiled.toggle()
+            } label: {
+                Image(systemName: sessions.isTiled ? "square" : "rectangle.split.2x2")
+            }
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 8)
+            .disabled(sessions.attachedSessions.count < 2)
+            .help(sessions.isTiled ? "Show one tab at a time" : "Tile all tabs side by side")
         }
         .background(.bar)
     }
@@ -205,6 +221,102 @@ private struct TabChip: View {
                 Label("Close Tab", systemImage: "xmark")
             }
         }
+    }
+
+    private var statusColor: Color {
+        if session.isRunning { return .green }
+        if let code = session.exitCode, code != 0 { return .red }
+        return .secondary
+    }
+}
+
+/// Lays out every attached terminal in a balanced grid (all kept live), with a
+/// header per tile and a highlight on the selected one.
+private struct TiledTerminalsView: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    let items: [TerminalSession]
+
+    var body: some View {
+        let cols = columnCount(for: items.count)
+        let rows = stride(from: 0, to: items.count, by: cols).map { start in
+            Array(items[start..<min(start + cols, items.count)])
+        }
+        VStack(spacing: 6) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 6) {
+                    ForEach(row) { session in
+                        TerminalTile(session: session,
+                                     isSelected: session.id == sessions.selectedSessionID)
+                    }
+                    // Pad a short final row so every tile keeps an equal width.
+                    if row.count < cols {
+                        ForEach(0..<(cols - row.count), id: \.self) { _ in
+                            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(6)
+    }
+
+    /// A near-square arrangement: 2 tabs → 2 cols, 3–4 → 2 cols, 5–9 → 3 cols, …
+    private func columnCount(for count: Int) -> Int {
+        max(1, Int(Double(count).squareRoot().rounded(.up)))
+    }
+}
+
+/// One terminal in tiled view: a slim header (status, title, detach, close) above
+/// the live terminal, framed and click-to-select.
+private struct TerminalTile: View {
+    @ObservedObject var session: TerminalSession
+    @EnvironmentObject var sessions: TerminalSessionManager
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Circle().fill(statusColor).frame(width: 7, height: 7)
+                Image(systemName: session.kind == .ssh ? "network" : "terminal")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(session.title)
+                    .font(.caption)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Button {
+                    DetachedTerminalController.shared.detach(session)
+                } label: {
+                    Image(systemName: "macwindow.badge.plus").font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .help("Detach into new window")
+                Button {
+                    sessions.close(session)
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
+                }
+                .buttonStyle(.borderless)
+                .help("Close tab")
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.bar)
+            .contentShape(Rectangle())
+            .onTapGesture { sessions.select(session) }
+
+            Divider()
+            TerminalContainer(session: session)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isSelected ? Color.accentColor.opacity(0.8)
+                                         : Color.secondary.opacity(0.25),
+                              lineWidth: isSelected ? 2 : 1)
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var statusColor: Color {

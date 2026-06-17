@@ -28,6 +28,9 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
   (right‑click the tab → **Detach into New Window**, or **⌃⌘D**) and toggle **Always on
   Top** so it stays above other apps. The session keeps running while it moves; close the
   window to snap the tab back into the main window.
+- ▦ **Tile tabs** — view every open tab at once in a side‑by‑side grid (**⌃⌘T**, or the tile
+  button in the tab bar) to watch several tunnels/terminals together; switch back to single‑
+  tab view any time.
 - 🕒 **Per‑tab command history** — each terminal records the commands you type; reopen them
   from a menu to re‑run with one click. Passwords/passphrases are never recorded.
 - 🎨 **Terminal themes** — per‑profile color themes modelled on macOS Terminal (Pro, Basic,
@@ -182,6 +185,16 @@ Pull any tab out into its **own floating window** — right‑click the tab and 
 Each detached window has a **📌 pin** button that toggles **Always on Top** (so the window
 floats above other apps) and a **re‑attach** button. **Closing** a detached window snaps the
 tab back into the main window's tab bar; closing the tab (⌘W) still ends the session as usual.
+
+### Tiling tabs
+
+When you have two or more tabs open, click the **tile button** at the right of the tab bar
+(or press **⌃⌘T**) to show them **all at once in a grid** instead of one at a time — handy
+for watching several tunnels or terminals side by side. Each tile has a slim header with its
+status, title, and **detach**/**close** buttons; click a tile's header to make it the active
+tab (so ⌘+/⌘− and the snippet/history menus apply to it). Click the button again (it turns
+into a single‑pane icon) or press **⌃⌘T** to go back to single‑tab view. The choice is
+remembered. Every terminal stays live the whole time, tiled or not.
 
 ### Command history
 
