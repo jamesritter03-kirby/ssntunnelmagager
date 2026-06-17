@@ -89,6 +89,16 @@ struct CommandSnippet: Codable, Identifiable, Hashable {
 struct SSHProfile: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
     var name: String = "New Profile"
+    /// An SF Symbol name chosen for this profile (empty = a sensible default
+    /// based on whether it's local). See `displayIcon` and `ProfileIcon`.
+    var icon: String = ""
+    /// When true this is a **local shell** profile (no SSH): it opens the login
+    /// shell in a new tab, starting in `startPath`. All SSH-related fields below
+    /// are ignored.
+    var isLocal: Bool = false
+    /// For local profiles: the folder the shell starts in (supports `~`). Empty
+    /// means the default working directory (home).
+    var startPath: String = ""
     var host: String = ""
     var port: String = "22"
     var username: String = ""
@@ -121,6 +131,25 @@ struct SSHProfile: Codable, Identifiable, Hashable {
         let p = (port.isEmpty || port == "22") ? "" : ":\(port)"
         return "\(user)\(h)\(p)"
     }
+
+    /// Subtitle shown in the sidebar / palette — local profiles show their start
+    /// folder instead of a host.
+    var rowSubtitle: String {
+        guard isLocal else { return subtitle }
+        let p = startPath.trimmingCharacters(in: .whitespaces)
+        if p.isEmpty { return "Local shell" }
+        let home = NSHomeDirectory()
+        let shown = p.hasPrefix(home) ? "~" + p.dropFirst(home.count) : p[...]
+        return "Local · \(shown)"
+    }
+
+    /// The SF Symbol shown for this profile in the sidebar, editor and palette.
+    /// Falls back to a sensible default when the user hasn't picked one.
+    var displayIcon: String {
+        let chosen = icon.trimmingCharacters(in: .whitespaces)
+        if !chosen.isEmpty { return chosen }
+        return isLocal ? "terminal" : "point.3.connected.trianglepath.dotted"
+    }
 }
 
 // Defining `init(from:)` in an extension keeps the synthesized memberwise
@@ -131,12 +160,16 @@ extension SSHProfile {
         case compression, keepAlive, verbose, jumpHost, extraOptions, theme, snippets
         case requireAuthForSavedPassword
         case fontSize
+        case isLocal, startPath, icon
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? "New Profile"
+        icon = try c.decodeIfPresent(String.self, forKey: .icon) ?? ""
+        isLocal = try c.decodeIfPresent(Bool.self, forKey: .isLocal) ?? false
+        startPath = try c.decodeIfPresent(String.self, forKey: .startPath) ?? ""
         host = try c.decodeIfPresent(String.self, forKey: .host) ?? ""
         port = try c.decodeIfPresent(String.self, forKey: .port) ?? "22"
         username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
@@ -153,4 +186,34 @@ extension SSHProfile {
         requireAuthForSavedPassword = try c.decodeIfPresent(Bool.self, forKey: .requireAuthForSavedPassword) ?? true
         fontSize = TerminalFontMetrics.clamp(try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? TerminalFontMetrics.default)
     }
+}
+
+/// Curated SF Symbols offered by the profile icon picker, grouped for display.
+enum ProfileIcon {
+    static let groups: [(name: String, symbols: [String])] = [
+        ("Servers & Network", [
+            "point.3.connected.trianglepath.dotted", "server.rack", "network",
+            "externaldrive.connected.to.line.below", "cloud", "globe",
+            "antenna.radiowaves.left.and.right", "wifi",
+        ]),
+        ("Devices", [
+            "desktopcomputer", "laptopcomputer", "pc", "display",
+            "terminal", "macpro.gen3", "tv", "gamecontroller",
+        ]),
+        ("Storage & Data", [
+            "internaldrive", "externaldrive", "cylinder.split.1x2", "tray.full",
+            "folder", "shippingbox", "archivebox", "tablecells",
+        ]),
+        ("Security", [
+            "lock.shield", "key", "key.fill", "checkmark.shield", "lock", "hand.raised",
+        ]),
+        ("Tags & Symbols", [
+            "star", "bolt", "flame", "leaf", "heart", "flag",
+            "tag", "bookmark", "house", "building.2", "person.crop.circle",
+            "gearshape", "hammer", "wrench.and.screwdriver", "ladybug", "cube",
+        ]),
+    ]
+
+    /// Every symbol, flattened (used for validation / tests).
+    static let allSymbols: [String] = groups.flatMap(\.symbols)
 }

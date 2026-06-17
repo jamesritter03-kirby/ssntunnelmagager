@@ -92,4 +92,28 @@ final class ProfileStore: ObservableObject {
             profiles.append(copy)
         }
     }
+
+    /// Append imported profiles, giving each a unique display name so they don't
+    /// visually collide with existing ones. Returns the number added.
+    @discardableResult
+    func importProfiles(_ incoming: [SSHProfile]) -> Int {
+        var added = 0
+        for var profile in incoming {
+            profile.name = uniqueName(for: profile.name)
+            profiles.append(profile)
+            added += 1
+        }
+        return added
+    }
+
+    /// A display name that doesn't already exist, suffixing " (2)", " (3)"… as needed.
+    private func uniqueName(for proposed: String) -> String {
+        let trimmed = proposed.trimmingCharacters(in: .whitespaces)
+        let base = trimmed.isEmpty ? "Imported Profile" : trimmed
+        let existing = Set(profiles.map(\.name))
+        guard existing.contains(base) else { return base }
+        var n = 2
+        while existing.contains("\(base) (\(n))") { n += 1 }
+        return "\(base) (\(n))"
+    }
 }

@@ -121,10 +121,22 @@ struct CommandPaletteView: View {
         // Connect to profiles
         for profile in store.profiles {
             items.append(PaletteItem(title: "Connect: \(profile.name)",
-                                     subtitle: profile.subtitle,
-                                     systemImage: "network") {
+                                     subtitle: profile.rowSubtitle,
+                                     systemImage: profile.displayIcon) {
                 sessions.connect(profile: profile)
             })
+            if !profile.isLocal {
+                items.append(PaletteItem(title: "SFTP: \(profile.name)",
+                                         subtitle: "File transfer · \(profile.subtitle)",
+                                         systemImage: "arrow.up.arrow.down") {
+                    sessions.connectSFTP(profile: profile)
+                })
+                items.append(PaletteItem(title: "VNC: \(profile.name)",
+                                         subtitle: "Screen sharing over SSH · \(profile.subtitle)",
+                                         systemImage: "display") {
+                    sessions.connectVNC(profile: profile)
+                })
+            }
         }
 
         // Active session's snippets + history

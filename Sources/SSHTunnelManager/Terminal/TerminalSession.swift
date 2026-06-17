@@ -17,6 +17,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     enum Kind: Equatable {
         case localShell
         case ssh
+        case sftp
+        case vnc
     }
 
     let kind: Kind
@@ -40,8 +42,37 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     let autofillPassword: Bool
     /// Whether to require Touch ID / login password before using it.
     let requireAuthForPassword: Bool
+    /// For local-shell sessions: the folder the shell should start in (nil = default).
+    let startDirectory: String?
 
     let terminalView: HistoryTerminalView
+
+    /// For `.sftp` sessions: the headless driver behind the graphical browser.
+    let sftpClient: SFTPClient?
+
+    /// For `.vnc` sessions: the headless ssh-tunnel driver behind the console.
+    let vncClient: VNCClient?
+
+    /// The SF Symbol used to represent this session in tabs, tiles and lists.
+    var symbolName: String {
+        // A profile's chosen icon wins for shell / ssh tabs; sftp and vnc keep
+        // their distinctive type icons so the tab kind stays recognisable.
+        if kind == .ssh || kind == .localShell,
+           let pid = profileID,
+           let profile = ProfileStore.shared.profiles.first(where: { $0.id == pid }),
+           !profile.icon.trimmingCharacters(in: .whitespaces).isEmpty {
+            return profile.icon
+        }
+        switch kind {
+        case .localShell: return "terminal"
+        case .ssh:        return "network"
+        case .sftp:       return "arrow.up.arrow.down"
+        case .vnc:        return "display"
+        }
+    }
+
+    /// Remote sessions (ssh / sftp / vnc) are “disconnected”; local shells are “stopped”.
+    var isRemote: Bool { kind == .ssh || kind == .sftp || kind == .vnc }
 
     private var hasStarted = false
 
@@ -54,7 +85,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     private let historyLimit = 300
     private var didAutofillPassword = false
 
-    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true) {
+    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil) {
         self.kind = kind
         self.title = title
         self.executable = executable
@@ -65,12 +96,35 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         self.fontSize = TerminalFontMetrics.clamp(fontSize)
         self.autofillPassword = autofillPassword
         self.requireAuthForPassword = requireAuthForPassword
+        self.startDirectory = startDirectory
         self.terminalView = HistoryTerminalView(frame: NSRect(x: 0, y: 0, width: 820, height: 480))
+        if kind == .sftp {
+            self.sftpClient = SFTPClient(executable: executable, args: args, profileID: profileID,
+                                         autofillPassword: autofillPassword,
+                                         requireAuthForPassword: requireAuthForPassword)
+        } else {
+            self.sftpClient = nil
+        }
+        if kind == .vnc {
+            self.vncClient = VNCClient(executable: executable, args: args, profileID: profileID,
+                                       autofillPassword: autofillPassword,
+                                       requireAuthForPassword: requireAuthForPassword)
+        } else {
+            self.vncClient = nil
+        }
         super.init()
         terminalView.processDelegate = self
         terminalView.onUserInput = { [weak self] data in self?.handleInput(data) }
         terminalView.onProcessOutput = { [weak self] data in self?.handleOutput(data) }
         terminalView.onZoom = { [weak self] direction in self?.zoom(direction) }
+        sftpClient?.onRunningChanged = { [weak self] running in
+            self?.isRunning = running
+            if !running { self?.exitCode = self?.exitCode ?? 0 }
+        }
+        vncClient?.onRunningChanged = { [weak self] running in
+            self?.isRunning = running
+            if !running { self?.exitCode = self?.exitCode ?? 0 }
+        }
         applyAppearance()
     }
 
@@ -92,18 +146,58 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         hasStarted = true
         isRunning = true
         exitCode = nil
+        if kind == .sftp {
+            sftpClient?.start()
+            return
+        }
+        if kind == .vnc {
+            vncClient?.start()
+            return
+        }
         didAutofillPassword = false
         secretPromptActive = false
         terminalView.startProcess(executable: executable,
                                   args: args,
                                   environment: TerminalSession.environment(),
-                                  execName: nil)
+                                  execName: nil,
+                                  currentDirectory: startDirectory)
     }
 
     /// Re-run the same command in this tab after it exited.
     func restart() {
+        if kind == .sftp {
+            isRunning = true
+            exitCode = nil
+            sftpClient?.reconnect()
+            return
+        }
+        if kind == .vnc {
+            isRunning = true
+            exitCode = nil
+            vncClient?.reconnect()
+            return
+        }
         hasStarted = false
         start()
+    }
+
+    /// Stop the running process — closing an SSH tunnel (or ending a local shell)
+    /// — **without removing the tab**. We hang up the child (`SIGHUP`, the same
+    /// signal a PTY close would deliver); SwiftTerm's process monitor then fires
+    /// `processTerminated`, which flips `isRunning` and shows the Reconnect banner,
+    /// exactly as if the session had ended on its own. Use `close` on the manager
+    /// to remove the tab entirely.
+    func disconnect() {
+        if kind == .sftp {
+            sftpClient?.disconnect()
+            return
+        }
+        if kind == .vnc {
+            vncClient?.disconnect()
+            return
+        }
+        guard isRunning, let pid = terminalView.process?.shellPid, pid > 0 else { return }
+        kill(pid, SIGHUP)
     }
 
     // MARK: - Command history

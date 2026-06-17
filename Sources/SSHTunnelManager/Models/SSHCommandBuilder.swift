@@ -76,10 +76,10 @@ enum SSHCommandBuilder {
         (["ssh"] + arguments(for: profile)).map(shellQuote).joined(separator: " ")
     }
 
-    private static let shellSafe = CharacterSet(charactersIn:
+    static let shellSafe = CharacterSet(charactersIn:
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_./:@=,+")
 
-    private static func shellQuote(_ s: String) -> String {
+    static func shellQuote(_ s: String) -> String {
         if s.isEmpty { return "''" }
         if s.unicodeScalars.allSatisfy({ shellSafe.contains($0) }) {
             return s

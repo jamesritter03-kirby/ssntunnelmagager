@@ -7,10 +7,10 @@ struct ContentView: View {
 
     @State private var selectedProfileID: UUID?
     @State private var editingProfile: SSHProfile?
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @ObservedObject private var sidebar = SidebarModel.shared
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView(columnVisibility: $sidebar.columnVisibility) {
             SidebarView(
                 selectedProfileID: $selectedProfileID,
                 onConnect: { sessions.connect(profile: $0) },
@@ -34,7 +34,7 @@ struct ContentView: View {
                 },
                 onCancel: { editingProfile = nil }
             )
-            .frame(minWidth: 580, minHeight: 640)
+            .frame(minWidth: 560, minHeight: 520)
         }
         .sheet(isPresented: $palette.isPresented) {
             CommandPaletteView(palette: palette)

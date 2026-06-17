@@ -27,8 +27,16 @@ struct SidebarView: View {
                         .tag(profile.id)
                         .contextMenu {
                             Button("Connect") { onConnect(profile) }
+                            if !profile.isLocal {
+                                Button("Open SFTP") { sessions.connectSFTP(profile: profile) }
+                                Button("Open VNC") { sessions.connectVNC(profile: profile) }
+                            }
                             Button("Edit…") { onEdit(profile) }
                             Button("Duplicate") { store.duplicate(profile) }
+                            Button("Export…") {
+                                ProfileTransfer.exportFlow([profile],
+                                                           suggestedName: ProfileTransfer.fileName(for: profile))
+                            }
                             Divider()
                             Button("Delete", role: .destructive) { store.delete(profile) }
                         }
@@ -49,7 +57,54 @@ struct SidebarView: View {
 
                 Spacer()
 
+                Menu {
+                    Button {
+                        ProfileTransfer.importFlow(into: store)
+                    } label: {
+                        Label("Import Profiles…", systemImage: "square.and.arrow.down")
+                    }
+                    Button {
+                        ProfileTransfer.exportFlow(store.profiles, suggestedName: "SSH Tunnels.json")
+                    } label: {
+                        Label("Export All Profiles…", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(store.profiles.isEmpty)
+
+                    if let id = selectedProfileID,
+                       let profile = store.profiles.first(where: { $0.id == id }) {
+                        Divider()
+                        Button {
+                            ProfileTransfer.exportFlow([profile],
+                                                       suggestedName: ProfileTransfer.fileName(for: profile))
+                        } label: {
+                            Label("Export “\(profile.name)”…", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up.on.square")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Import or export profiles")
+
                 if let id = selectedProfileID, let profile = store.profiles.first(where: { $0.id == id }) {
+                    if !profile.isLocal {
+                        Button {
+                            sessions.connectSFTP(profile: profile)
+                        } label: {
+                            Image(systemName: "arrow.up.arrow.down")
+                        }
+                        .help("Open SFTP file transfer for the selected profile")
+
+                        Button {
+                            sessions.connectVNC(profile: profile)
+                        } label: {
+                            Image(systemName: "display")
+                        }
+                        .help("Open VNC screen sharing (over SSH) for the selected profile")
+                    }
+
                     Button {
                         onEdit(profile)
                     } label: {
@@ -84,17 +139,17 @@ struct ProfileRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
+            Image(systemName: profile.displayIcon)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.name)
                     .fontWeight(.medium)
                     .lineLimit(1)
-                Text(profile.subtitle)
+                Text(profile.rowSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                if !profile.forwards.isEmpty {
+                if !profile.isLocal, !profile.forwards.isEmpty {
                     Text(profile.forwards.map(\.summary).joined(separator: "  ·  "))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)

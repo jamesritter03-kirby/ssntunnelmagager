@@ -15,11 +15,23 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
 
 - 🖥️ **Real terminal tabs** — PTY‑backed, so interactive password / 2FA / host‑key prompts work.
 - 🔌 **Saved tunnel profiles** — host, port, user, identity key, jump host, and any number of forwards.
+- 📂 **Local shell profiles** — a profile can instead be a **Local Shell** that opens your login
+  shell in a new tab, starting in a **folder you choose** — a one‑click jump to a project directory.
 - ↔️ **All three forward types**
   - **Local (`-L`)** — open a port on your Mac that tunnels to a target reachable from the server.
   - **Remote (`-R`)** — open a port on the server that tunnels back to your Mac.
   - **Dynamic (`-D`)** — a SOCKS proxy on your Mac that routes traffic through the server.
 - 👀 **Live command preview** — see (and copy) the exact `ssh` command a profile generates.
+- 📁 **Graphical SFTP file transfer** — open an **SFTP tab** for any profile (sidebar
+  right‑click → *Open SFTP*, the ⬆⬇ button, a terminal **tab’s right‑click menu**, or the
+  command palette) to get a real file
+  **browser**: navigate remote folders, and **drag files from Finder to upload** or download
+  with a click — using the same host, key and saved password as a normal connection.
+- 🖥️ **VNC screen sharing over SSH** — open a **VNC tab** for any profile (sidebar
+  right‑click → *Open VNC*, the 🖵 button, a terminal **tab’s right‑click menu**, or the
+  command palette). It opens an encrypted SSH tunnel to the server’s screen and launches
+  macOS **Screen Sharing** through it — so the remote desktop is private, using the same
+  host, key and saved password as a normal connection.
 - 📚 **Example profiles on first launch** — a fresh install starts with four ready‑to‑read
   examples (local `-L`, dynamic `-D`, remote `-R`, and a jump‑host `-J` with a shell) so the
   options are easy to learn. Edit or delete them freely — they're only ever added once.
@@ -39,7 +51,8 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
   resets). The size is **saved to the profile** (or to the local‑terminal default), so new
   tabs open at your preferred size.
 - 📌 **Saved commands** — store commonly used commands per profile and insert them into the
-  terminal from a menu.
+  terminal from a menu. **Import or export** a profile's commands as a JSON file to reuse them
+  across profiles or machines.
 - � **Keychain passwords + Touch ID** — optionally save a profile's password in the macOS
   login Keychain and have it typed automatically at the SSH password prompt, gated behind
   **Touch ID / your login password**. (SSH keys are still recommended where possible.)
@@ -51,8 +64,14 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
   It shows a **green count badge** when tunnels are active.
 - ⚙️ **Startup options** — optionally **start at login** and/or **launch straight into the
   menu bar** (no window / Dock icon).
-- 🔁 **Reconnect** a dropped session with one click.
+- � **Disconnect without losing the tab** — stop a tunnel/session from the **tab bar button**,
+  the tab's **right‑click menu**, or **Commands → Disconnect**. The tab stays so you can
+  **Reconnect** it with one click; **Close** (✕) still removes the tab entirely.
+- 🔁 **Reconnect** a dropped or disconnected session with one click.
 - 💾 **Profiles persist** to `~/Library/Application Support/SSHTunnelManager/profiles.json`.
+- 📤 **Import & export profiles** — share a single profile or your whole list as a portable
+  JSON file and import it on another Mac. Passwords are never included, and imports are added
+  as new profiles (fresh IDs) so they never overwrite the ones you already have.
 - 🔒 **Secure by default** — passwords (when saved) live in the macOS Keychain, never in the
   profile file, and are never written to command history.
 - 🚀 **Automatic updates** — built‑in [Sparkle](https://sparkle-project.org) updater checks a
@@ -173,6 +192,9 @@ Produces **`dist/SSH Tunnel Manager (Apple Silicon).zip`** with the app and a
 
 Open a plain shell anytime with **⌘T** (or the **Local Terminal** button).
 
+> **Sidebar:** show or hide the profile sidebar with **View → Show/Hide Sidebar** (**⌃⌘S**) —
+> handy if the toolbar's sidebar button ever goes missing after the sidebar is collapsed.
+
 > **Clipboard:** ⌘C / ⌘V work as usual, and **right‑clicking pastes** the clipboard (like
 > PuTTY). When a full‑screen app has mouse reporting on (vim, htop, tmux…), the right‑click
 > is passed through to that app instead.
@@ -209,9 +231,43 @@ both local shells and remote SSH sessions. **Save History…** exports the list 
 > or up‑arrow‑recalled lines may not be captured verbatim.) History lives in memory for the
 > life of the tab.
 
+### Editing a profile
+
+A compact **type switch** at the top of the editor chooses between an **SSH Tunnel** profile
+and a **Local Shell** profile:
+
+- **SSH Tunnel** groups everything into clearly labelled sections — **Connection**,
+  **Authentication**, **Port Forwards**, **SSH Options**, **Terminal**, and **Saved Commands** —
+  each with an icon and a one‑line explanation. Host and port share a row, the option toggles
+  carry their matching `ssh` flag as a tooltip, and the SSH‑key row shows the chosen file with
+  **Change…/Clear** buttons.
+- **Local Shell** profiles skip all the SSH fields and just ask for a **name** and an optional
+  **start folder** (type a path or pick one with **Choose…**). Launching the profile opens your
+  login shell in a new tab already `cd`‑ed into that folder — handy for jumping straight to a
+  project directory. Leave the folder empty to start in your home directory.
+
+Both kinds start with an **Icon** row: click it to pick an SF Symbol from a grouped gallery
+(servers, devices, storage, security, tags…), or choose **Default**. Your icon then shows in the
+sidebar, the command palette, the editor header, and on the session's tab.
+
+A live **command preview** at the bottom shows exactly what will run (the `ssh` command, or the
+shell + `cd` for a local profile), and the header tells you whether you're adding or editing.
+
+### Import & export profiles
+
+Share connection setups between Macs. Use **File → Export All Profiles…** (or the
+import/export button at the bottom of the sidebar) to save your whole list as a portable
+`.json` file, or right‑click a single profile → **Export…** to share just that one. On the
+other Mac, choose **File → Import Profiles…** and pick the file.
+
+> **Passwords are never exported.** They stay in the macOS Keychain on the original Mac, so
+> after importing, open the profile and re‑enter any saved password. Imported profiles are
+> always added as **new** profiles (with fresh IDs and a unique name) — importing never
+> overwrites or deletes anything you already have.
+
 ### Themes
 
-Each profile has a **Theme** (in the profile editor's *Appearance* section) that sets the
+Each profile has a **Theme** (in the profile editor's *Terminal* section) that sets the
 terminal's background, text, cursor and full 16‑color ANSI palette. Choose from presets
 modelled on macOS Terminal — **Pro, Basic, Homebrew, Ocean, Novel, Solarized Dark, Solarized
 Light, Dracula** — with a live preview as you pick. Saving a profile **re‑colors its open
@@ -222,8 +278,24 @@ tabs immediately**. Set a **default theme for plain local terminals** in **Setti
 Press **⌘+** (bigger) and **⌘−** (smaller) to zoom the text in the active terminal, and
 **⌘0** to return to the default. The new size is **remembered on the profile** (for SSH
 tabs) or as the **local‑terminal default** (for plain shells), so the next tab you open uses
-it. You can also set an exact size in the profile editor's *Appearance* section, or the
+it. You can also set an exact size in the profile editor's *Terminal* section, or the
 local‑terminal default in **Settings…** (⌘,). The commands also live in the **Commands** menu.
+
+### Disconnecting & reconnecting
+
+There's a difference between **disconnecting** a session and **closing** its tab:
+
+- **Disconnect** stops the running `ssh` (closing its tunnels) or ends a local shell, but
+  **keeps the tab**. A “Session ended” banner appears with a **Reconnect** button so you can
+  bring it straight back. Trigger it from the **disconnect button in the tab bar** (the
+  ⚡ icon, acts on the current tab), the tab's **right‑click → Disconnect**, the per‑tile
+  button in tiled view, or **Commands → Disconnect**. In tiled view the button only shows
+  while a tab is still running.
+- **Close** (the **✕** on the tab, **⌘W**, or right‑click → Close Tab) tears the tab down
+  completely — which also stops its tunnels.
+
+To drop every tunnel at once (closing those tabs), use **Commands → Disconnect All Tunnels**
+(**⇧⌘D**).
 
 ### Saved commands
 
@@ -232,6 +304,64 @@ friendly label). When a session from that profile is active, click the **“+”
 the tab bar and pick a command to either **Run** it immediately or **Insert at Prompt**
 (so you can tweak it before pressing Enter). Great for long tunnel‑test or diagnostic
 commands you don't want to retype.
+
+Use the **import/export menu** in that section's header to **export** a profile's commands to
+a `.json` file or **import** a set from another profile or machine. Imported commands are
+appended (with fresh IDs), so they never replace what's already there.
+
+### SFTP file transfer
+
+Need to move files instead of run commands? Open an **SFTP tab** for a profile:
+
+- **Sidebar** → right‑click a profile → **Open SFTP**, or select it and click the **⬆⬇ button**
+  at the bottom of the sidebar.
+- A terminal **tab’s right‑click menu** → **Open SFTP** (opens an SFTP tab for that tab’s profile).
+- **Command palette** (**⌘K**) → *SFTP: ‹profile›*.
+
+This opens a **graphical file browser** (not a text prompt). It connects with `sftp` using the
+same host, port, key, jump host and saved password as a normal connection — so host‑key and
+password prompts work exactly like the SSH tabs — then shows the remote folder as a list with
+icons, sizes and dates:
+
+- **Drag files or folders from Finder** onto the browser to **upload** them to the current
+  directory (the whole list highlights as a drop zone). There's also an **Upload…** toolbar
+  button.
+- **Double‑click a folder** to open it, or use the **↑ Up** button and the **path menu** to jump
+  to any parent folder.
+- **Double‑click a file** (or pick **Download**) to save it to your download folder; set that
+  folder with **Save to:** in the status bar. Downloads are revealed in Finder when done.
+- **New Folder**, **Rename…** and **Delete** are on the toolbar and the right‑click menu.
+- A **Log** button shows the raw `sftp` transcript if you need to troubleshoot, and a failed
+  connection offers **Reconnect**.
+
+SFTP tabs can be **tiled** and **detached** like any other tab.
+
+### VNC screen sharing (over SSH)
+
+Want the remote **desktop** instead of a shell or files? Open a **VNC tab** for a profile:
+
+- **Sidebar** → right‑click a profile → **Open VNC**, or select it and click the **🖵 button**
+  at the bottom of the sidebar.
+- A terminal **tab’s right‑click menu** → **Open VNC** (opens a VNC tab for that tab’s profile).
+- **Command palette** (**⌘K**) → *VNC: ‹profile›*.
+
+VNC is normally **unencrypted**, so rather than connecting to it directly this opens a
+tunnels‑only `ssh -N` connection that **forwards a local port to the server’s screen**
+(`127.0.0.1:5900` on the server) and then launches macOS’s built‑in **Screen Sharing** pointed
+at the local end. The screen session therefore travels **inside the encrypted SSH tunnel**, and
+host‑key / password prompts work exactly like the SSH and SFTP tabs.
+
+The VNC tab itself is a small **status console**: it shows when the tunnel is live, the
+forwarded address, an **Open Screen Sharing** button (in case the viewer didn’t pop up or you
+closed it), **Reconnect** if the tunnel drops, and a **Log** of the raw `ssh` output. Closing
+the tab (or **Disconnect**) tears the tunnel down.
+
+> The server must have a VNC / screen‑sharing server listening on its `localhost:5900` (e.g.
+> macOS **System Settings → General → Sharing → Screen Sharing**, or a Linux VNC server). To
+> reach a different remote port, add a matching **Local (`-L`)** forward and use Screen Sharing
+> directly.
+
+VNC tabs can be **tiled** and **detached** like any other tab.
 
 ### Keychain passwords & Touch ID
 

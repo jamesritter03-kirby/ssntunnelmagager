@@ -70,8 +70,11 @@ private struct TabBar: View {
 
             if let session = sessions.selectedSession {
                 Divider().frame(height: 22)
-                SnippetsMenuButton(session: session)
-                HistoryMenuButton(session: session)
+                if session.kind != .sftp && session.kind != .vnc {
+                    SnippetsMenuButton(session: session)
+                    HistoryMenuButton(session: session)
+                }
+                DisconnectButton(session: session)
             }
 
             Divider().frame(height: 22)
@@ -155,7 +158,6 @@ private struct HistoryMenuButton: View {
     private func displayTitle(_ command: String) -> String {
         command.count > 60 ? String(command.prefix(59)) + "…" : command
     }
-
     /// Write the tab's command history to a user-chosen text file.
     private func saveHistory() {
         let panel = NSSavePanel()
@@ -173,19 +175,47 @@ private struct HistoryMenuButton: View {
     }
 }
 
+/// Disconnects the selected tab's process (closing its SSH tunnel) while keeping
+/// the tab open so it can be reconnected. Disabled once the session has ended.
+private struct DisconnectButton: View {
+    @ObservedObject var session: TerminalSession
+
+    var body: some View {
+        Button {
+            session.disconnect()
+        } label: {
+            Image(systemName: "bolt.horizontal.circle")
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 8)
+        .disabled(!session.isRunning)
+        .help(session.isRemote
+              ? "Disconnect this tunnel (you can reconnect)"
+              : "Stop this terminal (you can restart it)")
+    }
+}
+
 private struct TabChip: View {
     @ObservedObject var session: TerminalSession
+    @EnvironmentObject var sessions: TerminalSessionManager
+    @EnvironmentObject var store: ProfileStore
     let isSelected: Bool
     var onSelect: () -> Void
     var onClose: () -> Void
     var onDetach: () -> Void
+
+    /// The profile backing this tab, if any (local shells have none).
+    private var profile: SSHProfile? {
+        guard let pid = session.profileID else { return nil }
+        return store.profiles.first(where: { $0.id == pid })
+    }
 
     var body: some View {
         HStack(spacing: 7) {
             Circle()
                 .fill(statusColor)
                 .frame(width: 7, height: 7)
-            Image(systemName: session.kind == .ssh ? "network" : "terminal")
+            Image(systemName: session.symbolName)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Text(session.title)
@@ -209,6 +239,27 @@ private struct TabChip: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .contextMenu {
+            Button {
+                session.disconnect()
+            } label: {
+                Label(session.isRemote ? "Disconnect" : "Stop",
+                      systemImage: "bolt.horizontal.circle")
+            }
+            .disabled(!session.isRunning)
+            if let profile, !profile.isLocal, session.kind != .sftp {
+                Button {
+                    sessions.connectSFTP(profile: profile)
+                } label: {
+                    Label("Open SFTP", systemImage: "arrow.up.arrow.down")
+                }
+            }
+            if let profile, !profile.isLocal, session.kind != .vnc {
+                Button {
+                    sessions.connectVNC(profile: profile)
+                } label: {
+                    Label("Open VNC", systemImage: "display")
+                }
+            }
             Button {
                 onDetach()
             } label: {
@@ -278,13 +329,22 @@ private struct TerminalTile: View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
                 Circle().fill(statusColor).frame(width: 7, height: 7)
-                Image(systemName: session.kind == .ssh ? "network" : "terminal")
+                Image(systemName: session.symbolName)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Text(session.title)
                     .font(.caption)
                     .lineLimit(1)
                 Spacer(minLength: 4)
+                if session.isRunning {
+                    Button {
+                        session.disconnect()
+                    } label: {
+                        Image(systemName: "bolt.horizontal.circle").font(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(session.isRemote ? "Disconnect this tunnel" : "Stop this terminal")
+                }
                 Button {
                     DetachedTerminalController.shared.detach(session)
                 } label: {
@@ -331,6 +391,16 @@ struct TerminalContainer: View {
     @EnvironmentObject var sessions: TerminalSessionManager
 
     var body: some View {
+        if session.kind == .sftp {
+            SFTPBrowserView(session: session)
+        } else if session.kind == .vnc {
+            VNCConsoleView(session: session)
+        } else {
+            terminal
+        }
+    }
+
+    private var terminal: some View {
         ZStack(alignment: .top) {
             TerminalViewRepresentable(session: session)
                 .id(session.id)

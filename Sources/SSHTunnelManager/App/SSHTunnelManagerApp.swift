@@ -17,6 +17,10 @@ struct SSHTunnelManagerApp: App {
         }
         .windowToolbarStyle(.unified)
         .commands {
+            CommandGroup(replacing: .sidebar) {
+                Button("Show/Hide Sidebar") { SidebarModel.shared.toggle() }
+                    .keyboardShortcut("s", modifiers: [.command, .control])
+            }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { updater.checkForUpdates() }
                     .disabled(!updater.canCheckForUpdates)
@@ -30,10 +34,21 @@ struct SSHTunnelManagerApp: App {
                     .keyboardShortcut("w", modifiers: .command)
                     .disabled(sessions.selectedSession == nil)
             }
+            CommandGroup(after: .importExport) {
+                Button("Import Profiles…") {
+                    ProfileTransfer.importFlow(into: store)
+                }
+                Button("Export All Profiles…") {
+                    ProfileTransfer.exportFlow(store.profiles, suggestedName: "SSH Tunnels.json")
+                }
+                .disabled(store.profiles.isEmpty)
+            }
             CommandMenu("Commands") {
                 Button("Command Palette…") { CommandPaletteModel.shared.show() }
                     .keyboardShortcut("k", modifiers: .command)
                 Divider()
+                Button("Disconnect") { sessions.disconnectSelected() }
+                    .disabled(sessions.selectedSession == nil)
                 Button("Disconnect All Tunnels") { sessions.disconnectAllTunnels() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
                 Divider()

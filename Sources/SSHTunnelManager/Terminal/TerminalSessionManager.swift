@@ -44,8 +44,10 @@ final class TerminalSessionManager: ObservableObject {
         addAndStart(session)
     }
 
-    /// Open a new tab running `ssh` with the profile's tunnel configuration.
+    /// Open a new tab running `ssh` with the profile's tunnel configuration —
+    /// or, for a **local** profile, a login shell starting in its folder.
     func connect(profile: SSHProfile) {
+        if profile.isLocal { connectLocalProfile(profile); return }
         let args = SSHCommandBuilder.arguments(for: profile)
         let session = TerminalSession(
             kind: .ssh,
@@ -53,6 +55,66 @@ final class TerminalSessionManager: ObservableObject {
             executable: SSHCommandBuilder.sshPath,
             args: args,
             commandPreview: SSHCommandBuilder.commandPreview(for: profile),
+            profileID: profile.id,
+            theme: TerminalTheme.theme(id: profile.theme),
+            fontSize: profile.fontSize,
+            autofillPassword: KeychainStore.shared.hasPassword(for: profile.id),
+            requireAuthForPassword: profile.requireAuthForSavedPassword
+        )
+        addAndStart(session)
+    }
+
+    /// Open a local login shell for a `isLocal` profile, starting in `startPath`.
+    private func connectLocalProfile(_ profile: SSHProfile) {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let trimmed = profile.startPath.trimmingCharacters(in: .whitespaces)
+        let dir = trimmed.isEmpty ? nil : (trimmed as NSString).expandingTildeInPath
+        let preview = dir.map { "cd \(SSHCommandBuilder.shellQuote($0)) && \(shell) -l" }
+            ?? "\(shell) -l"
+        let session = TerminalSession(
+            kind: .localShell,
+            title: profile.name,
+            executable: shell,
+            args: ["-l"],
+            commandPreview: preview,
+            profileID: profile.id,
+            theme: TerminalTheme.theme(id: profile.theme),
+            fontSize: profile.fontSize,
+            startDirectory: dir
+        )
+        addAndStart(session)
+    }
+
+    /// Open a new tab running an interactive `sftp` file-transfer session for the
+    /// profile (same host / auth as a normal connection).
+    func connectSFTP(profile: SSHProfile) {
+        let args = SFTPCommandBuilder.arguments(for: profile)
+        let session = TerminalSession(
+            kind: .sftp,
+            title: "\(profile.name) — SFTP",
+            executable: SFTPCommandBuilder.sftpPath,
+            args: args,
+            commandPreview: SFTPCommandBuilder.commandPreview(for: profile),
+            profileID: profile.id,
+            theme: TerminalTheme.theme(id: profile.theme),
+            fontSize: profile.fontSize,
+            autofillPassword: KeychainStore.shared.hasPassword(for: profile.id),
+            requireAuthForPassword: profile.requireAuthForSavedPassword
+        )
+        addAndStart(session)
+    }
+
+    /// Open a new tab that tunnels VNC over SSH (a local port-forward to the
+    /// server's screen) and launches macOS Screen Sharing through it.
+    func connectVNC(profile: SSHProfile) {
+        let localPort = VNCCommandBuilder.freeLocalPort()
+        let args = VNCCommandBuilder.arguments(for: profile, localPort: localPort)
+        let session = TerminalSession(
+            kind: .vnc,
+            title: "\(profile.name) — VNC",
+            executable: VNCCommandBuilder.sshPath,
+            args: args,
+            commandPreview: VNCCommandBuilder.commandPreview(for: profile, localPort: localPort),
             profileID: profile.id,
             theme: TerminalTheme.theme(id: profile.theme),
             fontSize: profile.fontSize,
@@ -86,6 +148,12 @@ final class TerminalSessionManager: ObservableObject {
         if let session = selectedSession {
             close(session)
         }
+    }
+
+    /// Disconnect the selected session's process but keep its tab (so it can be
+    /// reconnected from the banner). No-ops if nothing is selected or running.
+    func disconnectSelected() {
+        selectedSession?.disconnect()
     }
 
     /// Disconnect every running SSH tunnel (leaves plain local shells untouched).

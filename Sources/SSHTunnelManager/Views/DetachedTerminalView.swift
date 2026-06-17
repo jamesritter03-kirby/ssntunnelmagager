@@ -17,7 +17,7 @@ struct DetachedTerminalView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 7, height: 7)
-                Image(systemName: session.kind == .ssh ? "network" : "terminal")
+                Image(systemName: session.symbolName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(session.title)
