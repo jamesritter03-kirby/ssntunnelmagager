@@ -83,7 +83,8 @@ struct SFTPBrowserView: View {
             Button { chooseAndUpload() } label: { Image(systemName: "arrow.up.doc") }
                 .help("Upload files or folders…").disabled(!client.isConnected)
             Button { client.download(selectedEntries) } label: { Image(systemName: "arrow.down.doc") }
-                .help("Download selected").disabled(selectedEntries.isEmpty)
+                .help("Download selected (⌘- or ⇧-click to select several)")
+                .disabled(selectedEntries.isEmpty)
             Button(role: .destructive) { confirmDelete(selectedEntries) } label: { Image(systemName: "trash") }
                 .help("Delete selected").disabled(selectedEntries.isEmpty)
 
@@ -137,12 +138,21 @@ struct SFTPBrowserView: View {
                 ForEach(client.entries) { entry in
                     SFTPRow(entry: entry)
                         .tag(entry.id)
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { client.open(entry) }
+                        // A double-click opens a folder / downloads a file. Use a
+                        // *simultaneous* gesture so the List still receives the
+                        // single clicks it needs for its own selection — including
+                        // ⌘-click and ⇧-click to select several rows at once. (A
+                        // plain `.onTapGesture` here swallows those clicks, which is
+                        // what limited transfers to one file at a time.)
+                        .simultaneousGesture(TapGesture(count: 2).onEnded {
+                            client.open(entry)
+                        })
                         .contextMenu { rowMenu(entry) }
                 }
             }
             .listStyle(.inset)
+            // Let the Delete key remove whatever is selected (one row or many).
+            .onDeleteCommand { confirmDelete(selectedEntries) }
 
             if client.entries.isEmpty && !client.isBusy {
                 VStack(spacing: 8) {
@@ -173,13 +183,22 @@ struct SFTPBrowserView: View {
 
     @ViewBuilder
     private func rowMenu(_ entry: SFTPEntry) -> some View {
-        if entry.isDirectory || entry.kind == .symlink {
+        // If the right-clicked row is part of a multi-row selection, act on the
+        // whole selection; otherwise just this one row.
+        let targets = (selection.contains(entry.id) && selectedEntries.count > 1)
+            ? selectedEntries : [entry]
+        if targets.count == 1, entry.isDirectory || entry.kind == .symlink {
             Button("Open") { client.open(entry) }
         }
-        Button("Download") { client.download([entry]) }
-        Button("Rename…") { renameText = entry.name; renameTarget = entry }
+        Button(targets.count > 1 ? "Download \(targets.count) Items" : "Download") {
+            client.download(targets)
+        }
+        if targets.count == 1 {
+            Button("Rename…") { renameText = entry.name; renameTarget = entry }
+        }
         Divider()
-        Button("Delete", role: .destructive) { confirmDelete([entry]) }
+        Button(targets.count > 1 ? "Delete \(targets.count) Items" : "Delete",
+               role: .destructive) { confirmDelete(targets) }
     }
 
     // MARK: - State screens

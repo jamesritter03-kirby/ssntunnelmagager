@@ -385,12 +385,16 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
 
     func upload(_ urls: [URL]) {
         guard isConnected else { return }
-        for url in urls {
+        let total = urls.count
+        for (index, url) in urls.enumerated() {
             var isDir: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
             let q = SFTPCommandBuilder.quotePath(url.path)
             let cmd = isDir.boolValue ? "put -r \(q)" : "put \(q)"
-            runCommand(cmd, status: "Uploading \(url.lastPathComponent)…") { [weak self] out in
+            let label = total > 1
+                ? "Uploading \(url.lastPathComponent) (\(index + 1) of \(total))…"
+                : "Uploading \(url.lastPathComponent)…"
+            runCommand(cmd, status: label) { [weak self] out in
                 if let problem = SFTPClient.operationError(out) { self?.report(problem) }
             }
         }
@@ -401,15 +405,18 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         guard isConnected else { return }
         let dir = localDownloadDirectory
         var saved: [URL] = []
-        for entry in entries {
+        let total = entries.count
+        for (index, entry) in entries.enumerated() {
             let rq = SFTPCommandBuilder.quotePath(entry.name)
             let lq = SFTPCommandBuilder.quotePath(dir.path)
             let recurse = entry.isDirectory ? "-r " : ""
             saved.append(dir.appendingPathComponent(entry.name))
-            runCommand("get \(recurse)\(rq) \(lq)", status: "Downloading \(entry.name)…") { [weak self] out in
+            let label = total > 1
+                ? "Downloading \(entry.name) (\(index + 1) of \(total))…"
+                : "Downloading \(entry.name)…"
+            runCommand("get \(recurse)\(rq) \(lq)", status: label) { [weak self] out in
                 guard let self else { return }
                 if let problem = SFTPClient.operationError(out) { self.report(problem) }
-                else { self.statusMessage = "Downloaded \(entry.name)" }
             }
         }
         if reveal {
