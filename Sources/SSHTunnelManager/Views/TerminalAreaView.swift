@@ -8,8 +8,6 @@ struct TerminalAreaView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            WorkspaceBar()
-            Divider()
             if sessions.attachedSessions.isEmpty {
                 if sessions.currentWorkspaceSessions.isEmpty {
                     WelcomeView()
@@ -25,6 +23,12 @@ struct TerminalAreaView: View {
                 if sessions.isTiled && sessions.attachedSessions.count > 1 {
                     TiledTerminalsView(items: sessions.attachedSessions)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        // SwiftUI's split views cache their NSSplitView divider /
+                        // row state. Without a stable identity that changes when the
+                        // tile set does, switching from a 2-tile workspace to a
+                        // 4-tile one would reuse the old 2-pane layout. Re-key on the
+                        // workspace + its tab ids so the grid is rebuilt correctly.
+                        .id(tiledLayoutID)
                 } else {
                     ZStack {
                         ForEach(sessions.attachedSessions) { session in
@@ -37,6 +41,21 @@ struct TerminalAreaView: View {
                 }
             }
         }
+        // The workspace switcher lives in the window title bar (the toolbar),
+        // so it doesn't add a third stacked row above the terminal tabs.
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                WorkspaceBar()
+            }
+        }
+    }
+
+    /// A stable identity for the tiled grid that changes whenever the current
+    /// workspace or its set/order of attached tabs changes — forcing the split
+    /// views to rebuild instead of reusing a stale pane layout.
+    private var tiledLayoutID: String {
+        let ids = sessions.attachedSessions.map(\.id.uuidString).joined(separator: ",")
+        return "\(sessions.currentWorkspaceID.uuidString):\(ids)"
     }
 }
 
@@ -52,37 +71,28 @@ private struct WorkspaceBar: View {
     @State private var saveField = ""
 
     var body: some View {
-        HStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(sessions.workspaces) { ws in
-                        WorkspacePill(
-                            workspace: ws,
-                            isCurrent: ws.id == sessions.currentWorkspaceID,
-                            tabCount: sessions.tabCount(in: ws.id),
-                            canClose: sessions.workspaces.count > 1,
-                            onSelect: { sessions.switchWorkspace(to: ws.id) },
-                            onClose: { sessions.closeWorkspace(ws.id) },
-                            onRename: { beginRename(ws) },
-                            onSave: { beginSave(ws) }
-                        )
-                    }
-                    Button { sessions.addWorkspace() } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 11, weight: .semibold))
-                            .padding(.horizontal, 7).padding(.vertical, 5)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("New workspace (⌘⇧N)")
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
+        HStack(spacing: 6) {
+            ForEach(sessions.workspaces) { ws in
+                WorkspacePill(
+                    workspace: ws,
+                    isCurrent: ws.id == sessions.currentWorkspaceID,
+                    tabCount: sessions.tabCount(in: ws.id),
+                    canClose: sessions.workspaces.count > 1,
+                    onSelect: { sessions.switchWorkspace(to: ws.id) },
+                    onClose: { sessions.closeWorkspace(ws.id) },
+                    onRename: { beginRename(ws) },
+                    onSave: { beginSave(ws) }
+                )
             }
+            Button { sessions.addWorkspace() } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .help("New workspace (⌘⇧N)")
 
-            Spacer(minLength: 0)
-            savedMenu.padding(.trailing, 8)
+            savedMenu
         }
-        .background(.bar)
         .alert("Rename Workspace", isPresented: renamingBinding) {
             TextField("Name", text: $nameField)
             Button("Cancel", role: .cancel) { renamingID = nil }

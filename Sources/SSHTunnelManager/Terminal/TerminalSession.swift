@@ -260,6 +260,29 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         kill(pid, SIGHUP)
     }
 
+    /// Forcefully stop this session's underlying process(es) **right now**, instead
+    /// of waiting for ARC to drop the last reference and let the PTY teardown send
+    /// `SIGHUP`. A lingering strong reference (a still-mounted SwiftUI view, a
+    /// capturing closure) would otherwise leave an SSH tunnel running as a "zombie"
+    /// that keeps holding its forwarded ports — making the next connection to that
+    /// profile collide on those ports and die (`ExitOnForwardFailure`). Used when
+    /// closing a tab or quitting. Unlike `disconnect()`, this does not depend on the
+    /// `isRunning` flag, so it still reaps a process whose state got out of sync.
+    func shutDown() {
+        switch kind {
+        case .web:
+            return
+        case .sftp:
+            sftpClient?.disconnect()
+        case .vnc:
+            vncClient?.disconnect()
+        case .localShell, .ssh:
+            if let pid = terminalView.process?.shellPid, pid > 0 {
+                kill(pid, SIGHUP)
+            }
+        }
+    }
+
     // MARK: - Command history
 
     /// Reconstruct typed command lines from the raw bytes sent to the shell.

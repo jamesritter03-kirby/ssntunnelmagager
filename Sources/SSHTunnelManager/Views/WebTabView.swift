@@ -29,11 +29,18 @@ final class WebTabModel: ObservableObject {
     /// A SOCKS proxy to route through (from the profile's `-D` forward), if any.
     let proxy: WebProxy?
 
-    /// The live web view, set by the representable so the toolbar can drive it.
-    weak var webView: WKWebView?
-
     /// Fires when the page title changes (wired to the owning tab's title).
     var onTitleChange: ((String) -> Void)?
+
+    /// The web view, owned strongly and built once. Holding it on the model (not
+    /// the SwiftUI view) means the page keeps running when the tab is unmounted —
+    /// e.g. when you switch to another workspace — so it doesn't reload on return,
+    /// exactly like a terminal tab keeps its process alive.
+    private(set) lazy var webView: WKWebView = makeWebView()
+
+    /// The delegate / KVO controller for `webView`. Owned here so it lives as long
+    /// as the model (a `WKWebView` only holds its delegates weakly).
+    private var navigator: WebNavigator?
 
     init(initialURL: URL?, proxy: WebProxy? = nil) {
         self.initialURL = initialURL
@@ -44,10 +51,25 @@ final class WebTabModel: ObservableObject {
         }
     }
 
-    func goBack() { webView?.goBack() }
-    func goForward() { webView?.goForward() }
-    func reload() { webView?.reload() }
-    func stop() { webView?.stopLoading() }
+    private func makeWebView() -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = Self.dataStore(for: proxy)
+        let wv = WKWebView(frame: .zero, configuration: config)
+        wv.allowsBackForwardNavigationGestures = true
+        wv.allowsMagnification = true
+        let nav = WebNavigator(model: self)
+        wv.navigationDelegate = nav
+        wv.uiDelegate = nav
+        nav.observe(wv)
+        navigator = nav
+        if let initialURL { wv.load(URLRequest(url: initialURL)) }
+        return wv
+    }
+
+    func goBack() { webView.goBack() }
+    func goForward() { webView.goForward() }
+    func reload() { webView.reload() }
+    func stop() { webView.stopLoading() }
 
     /// Navigate to whatever is currently typed in the address bar.
     func submitAddress() { load(addressText) }
@@ -56,52 +78,14 @@ final class WebTabModel: ObservableObject {
     func load(_ string: String) {
         guard let url = ProfileLink(label: "", url: string).normalizedURL else { return }
         addressText = url.absoluteString
-        webView?.load(URLRequest(url: url))
+        webView.load(URLRequest(url: url))
     }
 
     /// Hand the current page off to the user's default browser.
     func openInDefaultBrowser() {
-        if let url = webView?.url ?? initialURL {
+        if let url = webView.url ?? initialURL {
             NSWorkspace.shared.open(url)
         }
-    }
-
-    /// Called by the coordinator whenever the web view's observed state changes.
-    func sync(url: URL?, title: String?, back: Bool, forward: Bool, loading: Bool, progress: Double) {
-        if let url {
-            currentURLString = url.absoluteString
-            addressText = url.absoluteString
-        }
-        canGoBack = back
-        canGoForward = forward
-        isLoading = loading
-        self.progress = progress
-        if let title { onTitleChange?(title) }
-    }
-}
-
-/// SwiftUI wrapper around `WKWebView`. The web view is owned for the lifetime of
-/// the representable (one per tab) so the page keeps running while in the
-/// background, like a terminal tab.
-struct WebView: NSViewRepresentable {
-    @ObservedObject var model: WebTabModel
-
-    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
-
-    func makeNSView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = Self.dataStore(for: model.proxy)
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        webView.allowsBackForwardNavigationGestures = true
-        webView.allowsMagnification = true
-        model.webView = webView
-        context.coordinator.observe(webView)
-        if let url = model.initialURL {
-            webView.load(URLRequest(url: url))
-        }
-        return webView
     }
 
     /// A data store configured to route through `proxy` when set (a profile's
@@ -120,94 +104,156 @@ struct WebView: NSViewRepresentable {
         return .default()
     }
 
+    /// The local TCP endpoint that must accept connections before this tab's page
+    /// can load: a profile's SOCKS proxy port, or — for a plain `-L` forward — the
+    /// localhost port the target URL uses. `nil` for ordinary internet tabs that
+    /// don't depend on a tunnel (those retry on a short timer instead).
+    func tunnelGate() -> NWEndpoint? {
+        if let proxy, let raw = UInt16(exactly: proxy.port),
+           let port = NWEndpoint.Port(rawValue: raw) {
+            return .hostPort(host: NWEndpoint.Host(proxy.host), port: port)
+        }
+        guard let url = webView.url ?? initialURL, let host = url.host,
+              ["localhost", "127.0.0.1", "::1"].contains(host) else { return nil }
+        let portNumber = url.port ?? (url.scheme == "https" ? 443 : 80)
+        guard let raw = UInt16(exactly: portNumber),
+              let port = NWEndpoint.Port(rawValue: raw) else { return nil }
+        return .hostPort(host: NWEndpoint.Host(host), port: port)
+    }
+
+    /// Called by the coordinator whenever the web view's observed state changes.
+    func sync(url: URL?, title: String?, back: Bool, forward: Bool, loading: Bool, progress: Double) {
+        if let url {
+            currentURLString = url.absoluteString
+            addressText = url.absoluteString
+        }
+        canGoBack = back
+        canGoForward = forward
+        isLoading = loading
+        self.progress = progress
+        if let title { onTitleChange?(title) }
+    }
+}
+
+/// SwiftUI wrapper that hosts the model's long-lived `WKWebView`. Returning the
+/// same web view across mount / unmount (instead of building a new one) is what
+/// keeps the page from reloading when the tab leaves and re-enters the view tree
+/// — e.g. when switching workspaces.
+struct WebView: NSViewRepresentable {
+    @ObservedObject var model: WebTabModel
+
+    func makeNSView(context: Context) -> WKWebView { model.webView }
+
     func updateNSView(_ nsView: WKWebView, context: Context) {}
+}
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        let model: WebTabModel
-        private var observations: [NSKeyValueObservation] = []
-        /// Retry bookkeeping: while an SSH tunnel is still coming up the first
-        /// loads fail with connection errors; we retry a few times before giving up.
-        private var retryCount = 0
-        private let maxRetries = 6
-        private var isRetrying = false
+/// Drives a `WKWebView`'s navigation: mirrors its state back to the model via
+/// KVO, keeps `target="_blank"` links in the same view, and retries transient
+/// connection failures while an SSH tunnel is still coming up. Owned by the
+/// model so it outlives any individual mount of the SwiftUI view.
+final class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private weak var model: WebTabModel?
+    private var observations: [NSKeyValueObservation] = []
+    /// Retry bookkeeping: a profile's link opens its web tab immediately, but the
+    /// SSH tunnel it depends on is still coming up — and the forwarded port refuses
+    /// connections until login finishes (which, with an interactive password, can
+    /// take a while). On a connection failure we wait for that port to actually
+    /// open (see `tunnelGate` / `PortProbe`) and reload then, so the page loads on
+    /// its own with no manual reload. `maxRetries` just caps the number of failed
+    /// loads so an ordinary unreachable site eventually stops.
+    private var retryCount = 0
+    private let maxRetries = 40
+    private var isRetrying = false
 
-        init(model: WebTabModel) { self.model = model }
+    init(model: WebTabModel) { self.model = model }
 
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            // A fresh, user-driven navigation resets the retry budget; our own
-            // retries don't.
-            if !isRetrying { retryCount = 0 }
-            isRetrying = false
-        }
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        // A fresh, user-driven navigation resets the retry budget; our own
+        // retries don't.
+        if !isRetrying { retryCount = 0 }
+        isRetrying = false
+    }
 
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            retryCount = 0
-        }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        retryCount = 0
+    }
 
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            retryIfTransient(webView, error: error as NSError)
-        }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        retryIfTransient(webView, error: error as NSError)
+    }
 
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            retryIfTransient(webView, error: error as NSError)
-        }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        retryIfTransient(webView, error: error as NSError)
+    }
 
-        /// Re-attempt the load after a short delay for connection errors that
-        /// typically clear once the tunnel finishes connecting.
-        private func retryIfTransient(_ webView: WKWebView, error: NSError) {
-            let transient: Set<Int> = [
-                NSURLErrorCannotConnectToHost,
-                NSURLErrorCannotFindHost,
-                NSURLErrorNetworkConnectionLost,
-                NSURLErrorTimedOut,
-                NSURLErrorDNSLookupFailed,
-                NSURLErrorResourceUnavailable,
-                NSURLErrorNotConnectedToInternet,
-            ]
-            guard error.domain == NSURLErrorDomain, transient.contains(error.code),
-                  retryCount < maxRetries else { return }
-            let failingURL = (error.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
-                ?? webView.url ?? model.initialURL
-            guard let url = failingURL else { return }
-            retryCount += 1
-            isRetrying = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak webView] in
+    /// Re-attempt the load after a short delay for connection errors that
+    /// typically clear once the tunnel finishes connecting.
+    private func retryIfTransient(_ webView: WKWebView, error: NSError) {
+        let transient: Set<Int> = [
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorCannotFindHost,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorTimedOut,
+            NSURLErrorDNSLookupFailed,
+            NSURLErrorResourceUnavailable,
+            NSURLErrorNotConnectedToInternet,
+        ]
+        guard error.domain == NSURLErrorDomain, transient.contains(error.code),
+              retryCount < maxRetries else { return }
+        let failingURL = (error.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
+            ?? webView.url ?? model?.initialURL
+        guard let url = failingURL else { return }
+        retryCount += 1
+        isRetrying = true
+        // If this tab depends on an SSH tunnel, wait for its forwarded port / SOCKS
+        // proxy to actually accept a connection before reloading — rather than
+        // hammering WKWebView, which trips CFNetwork's connection-failure backoff
+        // and delays the load. Probing with a raw socket lets the page load promptly
+        // on its own the moment the tunnel finishes logging in. Ordinary internet
+        // tabs (no tunnel) just retry on a short ramped timer instead.
+        if let gate = model?.tunnelGate() {
+            PortProbe.waitUntilOpen(gate, timeout: 90) { [weak webView] in
+                webView?.load(URLRequest(url: url))
+            }
+        } else {
+            let delay = min(2.5, 0.5 + 0.15 * Double(retryCount))
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak webView] in
                 webView?.load(URLRequest(url: url))
             }
         }
+    }
 
-        func observe(_ webView: WKWebView) {
-            let sync: (WKWebView) -> Void = { [weak self] wv in
-                guard let self else { return }
-                let url = wv.url, title = wv.title
-                let back = wv.canGoBack, forward = wv.canGoForward
-                let loading = wv.isLoading, progress = wv.estimatedProgress
-                DispatchQueue.main.async {
-                    self.model.sync(url: url, title: title, back: back,
-                                    forward: forward, loading: loading, progress: progress)
-                }
+    func observe(_ webView: WKWebView) {
+        let sync: (WKWebView) -> Void = { [weak self] wv in
+            guard let self, let model = self.model else { return }
+            let url = wv.url, title = wv.title
+            let back = wv.canGoBack, forward = wv.canGoForward
+            let loading = wv.isLoading, progress = wv.estimatedProgress
+            DispatchQueue.main.async {
+                model.sync(url: url, title: title, back: back,
+                           forward: forward, loading: loading, progress: progress)
             }
-            observations = [
-                webView.observe(\.title, options: [.new]) { wv, _ in sync(wv) },
-                webView.observe(\.url, options: [.new]) { wv, _ in sync(wv) },
-                webView.observe(\.canGoBack, options: [.new]) { wv, _ in sync(wv) },
-                webView.observe(\.canGoForward, options: [.new]) { wv, _ in sync(wv) },
-                webView.observe(\.isLoading, options: [.new]) { wv, _ in sync(wv) },
-                webView.observe(\.estimatedProgress, options: [.new]) { wv, _ in sync(wv) },
-            ]
         }
+        observations = [
+            webView.observe(\.title, options: [.new]) { wv, _ in sync(wv) },
+            webView.observe(\.url, options: [.new]) { wv, _ in sync(wv) },
+            webView.observe(\.canGoBack, options: [.new]) { wv, _ in sync(wv) },
+            webView.observe(\.canGoForward, options: [.new]) { wv, _ in sync(wv) },
+            webView.observe(\.isLoading, options: [.new]) { wv, _ in sync(wv) },
+            webView.observe(\.estimatedProgress, options: [.new]) { wv, _ in sync(wv) },
+        ]
+    }
 
-        /// Open `target="_blank"` / `window.open` links in the same web view
-        /// rather than spawning a separate window.
-        func webView(_ webView: WKWebView,
-                     createWebViewWith configuration: WKWebViewConfiguration,
-                     for navigationAction: WKNavigationAction,
-                     windowFeatures: WKWindowFeatures) -> WKWebView? {
-            if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
-                webView.load(URLRequest(url: url))
-            }
-            return nil
+    /// Open `target="_blank"` / `window.open` links in the same web view rather
+    /// than spawning a separate window.
+    func webView(_ webView: WKWebView,
+                 createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
+            webView.load(URLRequest(url: url))
         }
+        return nil
     }
 }
 
@@ -270,5 +316,43 @@ struct WebTabView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+}
+
+/// Polls a TCP endpoint until it accepts a connection, then invokes `onOpen` once.
+/// Used to wait for an SSH tunnel's forwarded port (or SOCKS proxy) to come up
+/// before (re)loading a web tab — so a page opened from a profile loads on its own
+/// as soon as login finishes, with no manual reload.
+enum PortProbe {
+    static func waitUntilOpen(_ endpoint: NWEndpoint,
+                              timeout: TimeInterval,
+                              onOpen: @escaping () -> Void) {
+        let deadline = Date().addingTimeInterval(timeout)
+        func attempt() {
+            guard Date() < deadline else { return }
+            let conn = NWConnection(to: endpoint, using: .tcp)
+            var settled = false
+            func settle(open: Bool) {
+                guard !settled else { return }
+                settled = true
+                conn.cancel()
+                if open {
+                    DispatchQueue.main.async(execute: onOpen)
+                } else {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 1.0, execute: attempt)
+                }
+            }
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready: settle(open: true)
+                case .failed, .cancelled: settle(open: false)
+                default: break
+                }
+            }
+            conn.start(queue: .global())
+            // Don't let a single hung connect stall the poll.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) { settle(open: false) }
+        }
+        attempt()
     }
 }

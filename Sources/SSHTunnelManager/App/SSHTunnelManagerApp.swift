@@ -109,6 +109,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Runs before the SwiftUI window is shown — the right place to suppress it.
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // We manage our own tab bar, so suppress AppKit's native window tabbing —
+        // this also removes the “Show/Hide Tab Bar” item it injects into the View menu.
+        NSWindow.allowsAutomaticWindowTabbing = false
+
         // Single-instance check: if another copy is already running, activate it and quit.
         let dominated = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
             .filter { $0 != NSRunningApplication.current }
@@ -159,6 +163,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         guard !isDuplicateInstance else { return }
         TerminalSessionManager.shared.persistOpenSessions()
+        // Then reap every tunnel's process so none survives the app holding a
+        // forwarded port — otherwise the next launch's reconnect collides and dies.
+        TerminalSessionManager.shared.shutDownAllProcesses()
     }
 
     // Keep running in the menu bar even when the main window is closed.

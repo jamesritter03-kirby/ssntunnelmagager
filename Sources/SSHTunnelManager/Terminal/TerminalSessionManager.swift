@@ -324,8 +324,12 @@ final class TerminalSessionManager: ObservableObject {
                 neighborID = attachedIDs[(pos + 1)...].first ?? attachedIDs[..<pos].last
             }
         }
-        // Removing the last strong reference tears down the PTY, which sends SIGHUP
-        // to the child process (ssh) and cleans up its tunnels.
+        // Kill the child process *now* rather than waiting for ARC to drop the last
+        // reference and let the PTY teardown deliver SIGHUP. A lingering strong
+        // reference (a still-mounted SwiftUI view, a capturing closure) would leave
+        // an SSH tunnel running as a "zombie" that keeps holding its forwarded ports,
+        // so the next connection to that profile collides on them and dies.
+        session.shutDown()
         sessions.removeAll { $0.id == session.id }
         detachedSessionIDs.remove(session.id)
         if let w = wsIndex {
@@ -354,6 +358,14 @@ final class TerminalSessionManager: ObservableObject {
         for session in sessions.filter({ $0.kind == .ssh && $0.isRunning }) {
             close(session)
         }
+    }
+
+    /// Forcefully stop every session's underlying process — used on quit so no SSH
+    /// tunnel can outlive the app and keep holding its forwarded ports (which would
+    /// make the next launch's reconnect collide on them). Leaves `sessions` intact
+    /// so the open-state has already been persisted by the caller.
+    func shutDownAllProcesses() {
+        for session in sessions { session.shutDown() }
     }
 
     func select(_ session: TerminalSession) {
@@ -586,8 +598,53 @@ final class TerminalSessionManager: ObservableObject {
 
     /// If the user enabled "resume last session", recreate the previous tabs.
     func restoreLastSessionIfEnabled() {
+        // First reap any tunnels left over from a previous run that crashed or was
+        // force-quit (so applicationWillTerminate never reaped them). They'd still
+        // be holding their forwarded ports, and the tunnels we're about to restore
+        // — or the user's next manual connect — would collide on those ports and
+        // die. Safe to do here: we're past the single-instance check, so any match
+        // is genuinely a leftover, not a second live copy of the app.
+        reapStrayTunnels()
         if AppSettings.shared.resumeLastSession {
             restoreSavedSessions()
+        }
+    }
+
+    /// Find and hang up `ssh` processes that look exactly like one of our own
+    /// profile *tunnels* (our ssh binary, the profile's destination, and at least
+    /// one `-L`/`-R`/`-D` forward) and are still alive from a previous run. We match
+    /// on the profile destination so an unrelated ssh the user started by hand is
+    /// never touched.
+    private func reapStrayTunnels() {
+        let profiles = ProfileStore.shared.profiles.filter { !$0.isLocal }
+        guard !profiles.isEmpty else { return }
+        let destinations: [String] = profiles.compactMap { p in
+            let host = p.host.trimmingCharacters(in: .whitespaces)
+            guard !host.isEmpty else { return nil }
+            let user = p.username.trimmingCharacters(in: .whitespaces)
+            return user.isEmpty ? host : "\(user)@\(host)"
+        }
+        guard !destinations.isEmpty else { return }
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/ps")
+        task.arguments = ["-axo", "pid=,command="]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        do { try task.run() } catch { return }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+        guard let out = String(data: data, encoding: .utf8) else { return }
+
+        for line in out.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let sp = trimmed.firstIndex(of: " ") else { continue }
+            guard let pid = pid_t(trimmed[..<sp]) else { continue }
+            let cmd = String(trimmed[trimmed.index(after: sp)...])
+            guard cmd.hasPrefix(SSHCommandBuilder.sshPath) else { continue }
+            let hasForward = cmd.contains(" -L ") || cmd.contains(" -R ") || cmd.contains(" -D ")
+            guard hasForward, destinations.contains(where: { cmd.contains($0) }) else { continue }
+            kill(pid, SIGHUP)
         }
     }
 }
