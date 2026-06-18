@@ -628,6 +628,11 @@ private struct TerminalTile: View {
                     .font(.caption)
                     .lineLimit(1)
                 Spacer(minLength: 4)
+                if session.kind == .ssh || session.kind == .localShell {
+                    HistoryMenuButton(session: session)
+                        .font(.caption2)
+                        .menuIndicator(.hidden)
+                }
                 if session.isRunning {
                     Button {
                         session.disconnect()

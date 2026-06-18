@@ -148,6 +148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The always-available menu bar (status bar) item.
         menuBarController = MenuBarController(store: .shared, sessions: .shared)
 
+        // F12 / ⌥⌘I opens the Web Inspector in the focused browser tab.
+        WebInspectorHotkey.install()
+
         // Restore the previous session's tabs (if enabled), then keep saving the
         // open set so the next launch can resume exactly where we left off.
         TerminalSessionManager.shared.restoreLastSessionIfEnabled()

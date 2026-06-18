@@ -54,9 +54,14 @@ final class WebTabModel: ObservableObject {
     private func makeWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = Self.dataStore(for: proxy)
-        let wv = WKWebView(frame: .zero, configuration: config)
+        // Enable WebKit's developer tools (the same Web Inspector Safari uses) so
+        // the tab can open it with F12 / ⌥⌘I. `developerExtrasEnabled` also adds
+        // "Inspect Element" to the right-click menu and covers macOS 13.0–13.2.
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        let wv = InspectableWebView(frame: .zero, configuration: config)
         wv.allowsBackForwardNavigationGestures = true
         wv.allowsMagnification = true
+        if #available(macOS 13.3, *) { wv.isInspectable = true }
         let nav = WebNavigator(model: self)
         wv.navigationDelegate = nav
         wv.uiDelegate = nav
@@ -86,6 +91,12 @@ final class WebTabModel: ObservableObject {
         if let url = webView.url ?? initialURL {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// Open (or close) WebKit's Web Inspector for this tab — the developer tools
+    /// shown by F12 / ⌥⌘I, the same inspector Safari uses.
+    func toggleWebInspector() {
+        (webView as? InspectableWebView)?.toggleInspector()
     }
 
     /// A data store configured to route through `proxy` when set (a profile's
@@ -145,6 +156,126 @@ struct WebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView { model.webView }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {}
+}
+
+/// A `WKWebView` that opens WebKit's Web Inspector (developer tools) on F12 or
+/// ⌥⌘I / ⌥⌘C, like a desktop browser. The inspector is the same one Safari
+/// uses; it's enabled via the view's `isInspectable` flag and the configuration's
+/// `developerExtrasEnabled` preference (set in `WebTabModel.makeWebView`).
+final class InspectableWebView: WKWebView {
+    override func keyDown(with event: NSEvent) {
+        if Self.isInspectorShortcut(event) { toggleInspector(); return }
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Catch ⌥⌘I / ⌥⌘C here too: as a key *equivalent* it's offered down the
+        // responder chain before the web content can consume it.
+        if Self.isInspectorShortcut(event) { toggleInspector(); return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// True for F12 (keyCode 111) or ⌥⌘I / ⌥⌘C — the usual "open dev tools" keys.
+    private static func isInspectorShortcut(_ event: NSEvent) -> Bool {
+        if event.keyCode == 111 { return true }
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if mods == [.command, .option],
+           let c = event.charactersIgnoringModifiers?.lowercased() {
+            return c == "i" || c == "c"
+        }
+        return false
+    }
+
+    /// Toggle the Web Inspector for this view via WebKit's private `_inspector`
+    /// hook (the same inspector "Inspect Element" opens). The app ships outside the
+    /// App Store, so the private call is fine; it degrades to a beep if the hook
+    /// isn't available on the running system.
+    ///
+    /// The inspector is forced into its own **detached** window. A *docked*
+    /// inspector hosted inside our SwiftUI `NSViewRepresentable` comes up as an
+    /// empty dark panel — WebKit can't lay out its docked frontend in that view
+    /// hierarchy — so we detach it, giving it a normal `NSWindow` with the full
+    /// developer interface (Elements, Console, Sources, Network, …). WebKit
+    /// remembers the detached choice, so later opens stay detached.
+    func toggleInspector() {
+        let key = "_inspector"
+        guard responds(to: Selector((key))),
+              let inspector = value(forKey: key) as? NSObject else {
+            NSSound.beep(); return
+        }
+        let visible = (inspector.value(forKey: "isVisible") as? Bool) ?? false
+        if visible {
+            invoke("close", on: inspector)
+            return
+        }
+        invoke("show", on: inspector)
+        // Pop it out of the (broken) docked layout into its own window once `show`
+        // has built the frontend. Detaching an already-detached inspector is a
+        // harmless no-op.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.invoke("detach", on: inspector)
+        }
+    }
+
+    /// Call a no-argument Objective-C selector by name if the object responds.
+    @discardableResult
+    private func invoke(_ name: String, on object: NSObject) -> Bool {
+        let sel = Selector((name))
+        guard object.responds(to: sel) else { return false }
+        object.perform(sel)
+        return true
+    }
+}
+
+/// Installs a single app-wide key monitor that opens the Web Inspector on F12 /
+/// ⌥⌘I / ⌥⌘C for whichever browser tab has focus. A local monitor is needed
+/// because a focused `WKWebView` hands key events straight to its web content
+/// process, so the view's own `keyDown` never sees F12 — but the monitor runs in
+/// `sendEvent(_:)`, before that dispatch, so it reliably catches the shortcut and
+/// swallows it (the page never sees it).
+enum WebInspectorHotkey {
+    private static var monitor: Any?
+
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard isShortcut(event), let web = focusedInspectableWebView() else { return event }
+            web.toggleInspector()
+            return nil   // consume — don't pass F12 on to the page
+        }
+    }
+
+    /// F12, or ⌥⌘I / ⌥⌘C — the usual "open developer tools" keys.
+    private static func isShortcut(_ event: NSEvent) -> Bool {
+        if event.keyCode == 111 { return true }
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if mods == [.command, .option],
+           let c = event.charactersIgnoringModifiers?.lowercased() {
+            return c == "i" || c == "c"
+        }
+        return false
+    }
+
+    /// The `InspectableWebView` that should receive the shortcut: the one in the
+    /// key window's responder chain, else the first visible one (covers pressing
+    /// the key right after the page loads, before clicking into it).
+    private static func focusedInspectableWebView() -> InspectableWebView? {
+        guard let window = NSApp.keyWindow else { return nil }
+        var responder: NSResponder? = window.firstResponder
+        while let r = responder {
+            if let web = r as? InspectableWebView { return web }
+            responder = r.nextResponder
+        }
+        return window.contentView.flatMap(firstWebView(in:))
+    }
+
+    private static func firstWebView(in view: NSView) -> InspectableWebView? {
+        if let web = view as? InspectableWebView, web.window != nil { return web }
+        for sub in view.subviews {
+            if let found = firstWebView(in: sub) { return found }
+        }
+        return nil
+    }
 }
 
 /// Drives a `WKWebView`'s navigation: mirrors its state back to the model via
@@ -308,6 +439,9 @@ struct WebTabView: View {
                     .foregroundStyle(.green)
                     .help("Routing through SOCKS proxy \(proxy.host):\(proxy.port)")
             }
+
+            Button { model.toggleWebInspector() } label: { Image(systemName: "ladybug") }
+                .help("Open Web Inspector — developer tools (F12 or ⌥⌘I)")
 
             Button { model.openInDefaultBrowser() } label: { Image(systemName: "safari") }
                 .help("Open in your default browser")
