@@ -587,12 +587,23 @@ private struct TiledTerminalsView: View {
     @EnvironmentObject var sessions: TerminalSessionManager
     let items: [TerminalSession]
 
-    /// While a divider drag is in progress, the live layout being shown. `nil`
-    /// when not dragging, so the workspace's saved layout is the source of truth.
+    /// While a divider drag is in progress, the previewed layout. It drives only
+    /// the guide line — not the tiles — so the live terminals don't re-lay-out on
+    /// every pixel. `nil` when not dragging.
     @State private var dragLayout: TileLayout?
     /// The layout captured when the current drag began; the drag's translation is
-    /// applied relative to this so the divider tracks the pointer exactly.
+    /// applied relative to this so the guide tracks the pointer exactly.
     @State private var dragAnchor: TileLayout?
+    /// Which divider is being dragged (drives the guide line and keeps the source
+    /// divider highlighted). `nil` when not dragging.
+    @State private var activeDivider: ActiveDivider?
+
+    /// Identifies the divider under the drag: a boundary between two rows, or a
+    /// boundary between two columns within a given row.
+    private enum ActiveDivider: Equatable {
+        case row(Int)
+        case column(row: Int, boundary: Int)
+    }
 
     private let dividerThickness: CGFloat = 8
     private let minTileWidth: CGFloat = 160
@@ -603,23 +614,32 @@ private struct TiledTerminalsView: View {
     var body: some View {
         let shape = self.shape
         let rows = TileGrid.rows(items, shape: shape)
-        let layout = (dragLayout ?? sessions.currentTileLayout).conformed(to: shape)
+        // The committed layout always drives the tile frames, so the live
+        // terminals only re-lay-out once — when the drag ends — instead of on
+        // every pixel of the drag (which made the panes and divider flicker). The
+        // in-progress drag is shown with a lightweight guide line instead.
+        let committed = sessions.currentTileLayout.conformed(to: shape)
         GeometryReader { geo in
             let availableHeight = max(1, geo.size.height
                                       - dividerThickness * CGFloat(max(0, rows.count - 1)))
-            VStack(spacing: 0) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
-                    tileRow(rowIndex: rowIndex, row: row, layout: layout,
-                            totalWidth: geo.size.width)
-                        .frame(height: CGFloat(layout.rowFractions[rowIndex]) * availableHeight)
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                        tileRow(rowIndex: rowIndex, row: row, layout: committed,
+                                totalWidth: geo.size.width)
+                            .frame(height: CGFloat(committed.rowFractions[rowIndex]) * availableHeight)
 
-                    if rowIndex < rows.count - 1 {
-                        TileDivider(orientation: .horizontal)
-                            .frame(height: dividerThickness)
-                            .gesture(rowDrag(boundary: rowIndex, shape: shape,
-                                             availableHeight: availableHeight))
+                        if rowIndex < rows.count - 1 {
+                            TileDivider(orientation: .horizontal,
+                                        isActive: activeDivider == .row(rowIndex))
+                                .frame(height: dividerThickness)
+                                .gesture(rowDrag(boundary: rowIndex, shape: shape,
+                                                 availableHeight: availableHeight))
+                        }
                     }
                 }
+                dragGuide(committed: committed, geo: geo, availableHeight: availableHeight)
+                    .allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -639,11 +659,37 @@ private struct TiledTerminalsView: View {
                     .frame(width: CGFloat(layout.columnFractions[rowIndex][columnIndex]) * availableWidth)
 
                 if columnIndex < columns - 1 {
-                    TileDivider(orientation: .vertical)
+                    TileDivider(orientation: .vertical,
+                                isActive: activeDivider == .column(row: rowIndex, boundary: columnIndex))
                         .frame(width: dividerThickness)
                         .gesture(columnDrag(row: rowIndex, boundary: columnIndex,
                                             shape: shape, availableWidth: availableWidth))
                 }
+            }
+        }
+    }
+
+    /// The highlighted guide line shown at the divider's would-be position during
+    /// a drag. Its position comes from the previewed layout; the tiles themselves
+    /// don't move until the drag ends, so nothing re-lays-out per pixel.
+    @ViewBuilder
+    private func dragGuide(committed: TileLayout, geo: GeometryProxy,
+                           availableHeight: CGFloat) -> some View {
+        if let activeDivider, let preview = dragLayout {
+            switch activeDivider {
+            case .row(let index):
+                let y = horizontalDividerCenter(preview, boundary: index,
+                                                availableHeight: availableHeight)
+                Capsule().fill(Color.accentColor)
+                    .frame(width: max(0, geo.size.width), height: 2)
+                    .position(x: geo.size.width / 2, y: y)
+            case .column(let rowIndex, let boundary):
+                let x = verticalDividerCenter(preview, row: rowIndex, boundary: boundary,
+                                              totalWidth: geo.size.width)
+                let extent = rowExtent(committed, row: rowIndex, availableHeight: availableHeight)
+                Capsule().fill(Color.accentColor)
+                    .frame(width: 2, height: max(0, extent.height))
+                    .position(x: x, y: extent.top + extent.height / 2)
             }
         }
     }
@@ -653,6 +699,7 @@ private struct TiledTerminalsView: View {
                          availableHeight: CGFloat) -> some Gesture {
         DragGesture()
             .onChanged { value in
+                activeDivider = .row(index)
                 let anchor = anchorLayout(for: shape)
                 let minFraction = Double(minTileHeight / availableHeight)
                 let delta = Double(value.translation.height / availableHeight)
@@ -670,6 +717,7 @@ private struct TiledTerminalsView: View {
                             shape: [Int], availableWidth: CGFloat) -> some Gesture {
         DragGesture()
             .onChanged { value in
+                activeDivider = .column(row: rowIndex, boundary: index)
                 let anchor = anchorLayout(for: shape)
                 let minFraction = Double(minTileWidth / availableWidth)
                 let delta = Double(value.translation.width / availableWidth)
@@ -690,11 +738,43 @@ private struct TiledTerminalsView: View {
         return anchor
     }
 
-    /// Commit the in-progress drag to the workspace and end the drag.
+    /// Commit the in-progress drag to the workspace (a single resize) and end it.
     private func commitDrag() {
         if let dragLayout { sessions.updateTileLayout(dragLayout) }
         dragLayout = nil
         dragAnchor = nil
+        activeDivider = nil
+    }
+
+    /// Sum of the first `index + 1` fractions (0 for a negative index).
+    private func cumulative(_ fractions: [Double], through index: Int) -> CGFloat {
+        guard index >= 0 else { return 0 }
+        return CGFloat(fractions.prefix(index + 1).reduce(0, +))
+    }
+
+    /// Center Y of the horizontal divider after row `index`, for layout `L`.
+    private func horizontalDividerCenter(_ L: TileLayout, boundary index: Int,
+                                         availableHeight: CGFloat) -> CGFloat {
+        cumulative(L.rowFractions, through: index) * availableHeight
+            + CGFloat(index) * dividerThickness + dividerThickness / 2
+    }
+
+    /// Center X of the vertical divider after column `boundary` in row `row`.
+    private func verticalDividerCenter(_ L: TileLayout, row: Int, boundary: Int,
+                                       totalWidth: CGFloat) -> CGFloat {
+        let columns = L.columnFractions[row].count
+        let availableWidth = max(1, totalWidth - dividerThickness * CGFloat(max(0, columns - 1)))
+        return cumulative(L.columnFractions[row], through: boundary) * availableWidth
+            + CGFloat(boundary) * dividerThickness + dividerThickness / 2
+    }
+
+    /// Top and height of row `row` — the cross-axis extent for a vertical guide.
+    private func rowExtent(_ L: TileLayout, row: Int,
+                           availableHeight: CGFloat) -> (top: CGFloat, height: CGFloat) {
+        let top = cumulative(L.rowFractions, through: row - 1) * availableHeight
+            + CGFloat(row) * dividerThickness
+        let height = CGFloat(L.rowFractions[row]) * availableHeight
+        return (top, height)
     }
 }
 
@@ -704,14 +784,22 @@ private struct TiledTerminalsView: View {
 private struct TileDivider: View {
     enum Orientation { case horizontal, vertical }
     let orientation: Orientation
+    /// True while this divider is being dragged — keeps it highlighted without
+    /// depending on hover, which flickers as the pointer leaves during a drag.
+    var isActive: Bool = false
     @State private var hovering = false
+
+    private var lineOpacity: Double {
+        if isActive { return 0.5 }
+        return hovering ? 0.6 : 0.18
+    }
 
     var body: some View {
         Rectangle()
             .fill(Color.clear)
             .overlay(
                 Rectangle()
-                    .fill(Color.secondary.opacity(hovering ? 0.6 : 0.18))
+                    .fill(Color.secondary.opacity(lineOpacity))
                     .frame(width: orientation == .vertical ? 1 : nil,
                            height: orientation == .horizontal ? 1 : nil)
             )
@@ -740,7 +828,9 @@ private struct ResizeCursorRect: NSViewRepresentable {
 
     final class CursorRectView: NSView {
         var cursor: NSCursor = .arrow {
-            didSet { window?.invalidateCursorRects(for: self) }
+            didSet {
+                if cursor != oldValue { window?.invalidateCursorRects(for: self) }
+            }
         }
         override func resetCursorRects() { addCursorRect(bounds, cursor: cursor) }
     }

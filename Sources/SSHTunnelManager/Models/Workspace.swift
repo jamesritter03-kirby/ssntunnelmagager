@@ -157,6 +157,32 @@ struct SavedWorkspace: Identifiable, Codable {
     var id: UUID = UUID()
     var name: String
     var tabs: [SessionSnapshot]
+    /// Whether the workspace was tiled when saved.
+    var isTiled: Bool = false
     /// Saved tiled-grid sizing for the workspace, if any.
     var tileLayout: TileLayout? = nil
+
+    init(id: UUID = UUID(), name: String, tabs: [SessionSnapshot],
+         isTiled: Bool = false, tileLayout: TileLayout? = nil) {
+        self.id = id
+        self.name = name
+        self.tabs = tabs
+        self.isTiled = isTiled
+        self.tileLayout = tileLayout
+    }
+
+    // Custom decoding so library entries saved before `isTiled` / `tileLayout`
+    // existed still load. Synthesized `Decodable` would throw `keyNotFound` on the
+    // missing `isTiled` key *despite* its default value (a default only feeds the
+    // memberwise initializer, not decoding) — which would silently wipe the whole
+    // saved-workspace library on upgrade. Decoding each newer field "if present"
+    // keeps old data readable.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        tabs = try c.decode([SessionSnapshot].self, forKey: .tabs)
+        isTiled = try c.decodeIfPresent(Bool.self, forKey: .isTiled) ?? false
+        tileLayout = try c.decodeIfPresent(TileLayout.self, forKey: .tileLayout)
+    }
 }

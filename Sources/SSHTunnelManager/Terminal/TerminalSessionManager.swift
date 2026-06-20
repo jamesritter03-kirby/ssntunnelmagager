@@ -458,9 +458,11 @@ final class TerminalSessionManager: ObservableObject {
         let tabs = snapshotTabs(for: ws)
         if let idx = savedWorkspaces.firstIndex(where: { $0.name == finalName }) {
             savedWorkspaces[idx].tabs = tabs
+            savedWorkspaces[idx].isTiled = ws.isTiled
             savedWorkspaces[idx].tileLayout = ws.tileLayout
         } else {
             savedWorkspaces.append(SavedWorkspace(name: finalName, tabs: tabs,
+                                                  isTiled: ws.isTiled,
                                                   tileLayout: ws.tileLayout))
         }
         persistSavedWorkspaces()
@@ -469,6 +471,7 @@ final class TerminalSessionManager: ObservableObject {
     /// Open a saved workspace as a new top-level workspace tab.
     func openSavedWorkspace(_ saved: SavedWorkspace) {
         let ws = Workspace(name: saved.name,
+                           isTiled: saved.isTiled,
                            tileLayout: saved.tileLayout ?? TileLayout())
         workspaces.append(ws)
         currentWorkspaceID = ws.id
