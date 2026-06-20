@@ -232,6 +232,12 @@ Each terminal tab keeps a history of the commands you type in it. Click the **cl
 both local shells and remote SSH sessions. **Save History…** exports the list to a text file
 (oldest first, with a header), and **Clear History** empties the list.
 
+**Import History…** loads commands from a text file and appends them to the tab's list — point
+it at a previously exported history file, or at a shell's own `.bash_history` / `.zsh_history`
+(hidden dotfiles are selectable in the open panel). Blank lines and `#` comments are skipped,
+zsh `EXTENDED_HISTORY` timestamps are unwrapped automatically, and consecutive duplicates are
+collapsed. Import is always available from the clock menu, even on a brand‑new tab.
+
 > History is reconstructed from your keystrokes, so anything typed at a **password or
 > passphrase prompt is deliberately skipped**. (Because it's keystroke‑based, tab‑completed
 > or up‑arrow‑recalled lines may not be captured verbatim.) History lives in memory for the

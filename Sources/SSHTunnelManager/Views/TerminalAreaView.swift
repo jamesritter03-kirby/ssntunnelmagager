@@ -399,7 +399,14 @@ private struct HistoryMenuButton: View {
                     }
                     .disabled(!session.isRunning)
                 }
-                Divider()
+            }
+            Divider()
+            // Import is always available (even with no history yet) so a tab can
+            // be seeded from an exported file or a shell's own history.
+            Button("Import History…") {
+                importHistory()
+            }
+            if !session.commandHistory.isEmpty {
                 Button("Save History…") {
                     saveHistory()
                 }
@@ -433,6 +440,49 @@ private struct HistoryMenuButton: View {
             NSAlert(error: error).runModal()
         }
     }
+
+    /// Load commands from a user-chosen text file into this tab's history. Accepts
+    /// files exported by Save History… as well as plain shell history files
+    /// (`.bash_history`, `.zsh_history`); hidden files are shown so those dotfiles
+    /// can be picked.
+    private func importHistory() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Command History"
+        panel.message = "Choose a text file with one command per line (an exported history file, or a shell's .bash_history / .zsh_history)."
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        // `.data` lets extensionless dotfiles be selected; we decode as text and
+        // tolerate non-UTF-8 bytes, so a non-text file just yields no commands.
+        panel.allowedContentTypes = [.plainText, .text, .data]
+        panel.showsHiddenFiles = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            // Lossy UTF-8 decode never throws, so zsh's meta-encoded bytes don't
+            // abort the import; only a genuine read error (permissions) does.
+            let data = try Data(contentsOf: url)
+            let text = String(decoding: data, as: UTF8.self)
+            let added = session.importHistory(fromText: text)
+            reportImport(added: added)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+
+    /// Tell the user how many commands were imported (or that none were found).
+    private func reportImport(added: Int) {
+        let alert = NSAlert()
+        if added > 0 {
+            alert.alertStyle = .informational
+            alert.messageText = "Imported \(added) command\(added == 1 ? "" : "s")"
+            alert.informativeText = "They're now in this tab's history — click the clock to run any of them again."
+        } else {
+            alert.alertStyle = .warning
+            alert.messageText = "No commands imported"
+            alert.informativeText = "That file didn't contain any commands (after skipping blank and comment lines)."
+        }
+        alert.runModal()
+    }
 }
 
 /// Disconnects the selected tab's process (closing its SSH tunnel) while keeping
@@ -455,20 +505,102 @@ private struct DisconnectButton: View {
     }
 }
 
-private struct TabChip: View {
-    @ObservedObject var session: TerminalSession
+/// The shared right-click menu for a terminal tab. Used both by the tab chip in
+/// the tab bar and by the header bar of a tile in the tiled layout, so a tile's
+/// title bar offers the very same actions (Snippets, Links, Disconnect/Stop,
+/// SFTP, VNC, Detach, Close) as right-clicking its tab.
+private struct TerminalTabContextMenu: View {
     @EnvironmentObject var sessions: TerminalSessionManager
     @EnvironmentObject var store: ProfileStore
-    let isSelected: Bool
-    var onSelect: () -> Void
-    var onClose: () -> Void
+    @ObservedObject var session: TerminalSession
     var onDetach: () -> Void
+    var onClose: () -> Void
 
     /// The profile backing this tab, if any (local shells have none).
     private var profile: SSHProfile? {
         guard let pid = session.profileID else { return nil }
         return store.profiles.first(where: { $0.id == pid })
     }
+
+    var body: some View {
+        // Snippets submenu (terminal tabs only)
+        if let profile, !profile.snippets.isEmpty,
+           session.kind == .ssh || session.kind == .localShell {
+            Menu {
+                ForEach(profile.snippets) { snippet in
+                    Menu(snippet.label.isEmpty ? snippet.command : snippet.label) {
+                        Button("Run") { session.run(snippet.command) }
+                        Button("Insert at Prompt") { session.paste(snippet.command) }
+                    }
+                    .disabled(!session.isRunning || snippet.command.isEmpty)
+                }
+            } label: {
+                Label("Snippets", systemImage: "text.badge.plus")
+            }
+        }
+        // Links submenu (any tab whose profile has links)
+        if let profile, !profile.links.isEmpty {
+            Menu {
+                ForEach(profile.links) { link in
+                    Button {
+                        sessions.openLink(link, profile: profile)
+                    } label: {
+                        Label(link.displayLabel, systemImage: "globe")
+                    }
+                    .disabled(link.normalizedURL == nil)
+                }
+            } label: {
+                Label("Links", systemImage: "globe")
+            }
+        }
+        if let profile,
+           (!profile.snippets.isEmpty && (session.kind == .ssh || session.kind == .localShell))
+           || !profile.links.isEmpty {
+            Divider()
+        }
+        if session.kind != .web {
+            Button {
+                session.disconnect()
+            } label: {
+                Label(session.isRemote ? "Disconnect" : "Stop",
+                      systemImage: "bolt.horizontal.circle")
+            }
+            .disabled(!session.isRunning)
+        }
+        if let profile, !profile.isLocal, session.kind != .sftp {
+            Button {
+                sessions.connectSFTP(profile: profile)
+            } label: {
+                Label("Open SFTP", systemImage: "arrow.up.arrow.down")
+            }
+        }
+        if let profile, !profile.isLocal, session.kind != .vnc {
+            Button {
+                sessions.connectVNC(profile: profile)
+            } label: {
+                Label("Open VNC", systemImage: "display")
+            }
+        }
+        Button {
+            onDetach()
+        } label: {
+            Label("Detach into New Window", systemImage: "macwindow.badge.plus")
+        }
+        Divider()
+        Button(role: .destructive) {
+            onClose()
+        } label: {
+            Label("Close Tab", systemImage: "xmark")
+        }
+    }
+}
+
+private struct TabChip: View {
+    @ObservedObject var session: TerminalSession
+    let isSelected: Bool
+    var onSelect: () -> Void
+    var onClose: () -> Void
+    var onDetach: () -> Void
 
     var body: some View {
         HStack(spacing: 7) {
@@ -499,75 +631,7 @@ private struct TabChip: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .contextMenu {
-            // Snippets submenu (terminal tabs only)
-            if let profile, !profile.snippets.isEmpty,
-               session.kind == .ssh || session.kind == .localShell {
-                Menu {
-                    ForEach(profile.snippets) { snippet in
-                        Menu(snippet.label.isEmpty ? snippet.command : snippet.label) {
-                            Button("Run") { session.run(snippet.command) }
-                            Button("Insert at Prompt") { session.paste(snippet.command) }
-                        }
-                        .disabled(!session.isRunning || snippet.command.isEmpty)
-                    }
-                } label: {
-                    Label("Snippets", systemImage: "text.badge.plus")
-                }
-            }
-            // Links submenu (any tab whose profile has links)
-            if let profile, !profile.links.isEmpty {
-                Menu {
-                    ForEach(profile.links) { link in
-                        Button {
-                            sessions.openLink(link, profile: profile)
-                        } label: {
-                            Label(link.displayLabel, systemImage: "globe")
-                        }
-                        .disabled(link.normalizedURL == nil)
-                    }
-                } label: {
-                    Label("Links", systemImage: "globe")
-                }
-            }
-            if let profile,
-               (!profile.snippets.isEmpty && (session.kind == .ssh || session.kind == .localShell))
-               || !profile.links.isEmpty {
-                Divider()
-            }
-            if session.kind != .web {
-                Button {
-                    session.disconnect()
-                } label: {
-                    Label(session.isRemote ? "Disconnect" : "Stop",
-                          systemImage: "bolt.horizontal.circle")
-                }
-                .disabled(!session.isRunning)
-            }
-            if let profile, !profile.isLocal, session.kind != .sftp {
-                Button {
-                    sessions.connectSFTP(profile: profile)
-                } label: {
-                    Label("Open SFTP", systemImage: "arrow.up.arrow.down")
-                }
-            }
-            if let profile, !profile.isLocal, session.kind != .vnc {
-                Button {
-                    sessions.connectVNC(profile: profile)
-                } label: {
-                    Label("Open VNC", systemImage: "display")
-                }
-            }
-            Button {
-                onDetach()
-            } label: {
-                Label("Detach into New Window", systemImage: "macwindow.badge.plus")
-            }
-            Divider()
-            Button(role: .destructive) {
-                onClose()
-            } label: {
-                Label("Close Tab", systemImage: "xmark")
-            }
+            TerminalTabContextMenu(session: session, onDetach: onDetach, onClose: onClose)
         }
     }
 
@@ -888,6 +952,12 @@ private struct TerminalTile: View {
             .background(.bar)
             .contentShape(Rectangle())
             .onTapGesture { sessions.select(session) }
+            .contextMenu {
+                TerminalTabContextMenu(
+                    session: session,
+                    onDetach: { DetachedTerminalController.shared.detach(session) },
+                    onClose: { sessions.close(session) })
+            }
 
             Divider()
             TerminalContainer(session: session)

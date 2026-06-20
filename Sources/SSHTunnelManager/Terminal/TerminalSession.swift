@@ -332,12 +332,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         addToHistory(command)
     }
 
-    private func addToHistory(_ command: String) {
-        if commandHistory.last == command { return }   // skip consecutive duplicate
+    @discardableResult
+    private func addToHistory(_ command: String) -> Bool {
+        if commandHistory.last == command { return false }   // skip consecutive duplicate
         commandHistory.append(command)
         if commandHistory.count > historyLimit {
             commandHistory.removeFirst(commandHistory.count - historyLimit)
         }
+        return true
     }
 
     /// Watch output to spot password prompts so the next submitted line isn't recorded.
@@ -394,6 +396,44 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     func clearHistory() {
         commandHistory.removeAll()
+    }
+
+    /// Import commands from plain text — one command per line — and append them to
+    /// this tab's history (oldest first). Blank lines and comment lines (starting
+    /// with `#`, e.g. the header written by Save History…) are skipped, and zsh
+    /// EXTENDED_HISTORY timestamps (`: 1700000000:0;the command`) are unwrapped —
+    /// so a file exported by this app, or a shell's own `.bash_history` /
+    /// `.zsh_history`, can be imported. Returns the number of commands added.
+    @discardableResult
+    func importHistory(fromText text: String) -> Int {
+        var added = 0
+        for command in TerminalSession.parseHistoryLines(text) where addToHistory(command) {
+            added += 1
+        }
+        return added
+    }
+
+    /// Extract runnable command lines from plain-text history (see `importHistory`).
+    static func parseHistoryLines(_ text: String) -> [String] {
+        text.split(whereSeparator: { $0 == "\n" || $0 == "\r" })
+            .compactMap { rawSlice -> String? in
+                let raw = rawSlice.trimmingCharacters(in: .whitespaces)
+                guard !raw.isEmpty, !raw.hasPrefix("#") else { return nil }
+                let command = unwrapZshHistory(raw)
+                return command.isEmpty ? nil : command
+            }
+    }
+
+    /// Strip a leading zsh EXTENDED_HISTORY timestamp (`: <start>:<elapsed>;`) if
+    /// present, returning the bare command. A line without that exact shape is
+    /// returned unchanged, so a real command that merely starts with `:` (the
+    /// shell no-op builtin) is preserved.
+    private static func unwrapZshHistory(_ line: String) -> String {
+        guard line.hasPrefix(": "), let semicolon = line.firstIndex(of: ";") else { return line }
+        let meta = line[line.index(line.startIndex, offsetBy: 2)..<semicolon]
+        let parts = meta.split(separator: ":")
+        guard parts.count == 2, parts.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return line }
+        return String(line[line.index(after: semicolon)...]).trimmingCharacters(in: .whitespaces)
     }
 
     /// A plain-text rendering of this tab's command history for export (oldest
