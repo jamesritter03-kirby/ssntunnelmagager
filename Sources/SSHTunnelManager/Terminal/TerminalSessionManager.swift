@@ -58,6 +58,17 @@ final class TerminalSessionManager: ObservableObject {
         }
     }
 
+    /// The saved sizing of the current workspace's tiled grid.
+    var currentTileLayout: TileLayout { currentWorkspace?.tileLayout ?? TileLayout() }
+
+    /// Record a new tiled-grid layout for the current workspace (after the user
+    /// drags a divider). Stored on the workspace, so it's persisted with
+    /// resume-last-session and survives switching workspaces.
+    func updateTileLayout(_ layout: TileLayout) {
+        guard let i = currentIndex, workspaces[i].tileLayout != layout else { return }
+        workspaces[i].tileLayout = layout
+    }
+
     /// Every session in the current workspace, in tab order (detached included).
     var currentWorkspaceSessions: [TerminalSession] {
         guard let ws = currentWorkspace else { return [] }
@@ -447,15 +458,18 @@ final class TerminalSessionManager: ObservableObject {
         let tabs = snapshotTabs(for: ws)
         if let idx = savedWorkspaces.firstIndex(where: { $0.name == finalName }) {
             savedWorkspaces[idx].tabs = tabs
+            savedWorkspaces[idx].tileLayout = ws.tileLayout
         } else {
-            savedWorkspaces.append(SavedWorkspace(name: finalName, tabs: tabs))
+            savedWorkspaces.append(SavedWorkspace(name: finalName, tabs: tabs,
+                                                  tileLayout: ws.tileLayout))
         }
         persistSavedWorkspaces()
     }
 
     /// Open a saved workspace as a new top-level workspace tab.
     func openSavedWorkspace(_ saved: SavedWorkspace) {
-        let ws = Workspace(name: saved.name)
+        let ws = Workspace(name: saved.name,
+                           tileLayout: saved.tileLayout ?? TileLayout())
         workspaces.append(ws)
         currentWorkspaceID = ws.id
         for tab in saved.tabs { recreate(tab) }
@@ -512,6 +526,7 @@ final class TerminalSessionManager: ObservableObject {
             let liveTabIDs = ws.tabIDs.filter { id in sessions.contains { $0.id == id } }
             let selIndex = ws.selectedSessionID.flatMap { liveTabIDs.firstIndex(of: $0) }
             return WorkspaceSnapshot(name: ws.name, isTiled: ws.isTiled,
+                                     tileLayout: ws.tileLayout,
                                      selectedIndex: selIndex, tabs: snapshotTabs(for: ws))
         }
         let current = workspaces.firstIndex { $0.id == currentWorkspaceID } ?? 0
@@ -579,7 +594,10 @@ final class TerminalSessionManager: ObservableObject {
         // keep holding their forwarded ports and break the next real connection.
         guard sessions.isEmpty else { return }
         guard let state = savedOpenState(), !state.workspaces.isEmpty else { return }
-        let built = state.workspaces.map { Workspace(name: $0.name, isTiled: $0.isTiled) }
+        let built = state.workspaces.map {
+            Workspace(name: $0.name, isTiled: $0.isTiled,
+                      tileLayout: $0.tileLayout ?? TileLayout())
+        }
         workspaces = built
         for (i, snap) in state.workspaces.enumerated() {
             currentWorkspaceID = built[i].id

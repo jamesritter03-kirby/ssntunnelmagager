@@ -20,7 +20,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Terminal") {
+            Section {
                 Picker("Default theme for local terminals", selection: $settings.defaultThemeID) {
                     ForEach(TerminalTheme.all) { theme in
                         Text(theme.name).tag(theme.id)
@@ -32,6 +32,21 @@ struct SettingsView: View {
                         step: TerminalFontMetrics.step) {
                     Text("Default text size for local terminals: \(Int(settings.defaultFontSize)) pt")
                 }
+                Picker("Right-click", selection: $settings.terminalRightClick) {
+                    ForEach(TerminalRightClickBehavior.allCases) { behavior in
+                        Text(behavior.label).tag(behavior)
+                    }
+                }
+                if settings.terminalRightClick == .smartCopyPaste {
+                    Toggle("Clear the selection after a right-click copy",
+                           isOn: $settings.deselectTerminalAfterCopy)
+                }
+            } header: {
+                Text("Terminal")
+            } footer: {
+                Text("“Copy selection, otherwise paste” copies highlighted text on right-click, pastes the clipboard when nothing is selected, and shows a Copy/Paste menu when there's neither — so a right-click is never wasted. While an app has mouse reporting on (vim, htop, tmux…), the right-click is passed through to it instead.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {

@@ -58,15 +58,73 @@ final class HistoryTerminalView: LocalProcessTerminalView {
         return super.performKeyEquivalent(with: event)
     }
 
-    /// Right-click pastes the clipboard (like PuTTY and most terminals).
+    /// Interpret a right-click according to the user's chosen behavior.
     ///
-    /// If a full-screen app has turned on mouse reporting (vim, htop, tmux, …)
-    /// we defer to the default handling so the app still receives the click.
+    /// If a full-screen app has turned on mouse reporting (vim, htop, tmux, …) we
+    /// always defer to the default handling so the app still receives the click.
+    /// Otherwise we apply the configured strategy. The "smart" mode is modelled on
+    /// RightClickPasteKing's Windows/Linux behavior — copy a selection, else paste,
+    /// else show a menu — but because we own this terminal view we can read the
+    /// selection directly (`selectionActive`) instead of probing for it with a
+    /// synthesized ⌘C and the pasteboard change count.
     override func rightMouseDown(with event: NSEvent) {
-        if let terminal, case .off = terminal.mouseMode {
-            paste(self)
-        } else {
+        guard let terminal, case .off = terminal.mouseMode else {
             super.rightMouseDown(with: event)
+            return
+        }
+        switch AppSettings.shared.terminalRightClick {
+        case .paste:
+            paste(self)
+        case .smartCopyPaste:
+            smartRightClick(with: event)
+        case .contextMenu:
+            showContextMenu(for: event)
         }
     }
+
+    /// Windows/Linux-style right-click: copy the selection if there is one
+    /// (optionally clearing it so the next click pastes), otherwise paste the
+    /// clipboard, otherwise show the context menu so the click is never wasted.
+    private func smartRightClick(with event: NSEvent) {
+        if selectionActive {
+            copy(self)
+            if AppSettings.shared.deselectTerminalAfterCopy { selectNone() }
+            return
+        }
+        if let text = NSPasteboard.general.string(forType: .string), !text.isEmpty {
+            paste(self)
+            return
+        }
+        showContextMenu(for: event)
+    }
+
+    /// Pop up a small Copy / Paste / Select All menu at the click location. Items
+    /// are enabled to match the current state (Copy only with a selection, Paste
+    /// only with clipboard text), so the menu is never misleading.
+    private func showContextMenu(for event: NSEvent) {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let copyItem = menu.addItem(withTitle: "Copy",
+                                    action: #selector(contextCopy), keyEquivalent: "")
+        copyItem.target = self
+        copyItem.isEnabled = selectionActive
+
+        let pasteItem = menu.addItem(withTitle: "Paste",
+                                     action: #selector(contextPaste), keyEquivalent: "")
+        pasteItem.target = self
+        pasteItem.isEnabled = NSPasteboard.general.string(forType: .string)?.isEmpty == false
+
+        menu.addItem(.separator())
+        let selectAllItem = menu.addItem(withTitle: "Select All",
+                                         action: #selector(contextSelectAll), keyEquivalent: "")
+        selectAllItem.target = self
+
+        menu.popUp(positioning: nil,
+                   at: convert(event.locationInWindow, from: nil), in: self)
+    }
+
+    @objc private func contextCopy() { copy(self) }
+    @objc private func contextPaste() { paste(self) }
+    @objc private func contextSelectAll() { selectAll(self) }
 }

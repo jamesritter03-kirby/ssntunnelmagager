@@ -579,34 +579,170 @@ private struct TabChip: View {
 }
 
 /// Lays out every attached terminal in a resizable grid (all kept live), with a
-/// header per tile and a highlight on the selected one. Uses nested split views
-/// so the user can drag dividers to resize panes.
+/// header per tile and a highlight on the selected one. The user can drag the
+/// dividers to resize panes; the sizes are stored as fractions on the workspace
+/// (`TileLayout`) so they're remembered when switching workspaces and across
+/// launches. The layout scales with the window because everything is fractional.
 private struct TiledTerminalsView: View {
     @EnvironmentObject var sessions: TerminalSessionManager
     let items: [TerminalSession]
 
+    /// While a divider drag is in progress, the live layout being shown. `nil`
+    /// when not dragging, so the workspace's saved layout is the source of truth.
+    @State private var dragLayout: TileLayout?
+    /// The layout captured when the current drag began; the drag's translation is
+    /// applied relative to this so the divider tracks the pointer exactly.
+    @State private var dragAnchor: TileLayout?
+
+    private let dividerThickness: CGFloat = 8
+    private let minTileWidth: CGFloat = 160
+    private let minTileHeight: CGFloat = 110
+
+    private var shape: [Int] { TileGrid.shape(forCount: items.count) }
+
     var body: some View {
-        let cols = columnCount(for: items.count)
-        let rows: [[TerminalSession]] = stride(from: 0, to: items.count, by: cols).map { start in
-            Array(items[start..<min(start + cols, items.count)])
-        }
-        VSplitView {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HSplitView {
-                    ForEach(row) { session in
-                        TerminalTile(session: session,
-                                     isSelected: session.id == sessions.selectedSessionID)
-                            .frame(minWidth: 200, minHeight: 120)
+        let shape = self.shape
+        let rows = TileGrid.rows(items, shape: shape)
+        let layout = (dragLayout ?? sessions.currentTileLayout).conformed(to: shape)
+        GeometryReader { geo in
+            let availableHeight = max(1, geo.size.height
+                                      - dividerThickness * CGFloat(max(0, rows.count - 1)))
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                    tileRow(rowIndex: rowIndex, row: row, layout: layout,
+                            totalWidth: geo.size.width)
+                        .frame(height: CGFloat(layout.rowFractions[rowIndex]) * availableHeight)
+
+                    if rowIndex < rows.count - 1 {
+                        TileDivider(orientation: .horizontal)
+                            .frame(height: dividerThickness)
+                            .gesture(rowDrag(boundary: rowIndex, shape: shape,
+                                             availableHeight: availableHeight))
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding(6)
     }
 
-    /// A near-square arrangement: 2 tabs → 2 cols, 3–4 → 2 cols, 5–9 → 3 cols, …
-    private func columnCount(for count: Int) -> Int {
-        max(1, Int(Double(count).squareRoot().rounded(.up)))
+    /// One row of the grid: its tiles separated by draggable vertical dividers.
+    private func tileRow(rowIndex: Int, row: [TerminalSession],
+                         layout: TileLayout, totalWidth: CGFloat) -> some View {
+        let columns = row.count
+        let availableWidth = max(1, totalWidth
+                                 - dividerThickness * CGFloat(max(0, columns - 1)))
+        return HStack(spacing: 0) {
+            ForEach(Array(row.enumerated()), id: \.element.id) { columnIndex, session in
+                TerminalTile(session: session,
+                             isSelected: session.id == sessions.selectedSessionID)
+                    .frame(width: CGFloat(layout.columnFractions[rowIndex][columnIndex]) * availableWidth)
+
+                if columnIndex < columns - 1 {
+                    TileDivider(orientation: .vertical)
+                        .frame(width: dividerThickness)
+                        .gesture(columnDrag(row: rowIndex, boundary: columnIndex,
+                                            shape: shape, availableWidth: availableWidth))
+                }
+            }
+        }
+    }
+
+    /// Drag gesture for the horizontal divider that resizes rows `index`/`index+1`.
+    private func rowDrag(boundary index: Int, shape: [Int],
+                         availableHeight: CGFloat) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                let anchor = anchorLayout(for: shape)
+                let minFraction = Double(minTileHeight / availableHeight)
+                let delta = Double(value.translation.height / availableHeight)
+                var next = anchor
+                next.rowFractions = TileLayout.resized(anchor.rowFractions, boundary: index,
+                                                       by: delta, minFraction: minFraction)
+                dragLayout = next
+            }
+            .onEnded { _ in commitDrag() }
+    }
+
+    /// Drag gesture for a vertical divider that resizes columns `index`/`index+1`
+    /// within `rowIndex`.
+    private func columnDrag(row rowIndex: Int, boundary index: Int,
+                            shape: [Int], availableWidth: CGFloat) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                let anchor = anchorLayout(for: shape)
+                let minFraction = Double(minTileWidth / availableWidth)
+                let delta = Double(value.translation.width / availableWidth)
+                var next = anchor
+                next.columnFractions[rowIndex] = TileLayout.resized(
+                    anchor.columnFractions[rowIndex], boundary: index,
+                    by: delta, minFraction: minFraction)
+                dragLayout = next
+            }
+            .onEnded { _ in commitDrag() }
+    }
+
+    /// The layout a drag is measured against — captured once when the drag starts.
+    private func anchorLayout(for shape: [Int]) -> TileLayout {
+        if let dragAnchor { return dragAnchor }
+        let anchor = (dragLayout ?? sessions.currentTileLayout).conformed(to: shape)
+        dragAnchor = anchor
+        return anchor
+    }
+
+    /// Commit the in-progress drag to the workspace and end the drag.
+    private func commitDrag() {
+        if let dragLayout { sessions.updateTileLayout(dragLayout) }
+        dragLayout = nil
+        dragAnchor = nil
+    }
+}
+
+/// A thin draggable separator between tiles, with a subtle line that brightens on
+/// hover and a matching resize cursor. The drag gesture itself is supplied by the
+/// grid, which knows the geometry and which panes to resize.
+private struct TileDivider: View {
+    enum Orientation { case horizontal, vertical }
+    let orientation: Orientation
+    @State private var hovering = false
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .overlay(
+                Rectangle()
+                    .fill(Color.secondary.opacity(hovering ? 0.6 : 0.18))
+                    .frame(width: orientation == .vertical ? 1 : nil,
+                           height: orientation == .horizontal ? 1 : nil)
+            )
+            // AppKit cursor rect — it balances enter/exit reliably even if the
+            // divider is torn down mid-hover (e.g. when the grid rebuilds), unlike
+            // manual NSCursor push/pop which could leave a stuck resize cursor.
+            .overlay(ResizeCursorRect(orientation: orientation))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+    }
+}
+
+/// Shows the appropriate resize cursor over its bounds via an AppKit cursor rect.
+private struct ResizeCursorRect: NSViewRepresentable {
+    let orientation: TileDivider.Orientation
+
+    func makeNSView(context: Context) -> CursorRectView {
+        let view = CursorRectView()
+        view.cursor = orientation == .horizontal ? .resizeUpDown : .resizeLeftRight
+        return view
+    }
+
+    func updateNSView(_ nsView: CursorRectView, context: Context) {
+        nsView.cursor = orientation == .horizontal ? .resizeUpDown : .resizeLeftRight
+    }
+
+    final class CursorRectView: NSView {
+        var cursor: NSCursor = .arrow {
+            didSet { window?.invalidateCursorRects(for: self) }
+        }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: cursor) }
     }
 }
 

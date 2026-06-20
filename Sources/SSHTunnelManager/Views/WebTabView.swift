@@ -58,6 +58,22 @@ final class WebTabModel: ObservableObject {
         // the tab can open it with F12 / ⌥⌘I. `developerExtrasEnabled` also adds
         // "Inspect Element" to the right-click menu and covers macOS 13.0–13.2.
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        // Some pages cancel the `contextmenu` event to hide the browser menu.
+        // Re-enable it so the developer right-click menu is always available: a
+        // capture-phase listener added at document start runs before the page's
+        // own handlers and stops their propagation, so WebKit shows its native
+        // menu (which `InspectableWebView.willOpenMenu` then augments).
+        let restoreContextMenu = WKUserScript(
+            source: """
+            (function() {
+              window.addEventListener('contextmenu', function(e) {
+                e.stopImmediatePropagation();
+              }, true);
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false)
+        config.userContentController.addUserScript(restoreContextMenu)
         let wv = InspectableWebView(frame: .zero, configuration: config)
         wv.allowsBackForwardNavigationGestures = true
         wv.allowsMagnification = true
@@ -163,6 +179,12 @@ struct WebView: NSViewRepresentable {
 /// uses; it's enabled via the view's `isInspectable` flag and the configuration's
 /// `developerExtrasEnabled` preference (set in `WebTabModel.makeWebView`).
 final class InspectableWebView: WKWebView {
+    /// Repeating check that keeps the Web Inspector in its own window (see
+    /// `toggleInspector`). Runs only while the inspector is open.
+    private var inspectorWatchdog: Timer?
+
+    deinit { inspectorWatchdog?.invalidate() }
+
     override func keyDown(with event: NSEvent) {
         if Self.isInspectorShortcut(event) { toggleInspector(); return }
         super.keyDown(with: event)
@@ -198,23 +220,59 @@ final class InspectableWebView: WKWebView {
     /// developer interface (Elements, Console, Sources, Network, …). WebKit
     /// remembers the detached choice, so later opens stay detached.
     func toggleInspector() {
-        let key = "_inspector"
-        guard responds(to: Selector((key))),
-              let inspector = value(forKey: key) as? NSObject else {
-            NSSound.beep(); return
-        }
+        guard let inspector = inspectorObject() else { NSSound.beep(); return }
         let visible = (inspector.value(forKey: "isVisible") as? Bool) ?? false
         if visible {
             invoke("close", on: inspector)
+            stopInspectorWatchdog()
             return
         }
         invoke("show", on: inspector)
-        // Pop it out of the (broken) docked layout into its own window once `show`
-        // has built the frontend. Detaching an already-detached inspector is a
-        // harmless no-op.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            self.invoke("detach", on: inspector)
+        // The inspector opens docked inside our embedded web view, where WebKit
+        // can't lay out its frontend (an empty dark panel) and it fights SwiftUI's
+        // layout. Keep it in its own window instead: the watchdog detaches it as
+        // soon as it appears, and bounces it back out if the user later clicks
+        // "dock" in the inspector toolbar.
+        startInspectorWatchdog()
+    }
+
+    /// WebKit's private per-view inspector (`_WKInspector`), or `nil` if the hook
+    /// isn't available on this system.
+    private func inspectorObject() -> NSObject? {
+        let key = "_inspector"
+        guard responds(to: Selector((key))),
+              let inspector = value(forKey: key) as? NSObject else { return nil }
+        return inspector
+    }
+
+    /// True when the inspector is visible but docked into our content window — its
+    /// frontend lives in our `NSWindow` rather than a standalone
+    /// `_WKInspectorWindow`. (`_WKInspector` exposes no `isAttached` flag, so we
+    /// infer dock state from where the frontend is hosted.)
+    private func inspectorIsDocked(_ inspector: NSObject) -> Bool {
+        guard (inspector.value(forKey: "isVisible") as? Bool) ?? false else { return false }
+        guard let host = inspector.value(forKey: "extensionHostWebView") as? NSView,
+              let window = host.window else { return false }
+        return NSStringFromClass(type(of: window)) != "_WKInspectorWindow"
+    }
+
+    private func startInspectorWatchdog() {
+        stopInspectorWatchdog()
+        let timer = Timer(timeInterval: 0.15, repeats: true) { [weak self] timer in
+            guard let self, let inspector = self.inspectorObject() else {
+                timer.invalidate(); return
+            }
+            let visible = (inspector.value(forKey: "isVisible") as? Bool) ?? false
+            if !visible { self.stopInspectorWatchdog(); return }
+            if self.inspectorIsDocked(inspector) { self.invoke("detach", on: inspector) }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        inspectorWatchdog = timer
+    }
+
+    private func stopInspectorWatchdog() {
+        inspectorWatchdog?.invalidate()
+        inspectorWatchdog = nil
     }
 
     /// Call a no-argument Objective-C selector by name if the object responds.
@@ -225,6 +283,86 @@ final class InspectableWebView: WKWebView {
         object.perform(sel)
         return true
     }
+
+    // MARK: - Developer context menu
+
+    /// Cache-only website-data types, cleared by "Empty Caches" (leaves cookies and
+    /// local storage intact so the user stays signed in).
+    private static let cacheDataTypes: Set<String> = [
+        WKWebsiteDataTypeDiskCache,
+        WKWebsiteDataTypeMemoryCache,
+        WKWebsiteDataTypeOfflineWebApplicationCache,
+        WKWebsiteDataTypeFetchCache,
+    ]
+
+    /// Augment WebKit's native right-click menu with developer actions: hard
+    /// refresh, cache clearing, copy address, open externally, and the Web
+    /// Inspector. WebKit builds a fresh menu each time and calls this just before
+    /// it opens, so we append our own group to whatever it produced.
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+
+        func add(_ title: String, _ action: Selector) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+        add("Hard Refresh (Ignore Cache)", #selector(devHardReload))
+        add("Empty Caches", #selector(devEmptyCaches))
+        add("Empty Caches and Hard Refresh", #selector(devEmptyCachesAndReload))
+        add("Clear All Website Data…", #selector(devClearWebsiteData))
+        menu.addItem(.separator())
+        add("Copy Page Address", #selector(devCopyAddress))
+        add("Open in Default Browser", #selector(devOpenInDefaultBrowser))
+        add("Open Web Inspector", #selector(devOpenInspector))
+    }
+
+    /// Remove the given website-data types from this view's data store, then run
+    /// `done` on the main thread.
+    private func removeData(ofTypes types: Set<String>, then done: @escaping () -> Void = {}) {
+        configuration.websiteDataStore.removeData(ofTypes: types,
+                                                  modifiedSince: .distantPast) {
+            DispatchQueue.main.async(execute: done)
+        }
+    }
+
+    /// Reload bypassing the cache (end-to-end revalidation) — a "hard refresh".
+    @objc private func devHardReload() { reloadFromOrigin() }
+
+    /// Remove only the cache data types (keeps cookies and local storage).
+    @objc private func devEmptyCaches() { removeData(ofTypes: Self.cacheDataTypes) }
+
+    @objc private func devEmptyCachesAndReload() {
+        removeData(ofTypes: Self.cacheDataTypes) { [weak self] in self?.reloadFromOrigin() }
+    }
+
+    /// Clear everything (cookies, storage, caches) after confirming — this can sign
+    /// the user out of sites, and the default data store is shared across tabs.
+    @objc private func devClearWebsiteData() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Clear all website data?"
+        alert.informativeText = "Removes cookies, local storage, and caches for the browser tabs that share this session. You may be signed out of sites."
+        alert.addButton(withTitle: "Clear Data")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes())
+    }
+
+    @objc private func devCopyAddress() {
+        guard let string = url?.absoluteString, !string.isEmpty else { NSSound.beep(); return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+    }
+
+    @objc private func devOpenInDefaultBrowser() {
+        guard let url else { NSSound.beep(); return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func devOpenInspector() { toggleInspector() }
 }
 
 /// Installs a single app-wide key monitor that opens the Web Inspector on F12 /

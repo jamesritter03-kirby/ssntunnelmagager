@@ -195,9 +195,13 @@ Open a plain shell anytime with **⌘T** (or the **Local Terminal** button).
 > **Sidebar:** show or hide the profile sidebar with **View → Show/Hide Sidebar** (**⌃⌘S**) —
 > handy if the toolbar's sidebar button ever goes missing after the sidebar is collapsed.
 
-> **Clipboard:** ⌘C / ⌘V work as usual, and **right‑clicking pastes** the clipboard (like
-> PuTTY). When a full‑screen app has mouse reporting on (vim, htop, tmux…), the right‑click
-> is passed through to that app instead.
+> **Clipboard:** ⌘C / ⌘V work as usual. By default **right‑click is smart**: if text is
+> selected it **copies** it (and clears the selection, so the next right‑click pastes);
+> if nothing is selected it **pastes** the clipboard; and if there's nothing to paste either,
+> it shows a small **Copy / Paste / Select All** menu — so a right‑click is never wasted. You
+> can change this under **Settings → Terminal → Right‑click** (e.g. back to PuTTY‑style
+> "always paste", or "always show menu"). When a full‑screen app has mouse reporting on
+> (vim, htop, tmux…), the right‑click is passed through to that app instead.
 
 ### Detachable windows
 
@@ -214,9 +218,11 @@ When you have two or more tabs open, click the **tile button** at the right of t
 (or press **⌃⌘T**) to show them **all at once in a grid** instead of one at a time — handy
 for watching several tunnels or terminals side by side. Each tile has a slim header with its
 status, title, and **detach**/**close** buttons; click a tile's header to make it the active
-tab (so ⌘+/⌘− and the snippet/history menus apply to it). Click the button again (it turns
-into a single‑pane icon) or press **⌃⌘T** to go back to single‑tab view. The choice is
-remembered. Every terminal stays live the whole time, tiled or not.
+tab (so ⌘+/⌘− and the snippet/history menus apply to it). **Drag the dividers** between tiles
+to resize them; the sizes are **remembered per workspace** (and restored when you switch
+workspaces or relaunch). Click the button again (it turns into a single‑pane icon) or press
+**⌃⌘T** to go back to single‑tab view. The choice is remembered. Every terminal stays live
+the whole time, tiled or not.
 
 ### Command history
 
