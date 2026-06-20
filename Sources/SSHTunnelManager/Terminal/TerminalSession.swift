@@ -20,6 +20,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case sftp
         case vnc
         case web
+        case mqtt
+        case redis
     }
 
     let kind: Kind
@@ -57,6 +59,20 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// For `.web` sessions: the in-app browser tab's navigation model.
     let webModel: WebTabModel?
 
+    /// For `.mqtt` sessions: the native MQTT broker client behind `MQTTExplorerView`.
+    let mqttClient: MQTTClient?
+
+    /// For `.redis` sessions: the native Redis client behind `RedisBrowserView`.
+    let redisClient: RedisClient?
+
+    /// For `.mqtt` / `.redis` sessions: the local (forwarded) port the native
+    /// client connects to, kept so the tab can be recreated on the next launch.
+    let servicePort: Int?
+
+    /// Extra environment variables merged into the child process's environment
+    /// (e.g. `REDISCLI_AUTH` so a Redis password never appears in `args` / `ps`).
+    private let extraEnvironment: [String: String]
+
     /// The SF Symbol used to represent this session in tabs, tiles and lists.
     var symbolName: String {
         // A profile's chosen icon wins for shell / ssh tabs; sftp and vnc keep
@@ -73,11 +89,22 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case .sftp:       return "arrow.up.arrow.down"
         case .vnc:        return "display"
         case .web:        return "globe"
+        case .mqtt:       return "antenna.radiowaves.left.and.right"
+        case .redis:      return "cylinder.split.1x2"
         }
     }
 
-    /// Remote sessions (ssh / sftp / vnc) are “disconnected”; local shells are “stopped”.
-    var isRemote: Bool { kind == .ssh || kind == .sftp || kind == .vnc }
+    /// Remote sessions (ssh / sftp / vnc) and the native service clients
+    /// (mqtt / redis) are live connections — “Disconnect”; local shells are “Stop”.
+    var isRemote: Bool {
+        kind == .ssh || kind == .sftp || kind == .vnc || kind == .mqtt || kind == .redis
+    }
+
+    /// Whether a per-command history makes sense for this tab: the interactive
+    /// shells. (The mqtt / redis tabs are graphical clients, not REPLs.)
+    var supportsCommandHistory: Bool {
+        kind == .ssh || kind == .localShell
+    }
 
     private var hasStarted = false
 
@@ -93,7 +120,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// pending start runs once `startIfPending()` sees the view attached.
     private var pendingStart = false
 
-    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil) {
+    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", extraEnvironment: [String: String] = [:]) {
         self.kind = kind
         self.title = title
         self.executable = executable
@@ -105,6 +132,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         self.autofillPassword = autofillPassword
         self.requireAuthForPassword = requireAuthForPassword
         self.startDirectory = startDirectory
+        self.servicePort = servicePort
+        self.extraEnvironment = extraEnvironment
         self.terminalView = HistoryTerminalView(frame: NSRect(x: 0, y: 0, width: 820, height: 480))
         if kind == .sftp {
             self.sftpClient = SFTPClient(executable: executable, args: args, profileID: profileID,
@@ -125,17 +154,38 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         } else {
             self.webModel = nil
         }
+        if kind == .mqtt, let port = servicePort {
+            self.mqttClient = MQTTClient(host: serviceHost, port: port,
+                                         username: serviceUsername, password: servicePassword)
+        } else {
+            self.mqttClient = nil
+        }
+        if kind == .redis, let port = servicePort {
+            self.redisClient = RedisClient(host: serviceHost, port: port,
+                                           username: serviceUsername, password: servicePassword)
+        } else {
+            self.redisClient = nil
+        }
         super.init()
         terminalView.processDelegate = self
         terminalView.onUserInput = { [weak self] data in self?.handleInput(data) }
         terminalView.onProcessOutput = { [weak self] data in self?.handleOutput(data) }
         terminalView.onZoom = { [weak self] direction in self?.zoom(direction) }
         terminalView.onAttachedToWindow = { [weak self] in self?.startIfPending() }
+        terminalView.onLayout = { [weak self] in self?.startIfPending() }
         sftpClient?.onRunningChanged = { [weak self] running in
             self?.isRunning = running
             if !running { self?.exitCode = self?.exitCode ?? 0 }
         }
         vncClient?.onRunningChanged = { [weak self] running in
+            self?.isRunning = running
+            if !running { self?.exitCode = self?.exitCode ?? 0 }
+        }
+        mqttClient?.onRunningChanged = { [weak self] running in
+            self?.isRunning = running
+            if !running { self?.exitCode = self?.exitCode ?? 0 }
+        }
+        redisClient?.onRunningChanged = { [weak self] running in
             self?.isRunning = running
             if !running { self?.exitCode = self?.exitCode ?? 0 }
         }
@@ -182,13 +232,29 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             vncClient?.start()
             return
         }
+        if kind == .mqtt {
+            hasStarted = true
+            isRunning = true
+            exitCode = nil
+            mqttClient?.start()
+            return
+        }
+        if kind == .redis {
+            hasStarted = true
+            isRunning = true
+            exitCode = nil
+            redisClient?.start()
+            return
+        }
 
-        // PTY-backed terminals (.localShell / .ssh) must be inside a window before
-        // we spawn, or SwiftTerm starts against a placeholder size and the first
-        // screen never paints — exactly what happens when a saved session is
-        // restored before the window is shown. Defer until the view is attached;
-        // `startIfPending()` (driven by `onAttachedToWindow`) resumes the start.
-        guard terminalView.window != nil else {
+        // PTY-backed terminals (.localShell / .ssh) must be on screen at a real
+        // size before we spawn, or SwiftTerm starts against a placeholder size and
+        // the first screen never paints — what happens when a saved session is
+        // restored before the window is shown, or when connecting routes into a
+        // freshly-created workspace whose layout hasn't settled yet. Defer until
+        // the view is attached *and* sized; `startIfPending()` (driven by
+        // `onAttachedToWindow` / `onLayout`) resumes the start.
+        guard terminalReadyToSpawn else {
             pendingStart = true
             return
         }
@@ -200,7 +266,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         secretPromptActive = false
         terminalView.startProcess(executable: executable,
                                   args: args,
-                                  environment: TerminalSession.environment(),
+                                  environment: TerminalSession.environment(extra: extraEnvironment),
                                   execName: nil,
                                   currentDirectory: startDirectory)
     }
@@ -212,6 +278,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         pendingStart = false
         // One runloop turn so Auto Layout has given the view its final size.
         DispatchQueue.main.async { [weak self] in self?.start() }
+    }
+
+    /// Whether a PTY-backed terminal can be spawned: the view must be on screen
+    /// at a usable size. Starting against a zero/placeholder size leaves the first
+    /// screen blank (an apparent “connection error”), so we wait for real bounds.
+    private var terminalReadyToSpawn: Bool {
+        guard terminalView.window != nil else { return false }
+        let bounds = terminalView.bounds
+        return bounds.width > 32 && bounds.height > 24
     }
 
     /// Re-run the same command in this tab after it exited.
@@ -232,6 +307,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             isRunning = true
             exitCode = nil
             vncClient?.reconnect()
+            return
+        }
+        if kind == .mqtt {
+            isRunning = true
+            exitCode = nil
+            mqttClient?.reconnect()
+            return
+        }
+        if kind == .redis {
+            isRunning = true
+            exitCode = nil
+            redisClient?.reconnect()
             return
         }
         hasStarted = false
@@ -256,6 +343,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             vncClient?.disconnect()
             return
         }
+        if kind == .mqtt {
+            mqttClient?.disconnect()
+            return
+        }
+        if kind == .redis {
+            redisClient?.disconnect()
+            return
+        }
         guard isRunning, let pid = terminalView.process?.shellPid, pid > 0 else { return }
         kill(pid, SIGHUP)
     }
@@ -276,6 +371,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             sftpClient?.disconnect()
         case .vnc:
             vncClient?.disconnect()
+        case .mqtt:
+            mqttClient?.disconnect()
+        case .redis:
+            redisClient?.disconnect()
         case .localShell, .ssh:
             if let pid = terminalView.process?.shellPid, pid > 0 {
                 kill(pid, SIGHUP)
@@ -516,13 +615,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         }
     }
 
-    /// Build a sensible environment for the child process.
-    static func environment() -> [String] {
+    /// Build a sensible environment for the child process, merging any per-session
+    /// extras (e.g. a service password passed out-of-band via an env var).
+    static func environment(extra: [String: String] = [:]) -> [String] {
         var env = ProcessInfo.processInfo.environment
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
         env["LC_CTYPE"] = env["LC_CTYPE"] ?? "UTF-8"
+        for (key, value) in extra { env[key] = value }
         return env.map { "\($0.key)=\($0.value)" }
     }
 

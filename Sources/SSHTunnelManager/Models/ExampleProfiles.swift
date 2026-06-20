@@ -66,14 +66,20 @@ extension SSHProfile {
         p.theme = "homebrew"
         p.extraOptions = "-o StrictHostKeyChecking=accept-new"
         p.forwards = [
-            PortForward(type: .local,
+            PortForward(type: .local, category: .webpage,
                         listenPort: "8080",
                         targetHost: "127.0.0.1",
                         targetPort: "80"),          // web UI on the private box
-            PortForward(type: .local,
+            PortForward(type: .local, category: .redis,
+                        serviceUsername: "default",
                         listenPort: "6379",
                         targetHost: "127.0.0.1",
-                        targetPort: "6379"),        // Redis
+                        targetPort: "6379"),        // Redis (set its password in the editor)
+            PortForward(type: .local, category: .mqtt,
+                        serviceUsername: "admin",
+                        listenPort: "1883",
+                        targetHost: "127.0.0.1",
+                        targetPort: "1883"),        // MQTT broker (set its password in the editor)
         ]
         p.snippets = [
             CommandSnippet(label: "Tail app log", command: "sudo journalctl -u myapp -f"),

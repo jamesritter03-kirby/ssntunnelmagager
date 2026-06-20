@@ -10,6 +10,10 @@ struct ProfileEditorView: View {
     @State private var hasSavedPassword: Bool
     @State private var removePassword: Bool = false
     @State private var showIconPicker = false
+    /// Pending service-password edits per forward id (typed but not yet saved).
+    @State private var serviceNewPasswords: [UUID: String] = [:]
+    /// Forward ids whose saved service password should be removed on save.
+    @State private var serviceRemovePasswords: Set<UUID> = []
     private let isNew: Bool
 
     init(profile: SSHProfile,
@@ -49,6 +53,7 @@ struct ProfileEditorView: View {
                 if profile.isLocal {
                     localSection
                     terminalSection
+                    workspaceSection
                     snippetsSection
                     linksSection
                 } else {
@@ -57,6 +62,7 @@ struct ProfileEditorView: View {
                     forwardsSection
                     optionsSection
                     terminalSection
+                    workspaceSection
                     snippetsSection
                     linksSection
                 }
@@ -320,7 +326,12 @@ struct ProfileEditorView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach($profile.forwards) { $forward in
-                ForwardEditor(forward: $forward) {
+                ForwardEditor(
+                    forward: $forward,
+                    serviceNewPassword: serviceNewPasswordBinding(forward.id),
+                    serviceRemovePassword: serviceRemoveBinding(forward.id),
+                    hasSavedServicePassword: KeychainStore.shared.hasPassword(for: forward.id)
+                ) {
                     profile.forwards.removeAll { $0.id == forward.id }
                 }
                 Divider()
@@ -376,6 +387,57 @@ struct ProfileEditorView: View {
             .help("The terminal text size for this profile. You can also adjust it live with ⌘+ / ⌘− in the terminal.")
         } header: {
             Label("Terminal", systemImage: "terminal")
+        }
+    }
+
+    /// Existing open + saved workspace names, offered as quick-pick suggestions.
+    private var workspaceSuggestions: [String] {
+        let mgr = TerminalSessionManager.shared
+        let names = mgr.workspaces.map(\.name) + mgr.savedWorkspaces.map(\.name)
+        return Array(Set(names))
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    private var workspaceSection: some View {
+        Section {
+            LabeledContent {
+                HStack(spacing: 6) {
+                    TextField("Current workspace", text: $profile.workspace)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 240)
+                    if !workspaceSuggestions.isEmpty {
+                        Menu {
+                            ForEach(workspaceSuggestions, id: \.self) { name in
+                                Button(name) { profile.workspace = name }
+                            }
+                        } label: {
+                            Image(systemName: "chevron.down")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("Pick an existing workspace")
+                    }
+                    if !profile.workspace.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Button {
+                            profile.workspace = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Use the current workspace")
+                    }
+                }
+            } label: {
+                Label("Open in workspace", systemImage: "rectangle.split.3x1")
+            }
+            Text("Connecting this profile switches to this workspace, creating it if it doesn’t exist, so its tabs open there. Leave blank to use whatever workspace is current.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } header: {
+            Label("Workspace", systemImage: "square.grid.2x2")
         }
     }
 
@@ -559,6 +621,42 @@ struct ProfileEditorView: View {
         if !newPassword.isEmpty {
             KeychainStore.shared.setPassword(newPassword, for: profile.id)
         }
+        applyServicePasswordChanges()
+    }
+
+    /// Persist per-forward MQTT / Redis service passwords (Keychain, keyed by the
+    /// forward id), and clean up entries for forwards removed during this edit.
+    private func applyServicePasswordChanges() {
+        for forward in profile.forwards {
+            if serviceRemovePasswords.contains(forward.id) {
+                KeychainStore.shared.deletePassword(for: forward.id)
+            }
+            if let pw = serviceNewPasswords[forward.id], !pw.isEmpty,
+               forward.category == .mqtt || forward.category == .redis {
+                KeychainStore.shared.setPassword(pw, for: forward.id)
+            }
+        }
+        // Drop Keychain passwords for forwards that existed before but were
+        // deleted in this session, so they don't linger orphaned.
+        if let original = ProfileStore.shared.profiles.first(where: { $0.id == profile.id }) {
+            let current = Set(profile.forwards.map(\.id))
+            for removed in original.forwards where !current.contains(removed.id) {
+                KeychainStore.shared.deletePassword(for: removed.id)
+            }
+        }
+    }
+
+    private func serviceNewPasswordBinding(_ id: UUID) -> Binding<String> {
+        Binding(get: { serviceNewPasswords[id] ?? "" },
+                set: { serviceNewPasswords[id] = $0 })
+    }
+
+    private func serviceRemoveBinding(_ id: UUID) -> Binding<Bool> {
+        Binding(get: { serviceRemovePasswords.contains(id) },
+                set: { remove in
+                    if remove { serviceRemovePasswords.insert(id) }
+                    else { serviceRemovePasswords.remove(id) }
+                })
     }
 
     private func copyCommand() {
@@ -692,6 +790,12 @@ struct SnippetEditor: View {
 
 struct ForwardEditor: View {
     @Binding var forward: PortForward
+    /// Pending (typed-but-unsaved) service password for this forward.
+    @Binding var serviceNewPassword: String
+    /// Whether the saved service password should be removed on save.
+    @Binding var serviceRemovePassword: Bool
+    /// Whether a service password is already stored for this forward.
+    let hasSavedServicePassword: Bool
     var onDelete: () -> Void
 
     var body: some View {
@@ -718,6 +822,34 @@ struct ForwardEditor: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // Only local (-L) forwards listen on this Mac, so only they can be
+            // categorized into a launchable Web / MQTT / Redis tab.
+            if forward.type == .local {
+                HStack(spacing: 8) {
+                    Label("Opens as", systemImage: "square.grid.2x2")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("Service category", selection: $forward.category) {
+                        ForEach(ForwardCategory.allCases) { category in
+                            Label(category.title, systemImage: category.symbol).tag(category)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 200)
+                    Spacer()
+                }
+                if forward.category != .none {
+                    Text(categoryHint)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if forward.category == .mqtt || forward.category == .redis {
+                    serviceCredentials
+                }
+            }
 
             switch forward.type {
             case .dynamic:
@@ -748,6 +880,70 @@ struct ForwardEditor: View {
         Image(systemName: "arrow.right")
             .foregroundStyle(.secondary)
             .padding(.bottom, 4)
+    }
+
+    /// Username + Keychain password for an MQTT / Redis service forward.
+    @ViewBuilder
+    private var serviceCredentials: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 8) {
+                field("Username (optional)", "username", $forward.serviceUsername, width: 200)
+                Spacer()
+            }
+            servicePasswordField
+            Text("Used to authenticate to the \(forward.category.title) service. The password is stored in your macOS Keychain — never in the profile file or exports.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 2)
+    }
+
+    @ViewBuilder
+    private var servicePasswordField: some View {
+        if hasSavedServicePassword && !serviceRemovePassword {
+            HStack {
+                Label("Password saved in Keychain", systemImage: "checkmark.seal.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Remove", role: .destructive) {
+                    serviceRemovePassword = true
+                    serviceNewPassword = ""
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+            secureField("Replace password (optional)", $serviceNewPassword)
+        } else {
+            secureField("Password (optional)", $serviceNewPassword)
+            if serviceRemovePassword {
+                Text("The saved password will be removed when you save.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func secureField(_ placeholder: String, _ text: Binding<String>) -> some View {
+        SecureField(placeholder, text: text)
+            .textFieldStyle(.roundedBorder)
+            .frame(maxWidth: 320, alignment: .leading)
+    }
+
+    /// One-line description of what choosing a service category adds.
+    private var categoryHint: String {
+        switch forward.category {
+        case .none:
+            return ""
+        case .webpage:
+            return "Adds an “Open Web Page” action that loads this port in a browser tab."
+        case .mqtt:
+            return "Adds an “Open MQTT” action: a mosquitto_sub monitor tab on every topic."
+        case .redis:
+            return "Adds an “Open Redis” action: an interactive redis-cli tab."
+        }
     }
 
     @ViewBuilder

@@ -50,6 +50,9 @@ enum ProfileTransfer {
         return parsed.map { original in
             var p = original
             p.id = UUID()
+            // Fresh forward ids too, so imported forwards never alias another
+            // profile's Keychain service passwords (passwords aren't imported).
+            p.forwards = p.forwards.map { var f = $0; f.id = UUID(); return f }
             return p
         }
     }

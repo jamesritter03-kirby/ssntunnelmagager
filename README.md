@@ -21,6 +21,16 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
   - **Local (`-L`)** — open a port on your Mac that tunnels to a target reachable from the server.
   - **Remote (`-R`)** — open a port on the server that tunnels back to your Mac.
   - **Dynamic (`-D`)** — a SOCKS proxy on your Mac that routes traffic through the server.
+- 🏷️ **Forward categories → one‑click service tabs** — tag a **local** forward as a **Web Page**,
+  **MQTT**, or **Redis** service and the app adds an **Open** action that launches the right tab
+  for that port: an in‑app **browser**, a built‑in **MQTT Explorer** (live **topic tree** + payload
+  viewer + publish), or a built‑in **Redis browser** (key list, typed value viewer, command
+  console). The MQTT and Redis clients are **native** — they speak the protocol directly, so
+  **nothing extra needs to be installed**. Each service can carry its own **username + password**
+  (stored in the **Keychain**, sent over the tunnel). Reachable from the sidebar right‑click
+  (*Open Service*) and a terminal **tab’s right‑click menu** (*Services*); the tunnel is brought
+  up first automatically. You can also open an **ad‑hoc** MQTT or Redis tab to any host from the
+  tab bar **+** menu (*New MQTT / Redis Connection…*) — no profile required.
 - 👀 **Live command preview** — see (and copy) the exact `ssh` command a profile generates.
 - 📁 **Graphical SFTP file transfer** — open an **SFTP tab** for any profile (sidebar
   right‑click → *Open SFTP*, the ⬆⬇ button, a terminal **tab’s right‑click menu**, or the
@@ -43,6 +53,9 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
 - ▦ **Tile tabs** — view every open tab at once in a side‑by‑side grid (**⌃⌘T**, or the tile
   button in the tab bar) to watch several tunnels/terminals together; switch back to single‑
   tab view any time.
+- 🗂️ **Workspaces** — group tabs into named, switchable **workspaces** (the bar above the tabs),
+  save a workspace’s tab set to reopen later, and **assign a profile to a workspace** so
+  connecting it always opens in (and creates) that workspace.
 - 🕒 **Per‑tab command history** — each terminal records the commands you type; reopen them
   from a menu to re‑run with one click. Passwords/passphrases are never recorded.
 - 🎨 **Terminal themes** — per‑profile color themes modelled on macOS Terminal (Pro, Basic,
@@ -192,6 +205,43 @@ Produces **`dist/SSH Tunnel Manager (Apple Silicon).zip`** with the app and a
 
 Open a plain shell anytime with **⌘T** (or the **Local Terminal** button).
 
+### Forward categories (Web / MQTT / Redis tabs)
+
+When you add a **local (`-L`)** forward you can give it a **category** — a small dropdown next
+to the forward (**None**, **Web Page**, **MQTT**, **Redis**). The category is purely a
+convenience: it doesn’t change the `ssh` command, it just teaches the app what’s listening on
+that local port so it can offer a matching **Open** action:
+
+- **Web Page** — opens the forwarded port (`http://127.0.0.1:<port>`) in an in‑app browser tab.
+- **MQTT** — opens a built‑in **MQTT Explorer**: a native MQTT 3.1.1 client subscribes to every
+  topic and shows a live, filterable **topic tree** (grouped by the `/`‑delimited path, with
+  per‑topic message counts and retained flags), a **detail pane** that pretty‑prints the latest
+  payload (JSON when possible), and a **publish** panel (topic + payload + retain). New branches
+  expand automatically; **right‑click** the tree to **Expand All / Collapse All** (or a branch).
+- **Redis** — opens a built‑in **Redis browser**: a native RESP client lets you **scan** keys
+  (with a `MATCH` pattern), inspect a key’s **typed value** (string / list / set / sorted‑set /
+  hash) with its **TTL**, **delete** keys, and run **arbitrary commands** in a small console.
+
+Launch them from the profile’s **sidebar right‑click → Open Service**, or from a connected
+tab’s **right‑click → Services**. The app brings the profile’s SSH tunnel up first (pausing a
+moment for it to bind), so the client connects to a port that’s already listening. The MQTT and
+Redis clients are **native** (built on Apple’s Network framework) — **no command‑line tools or
+Homebrew packages are required** — and the tabs reopen with **Resume last session**.
+
+**Service credentials.** Brokers and Redis servers often require a login. For an **MQTT** or
+**Redis** forward the editor shows a **Username** field and a **Password** field. The username
+is saved in the profile; the **password is stored in your macOS Keychain** (keyed to that
+forward, gated by the same **Touch ID** setting as the SSH password) and is **never** written
+to `profiles.json` or included in exports. When the tab connects, the credentials are sent in
+the protocol handshake over the encrypted tunnel — MQTT in its `CONNECT` packet, Redis via
+`AUTH` — so they never appear in `ps` or any command preview.
+
+**On‑demand connections.** You don’t need a profile or a forward to use the MQTT/Redis clients.
+From the tab bar **+** menu (or **File → New**, or the welcome screen) choose **New MQTT
+Connection…** or **New Redis Connection…**, enter a host, port and optional credentials, and the
+app opens the same native Explorer/browser tab pointed straight at that server. Handy for a
+broker on your LAN, or one you’ve already tunnelled by other means.
+
 > **Sidebar:** show or hide the profile sidebar with **View → Show/Hide Sidebar** (**⌃⌘S**) —
 > handy if the toolbar's sidebar button ever goes missing after the sidebar is collapsed.
 
@@ -202,6 +252,19 @@ Open a plain shell anytime with **⌘T** (or the **Local Terminal** button).
 > can change this under **Settings → Terminal → Right‑click** (e.g. back to PuTTY‑style
 > "always paste", or "always show menu"). When a full‑screen app has mouse reporting on
 > (vim, htop, tmux…), the right‑click is passed through to that app instead.
+
+### Workspaces
+
+The bar above the tabs holds your **workspaces** — named groups of tabs you can switch between
+(**⌘⇧N** for a new one, **⌘⇧[** / **⌘⇧]** to move between them). Each workspace remembers its
+own tabs, selection and tiled layout. Use the **⊕** to add one, double‑click a workspace pill to
+rename it, and the **save** menu to store a workspace’s tab set and reopen it later.
+
+**Assign a profile to a workspace.** In the profile editor’s **Workspace** section, set
+**Open in workspace** to a name (type one, or pick an existing one). Connecting that profile then
+switches to that workspace — **creating it if it doesn’t exist** — so all of the profile’s tabs
+(SSH, SFTP, VNC, links and service tabs) open there together. Leave it blank to use whatever
+workspace is current. Restored and saved‑workspace tabs always reopen where they were saved.
 
 ### Detachable windows
 

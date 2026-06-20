@@ -22,10 +22,24 @@ final class HistoryTerminalView: LocalProcessTerminalView {
     /// this before spawning, so the process starts against a real on-screen size
     /// (e.g. when restoring a saved session before the window is shown).
     var onAttachedToWindow: (() -> Void)?
+    /// Fires after Auto Layout sizes the view. PTY-backed sessions also wait for a
+    /// real (non-placeholder) size before spawning — a freshly-created workspace
+    /// can mount the view in its window a beat before layout gives it real bounds.
+    var onLayout: (() -> Void)?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil { onAttachedToWindow?() }
+    }
+
+    override func layout() {
+        super.layout()
+        onLayout?()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        onLayout?()
     }
 
     override func send(source: TerminalView, data: ArraySlice<UInt8>) {

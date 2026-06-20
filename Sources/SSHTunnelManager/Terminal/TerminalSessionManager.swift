@@ -48,6 +48,11 @@ final class TerminalSessionManager: ObservableObject {
     /// IDs of sessions currently shown in their own floating window.
     @Published var detachedSessionIDs: Set<UUID> = []
 
+    /// When true, opening a tab won't reroute to its profile's assigned
+    /// workspace. Set while *restoring* tabs into specific workspaces (resume /
+    /// open-saved-workspace), so they land where they were saved.
+    private var suppressWorkspaceRouting = false
+
     /// Whether the current workspace tiles its tabs in a grid. Per-workspace, with
     /// the last-used value remembered as the default for new workspaces.
     var isTiled: Bool {
@@ -159,12 +164,39 @@ final class TerminalSessionManager: ObservableObject {
     /// or, for a **local** profile, a login shell starting in its folder.
     func connect(profile: SSHProfile) {
         if profile.isLocal { connectLocalProfile(profile); return }
-        // A profile's tunnel binds fixed forwarded ports, so a second identical
-        // tunnel can't bind them (ssh runs with ExitOnForwardFailure=yes) and dies
-        // the instant it connects. If one is already running, reveal it instead of
-        // launching a doomed duplicate — which is what made reconnecting look broken.
+        // A profile's tunnel binds fixed forwarded ports, so a second tunnel for
+        // the same profile can't bind them (ssh runs with ExitOnForwardFailure=yes)
+        // and dies the instant it connects with "Address already in use". So never
+        // open a second tab for a profile: reuse the existing one. If it's running,
+        // just reveal it; if it was disconnected, reconnect it in place.
         if let existing = sessions.first(where: {
-            $0.profileID == profile.id && $0.kind == .ssh && $0.isRunning
+            $0.profileID == profile.id && $0.kind == .ssh
+        }) {
+            reveal(existing)
+            if !existing.isRunning {
+                reapStrayTunnel(for: profile)   // free ports a slow SIGHUP hasn't yet
+                existing.restart()
+            }
+            return
+        }
+        // No tab for this profile yet. A tunnel left over from a closed tab /
+        // workspace (or a previous run) could still be holding this profile's
+        // forwarded ports; reap it first so the fresh launch doesn't collide. If
+        // we actually killed one, give the OS a moment to release the ports.
+        if reapStrayTunnel(for: profile) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.spawnTunnel(for: profile)
+            }
+        } else {
+            spawnTunnel(for: profile)
+        }
+    }
+
+    /// Build and start a profile's ssh tunnel tab. Re-checks for an existing tab
+    /// first, since the user may have connected again during a reap delay.
+    private func spawnTunnel(for profile: SSHProfile) {
+        if let existing = sessions.first(where: {
+            $0.profileID == profile.id && $0.kind == .ssh
         }) {
             reveal(existing)
             return
@@ -259,6 +291,7 @@ final class TerminalSessionManager: ObservableObject {
     }
 
     private func addAndStart(_ session: TerminalSession) {
+        routeToAssignedWorkspace(for: session.profileID)
         sessions.append(session)
         if let i = currentIndex {
             workspaces[i].tabIDs.append(session.id)
@@ -267,6 +300,26 @@ final class TerminalSessionManager: ObservableObject {
         // Start on the next runloop turn so the view is mounted with a real size.
         DispatchQueue.main.async {
             session.start()
+        }
+    }
+
+    /// If a tab is being opened from a profile that's assigned to a named
+    /// workspace, make that workspace current (creating it if no open workspace
+    /// has that name) so the tab lands there. No-op for ad-hoc tabs, profiles
+    /// without an assignment, or while restoring saved tabs.
+    private func routeToAssignedWorkspace(for profileID: UUID?) {
+        guard !suppressWorkspaceRouting, let profileID,
+              let profile = ProfileStore.shared.profiles.first(where: { $0.id == profileID })
+        else { return }
+        let name = profile.workspace.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, currentWorkspace?.name != name else { return }
+        if let existing = workspaces.first(where: { $0.name == name }) {
+            currentWorkspaceID = existing.id
+        } else {
+            let tiled = UserDefaults.standard.bool(forKey: "tileTerminals")
+            let ws = Workspace(name: name, isTiled: tiled)
+            workspaces.append(ws)
+            currentWorkspaceID = ws.id
         }
     }
 
@@ -308,6 +361,110 @@ final class TerminalSessionManager: ObservableObject {
             args: [],
             commandPreview: "",
             webURL: nil
+        )
+        addAndStart(session)
+    }
+
+    /// Open an **ad-hoc** MQTT / Redis tab that connects directly to `host:port`
+    /// (no SSH tunnel / profile). Used by the “new connection” setup sheet.
+    func openAdHocService(category: ForwardCategory, host: String, port: Int,
+                          username: String, password: String) {
+        guard let kind = category.terminalKind, port > 0 else { return }
+        let cleanHost = host.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "127.0.0.1" : host.trimmingCharacters(in: .whitespaces)
+        let session = TerminalSession(
+            kind: kind,
+            title: "\(category.title) — \(cleanHost):\(port)",
+            executable: "",
+            args: [],
+            commandPreview: "\(category.title) \(cleanHost):\(port)",
+            servicePort: port,
+            serviceHost: cleanHost,
+            serviceUsername: username.trimmingCharacters(in: .whitespaces),
+            servicePassword: password
+        )
+        addAndStart(session)
+    }
+
+    /// Open the tab a categorized forward describes — a **Web Page**, **MQTT**, or
+    /// **Redis** tab — pointed at the forward's local port. Brings the profile's
+    /// SSH tunnel up first (so the port is listening), pausing briefly for `ssh`
+    /// to bind the forward when it had to start fresh.
+    func openService(_ category: ForwardCategory, forward: PortForward, profile: SSHProfile) {
+        guard category.isLaunchable, let endpoint = forward.localEndpoint else { return }
+        let wasRunning = isTunnelRunning(profile)
+        ensureConnected(profile)
+        let launch: () -> Void = { [weak self] in
+            self?.launchService(category, forward: forward, endpoint: endpoint, profile: profile)
+        }
+        if wasRunning || profile.isLocal {
+            launch()
+        } else {
+            // Give the freshly-launched tunnel a moment to open the local listener.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: launch)
+        }
+    }
+
+    /// Whether this profile's SSH tunnel tab is already up.
+    private func isTunnelRunning(_ profile: SSHProfile) -> Bool {
+        sessions.contains { $0.profileID == profile.id && $0.kind == .ssh && $0.isRunning }
+    }
+
+    private func launchService(_ category: ForwardCategory,
+                               forward: PortForward,
+                               endpoint: (host: String, port: Int),
+                               profile: SSHProfile) {
+        switch category {
+        case .webpage:
+            guard let url = URL(string: "http://\(endpoint.host):\(endpoint.port)") else { return }
+            openWeb(url: url, title: "\(profile.name) — Web", profileID: profile.id)
+        case .mqtt, .redis:
+            let username = forward.serviceUsername.trimmingCharacters(in: .whitespaces)
+            // The service password (if any) lives in the Keychain keyed by the
+            // forward's id. Fetch it (gated by the profile's Touch ID setting),
+            // then open the native client tab. If the user cancels auth, don't
+            // open a doomed tab.
+            if KeychainStore.shared.hasPassword(for: forward.id) {
+                KeychainStore.shared.password(
+                    for: forward.id,
+                    requireAuth: profile.requireAuthForSavedPassword,
+                    reason: "Use the saved \(category.title) password for “\(profile.name)”"
+                ) { [weak self] result in
+                    guard case .success(let password) = result else { return }
+                    DispatchQueue.main.async {
+                        self?.spawnServiceTab(category, endpoint: endpoint, profile: profile,
+                                              username: username, password: password)
+                    }
+                }
+            } else {
+                spawnServiceTab(category, endpoint: endpoint, profile: profile,
+                                username: username, password: "")
+            }
+        case .none:
+            break
+        }
+    }
+
+    /// Create a native MQTT / Redis client tab that connects to the forwarded
+    /// local port. No external CLI is involved — the client speaks the protocol
+    /// directly, so nothing extra needs to be installed.
+    private func spawnServiceTab(_ category: ForwardCategory,
+                                 endpoint: (host: String, port: Int), profile: SSHProfile,
+                                 username: String, password: String) {
+        guard let kind = category.terminalKind else { return }
+        let session = TerminalSession(
+            kind: kind,
+            title: "\(profile.name) — \(category.title)",
+            executable: "",
+            args: [],
+            commandPreview: "\(category.title) \(endpoint.host):\(endpoint.port)",
+            profileID: profile.id,
+            theme: TerminalTheme.theme(id: profile.theme),
+            fontSize: profile.fontSize,
+            servicePort: endpoint.port,
+            serviceHost: endpoint.host,
+            serviceUsername: username,
+            servicePassword: password
         )
         addAndStart(session)
     }
@@ -475,6 +632,8 @@ final class TerminalSessionManager: ObservableObject {
                            tileLayout: saved.tileLayout ?? TileLayout())
         workspaces.append(ws)
         currentWorkspaceID = ws.id
+        suppressWorkspaceRouting = true
+        defer { suppressWorkspaceRouting = false }
         for tab in saved.tabs { recreate(tab) }
     }
 
@@ -506,7 +665,8 @@ final class TerminalSessionManager: ObservableObject {
         ws.tabIDs.compactMap { id -> SessionSnapshot? in
             guard let s = sessions.first(where: { $0.id == id }) else { return nil }
             return SessionSnapshot(kind: s.kind, profileID: s.profileID,
-                                   webURL: s.webModel?.currentURLString, title: s.title)
+                                   webURL: s.webModel?.currentURLString, title: s.title,
+                                   servicePort: s.servicePort)
         }
     }
 
@@ -586,6 +746,11 @@ final class TerminalSessionManager: ObservableObject {
             } else {
                 openBlankWeb()
             }
+        case .mqtt, .redis:
+            if let profile, let port = snap.servicePort,
+               let fwd = profile.forwards.first(where: { $0.localEndpoint?.port == port }) {
+                openService(snap.kind == .redis ? .redis : .mqtt, forward: fwd, profile: profile)
+            }
         }
     }
 
@@ -602,6 +767,8 @@ final class TerminalSessionManager: ObservableObject {
                       tileLayout: $0.tileLayout ?? TileLayout())
         }
         workspaces = built
+        suppressWorkspaceRouting = true
+        defer { suppressWorkspaceRouting = false }
         for (i, snap) in state.workspaces.enumerated() {
             currentWorkspaceID = built[i].id
             for tab in snap.tabs { recreate(tab) }
@@ -647,25 +814,64 @@ final class TerminalSessionManager: ObservableObject {
         }
         guard !destinations.isEmpty else { return }
 
+        for (pid, cmd) in runningSSHProcesses() {
+            let hasForward = cmd.contains(" -L ") || cmd.contains(" -R ") || cmd.contains(" -D ")
+            guard hasForward, destinations.contains(where: { cmd.contains($0) }) else { continue }
+            kill(pid, SIGHUP)
+        }
+    }
+
+    /// Free one profile's forwarded ports from any leftover `ssh` tunnel of ours
+    /// (a tab/workspace that was closed, or a previous run) so a fresh connect
+    /// doesn't collide with "Address already in use". Matches only our ssh
+    /// processes for this profile's destination that carry a forward, and never
+    /// touches a tunnel we still track in `sessions` (so another profile's live
+    /// tunnel — or this one — is safe). Returns true if it killed anything.
+    @discardableResult
+    private func reapStrayTunnel(for profile: SSHProfile) -> Bool {
+        let host = profile.host.trimmingCharacters(in: .whitespaces)
+        guard !profile.isLocal, !host.isEmpty else { return false }
+        let user = profile.username.trimmingCharacters(in: .whitespaces)
+        let destination = user.isEmpty ? host : "\(user)@\(host)"
+
+        // PIDs of ssh tunnels we still track in-app — never reap these.
+        let livePIDs = Set(sessions.compactMap { s -> pid_t? in
+            s.kind == .ssh ? s.terminalView.process?.shellPid : nil
+        }.filter { $0 > 0 })
+
+        var killed = false
+        for (pid, cmd) in runningSSHProcesses() {
+            guard cmd.contains(destination), !livePIDs.contains(pid) else { continue }
+            let hasForward = cmd.contains(" -L ") || cmd.contains(" -R ") || cmd.contains(" -D ")
+            guard hasForward else { continue }
+            kill(pid, SIGHUP)
+            killed = true
+        }
+        return killed
+    }
+
+    /// A snapshot of running processes launched from our `ssh` binary, as
+    /// `(pid, command)` pairs. Shared by the stray-tunnel reapers.
+    private func runningSSHProcesses() -> [(pid: pid_t, command: String)] {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/ps")
         task.arguments = ["-axo", "pid=,command="]
         let pipe = Pipe()
         task.standardOutput = pipe
-        do { try task.run() } catch { return }
+        do { try task.run() } catch { return [] }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         task.waitUntilExit()
-        guard let out = String(data: data, encoding: .utf8) else { return }
+        guard let out = String(data: data, encoding: .utf8) else { return [] }
 
+        var result: [(pid: pid_t, command: String)] = []
         for line in out.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard let sp = trimmed.firstIndex(of: " ") else { continue }
             guard let pid = pid_t(trimmed[..<sp]) else { continue }
             let cmd = String(trimmed[trimmed.index(after: sp)...])
             guard cmd.hasPrefix(SSHCommandBuilder.sshPath) else { continue }
-            let hasForward = cmd.contains(" -L ") || cmd.contains(" -R ") || cmd.contains(" -D ")
-            guard hasForward, destinations.contains(where: { cmd.contains($0) }) else { continue }
-            kill(pid, SIGHUP)
+            result.append((pid, cmd))
         }
+        return result
     }
 }

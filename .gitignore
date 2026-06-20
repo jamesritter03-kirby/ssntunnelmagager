@@ -20,11 +20,9 @@ DerivedData/
 AppIcon.iconset/
 
 # Sparkle update archives — large binaries live on the GitHub 'updates' release,
-# the published feed is docs/appcast.xml (tracked). Everything here is local-only.
-sparkle-updates/*.zip
-sparkle-updates/*.dmg
-sparkle-updates/*.delta
-sparkle-updates/appcast.xml
+# the published feed is docs/appcast.xml (tracked). Everything here is local-only,
+# including the old_updates/ folder make-appcast.sh rotates deltas into.
+sparkle-updates/
 
 # Python (the appcast verifier in scripts/)
 __pycache__/

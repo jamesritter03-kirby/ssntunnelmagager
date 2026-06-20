@@ -132,6 +132,27 @@ struct SessionSnapshot: Codable {
     var profileID: UUID?
     var webURL: String?
     var title: String?
+    /// For `.mqtt` / `.redis` tabs: the forwarded local port the client used, so
+    /// the matching forward can be found and relaunched. Optional so snapshots
+    /// written by older versions still decode.
+    var servicePort: Int? = nil
+}
+
+// Hand-written decoder so snapshots saved before `servicePort` existed still load
+// (the synthesized one would throw on the missing key and drop the resume state).
+extension SessionSnapshot {
+    enum CodingKeys: String, CodingKey {
+        case kind, profileID, webURL, title, servicePort
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decodeIfPresent(TerminalSession.Kind.self, forKey: .kind) ?? .localShell
+        profileID = try c.decodeIfPresent(UUID.self, forKey: .profileID)
+        webURL = try c.decodeIfPresent(String.self, forKey: .webURL)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        servicePort = try c.decodeIfPresent(Int.self, forKey: .servicePort)
+    }
 }
 
 /// A codable description of one workspace and its tabs.

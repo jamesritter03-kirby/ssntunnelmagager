@@ -78,13 +78,21 @@ final class ProfileStore: ObservableObject {
 
     func delete(_ profile: SSHProfile) {
         profiles.removeAll { $0.id == profile.id }
-        // Remove any Keychain password tied to this profile.
+        // Remove any Keychain password tied to this profile (its SSH password and
+        // each forward's service password are keyed by their own ids).
         KeychainStore.shared.deletePassword(for: profile.id)
+        for forward in profile.forwards {
+            KeychainStore.shared.deletePassword(for: forward.id)
+        }
     }
 
     func duplicate(_ profile: SSHProfile) {
         var copy = profile
         copy.id = UUID()
+        // Give the copy's forwards fresh ids too, so it doesn't share (or, on
+        // delete, clobber) the original's Keychain service passwords. Like the
+        // SSH password, saved service passwords aren't carried into the copy.
+        copy.forwards = copy.forwards.map { var f = $0; f.id = UUID(); return f }
         copy.name += " copy"
         if let idx = profiles.firstIndex(where: { $0.id == profile.id }) {
             profiles.insert(copy, at: idx + 1)

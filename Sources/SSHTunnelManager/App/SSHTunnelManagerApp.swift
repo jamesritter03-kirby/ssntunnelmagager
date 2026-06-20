@@ -30,6 +30,9 @@ struct SSHTunnelManagerApp: App {
                     .keyboardShortcut("t", modifiers: .command)
                 Button("New Browser Tab") { sessions.openBlankWeb() }
                     .keyboardShortcut("t", modifiers: [.command, .shift])
+                Divider()
+                Button("New MQTT Connection…") { ServiceConnectionModel.shared.present(.mqtt) }
+                Button("New Redis Connection…") { ServiceConnectionModel.shared.present(.redis) }
             }
             CommandGroup(after: .newItem) {
                 Button("Close Tab") { sessions.closeSelected() }

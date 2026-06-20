@@ -8,6 +8,12 @@ struct TerminalAreaView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // The workspace switcher used to live in the window title bar as a
+            // `.principal` toolbar item, but those intermittently vanish when the
+            // window loses and regains key focus (e.g. switching to a detached
+            // terminal window and back). An ordinary slim row is reliable.
+            WorkspaceBar()
+            Divider()
             if sessions.attachedSessions.isEmpty {
                 if sessions.currentWorkspaceSessions.isEmpty {
                     WelcomeView()
@@ -39,13 +45,6 @@ struct TerminalAreaView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            }
-        }
-        // The workspace switcher lives in the window title bar (the toolbar),
-        // so it doesn't add a third stacked row above the terminal tabs.
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                WorkspaceBar()
             }
         }
     }
@@ -92,7 +91,11 @@ private struct WorkspaceBar: View {
             .help("New workspace (⌘⇧N)")
 
             savedMenu
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.bar)
         .alert("Rename Workspace", isPresented: renamingBinding) {
             TextField("Name", text: $nameField)
             Button("Cancel", role: .cancel) { renamingID = nil }
@@ -263,6 +266,17 @@ private struct TabBar: View {
                         } label: {
                             Label("New Browser Tab", systemImage: "globe")
                         }
+                        Divider()
+                        Button {
+                            ServiceConnectionModel.shared.present(.mqtt)
+                        } label: {
+                            Label("New MQTT Connection…", systemImage: ForwardCategory.mqtt.symbol)
+                        }
+                        Button {
+                            ServiceConnectionModel.shared.present(.redis)
+                        } label: {
+                            Label("New Redis Connection…", systemImage: ForwardCategory.redis.symbol)
+                        }
                         if !store.profiles.isEmpty {
                             Divider()
                             Menu {
@@ -295,6 +309,8 @@ private struct TabBar: View {
                 Divider().frame(height: 22)
                 if session.kind == .ssh || session.kind == .localShell {
                     SnippetsMenuButton(session: session)
+                }
+                if session.supportsCommandHistory {
                     HistoryMenuButton(session: session)
                 }
                 LinksMenuButton(session: session)
@@ -522,6 +538,12 @@ private struct TerminalTabContextMenu: View {
         return store.profiles.first(where: { $0.id == pid })
     }
 
+    /// "Open Redis (:6379)" style label for a categorized forward.
+    private func serviceMenuLabel(_ forward: PortForward) -> String {
+        let suffix = forward.localEndpoint.map { " (:\($0.port))" } ?? ""
+        return "Open \(forward.category.title)\(suffix)"
+    }
+
     var body: some View {
         // Snippets submenu (terminal tabs only)
         if let profile, !profile.snippets.isEmpty,
@@ -553,9 +575,23 @@ private struct TerminalTabContextMenu: View {
                 Label("Links", systemImage: "globe")
             }
         }
+        // Services submenu (categorized forwards → Web / MQTT / Redis tabs)
+        if let profile, !profile.categorizedForwards.isEmpty {
+            Menu {
+                ForEach(profile.categorizedForwards) { forward in
+                    Button {
+                        sessions.openService(forward.category, forward: forward, profile: profile)
+                    } label: {
+                        Label(serviceMenuLabel(forward), systemImage: forward.category.symbol)
+                    }
+                }
+            } label: {
+                Label("Services", systemImage: "square.grid.2x2")
+            }
+        }
         if let profile,
            (!profile.snippets.isEmpty && (session.kind == .ssh || session.kind == .localShell))
-           || !profile.links.isEmpty {
+           || !profile.links.isEmpty || !profile.categorizedForwards.isEmpty {
             Divider()
         }
         if session.kind != .web {
@@ -918,7 +954,7 @@ private struct TerminalTile: View {
                     .font(.caption)
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                if session.kind == .ssh || session.kind == .localShell {
+                if session.supportsCommandHistory {
                     HistoryMenuButton(session: session)
                         .font(.caption2)
                         .menuIndicator(.hidden)
@@ -990,6 +1026,10 @@ struct TerminalContainer: View {
             VNCConsoleView(session: session)
         } else if session.kind == .web {
             WebTabView(session: session)
+        } else if session.kind == .mqtt {
+            MQTTExplorerView(session: session)
+        } else if session.kind == .redis {
+            RedisBrowserView(session: session)
         } else {
             terminal
         }
@@ -1095,6 +1135,24 @@ private struct WelcomeView: View {
                     Label("New Browser Tab", systemImage: "globe")
                 }
                 .controlSize(.large)
+
+                Menu {
+                    Button {
+                        ServiceConnectionModel.shared.present(.mqtt)
+                    } label: {
+                        Label("New MQTT Connection…", systemImage: ForwardCategory.mqtt.symbol)
+                    }
+                    Button {
+                        ServiceConnectionModel.shared.present(.redis)
+                    } label: {
+                        Label("New Redis Connection…", systemImage: ForwardCategory.redis.symbol)
+                    }
+                } label: {
+                    Label("New Connection", systemImage: "bolt.horizontal.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .controlSize(.large)
+                .fixedSize()
             }
 
             if !store.profiles.isEmpty {

@@ -51,10 +51,74 @@ enum ForwardType: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// What a (local) port forward exposes, so the app can offer a matching
+/// "Open" action that launches the right kind of tab against the forwarded
+/// local port. Purely a convenience layer over a normal `-L` forward — it does
+/// not change the `ssh` command at all.
+enum ForwardCategory: String, Codable, CaseIterable, Identifiable {
+    case none
+    case webpage
+    case mqtt
+    case redis
+
+    var id: String { rawValue }
+
+    /// Menu / picker label.
+    var title: String {
+        switch self {
+        case .none:    return "None"
+        case .webpage: return "Web Page"
+        case .mqtt:    return "MQTT"
+        case .redis:   return "Redis"
+        }
+    }
+
+    /// SF Symbol used in pickers, launchers and (for mqtt/redis) the tab itself.
+    var symbol: String {
+        switch self {
+        case .none:    return "minus.circle"
+        case .webpage: return "globe"
+        case .mqtt:    return "antenna.radiowaves.left.and.right"
+        case .redis:   return "cylinder.split.1x2"
+        }
+    }
+
+    /// Whether this category can launch a tab (everything but `.none`).
+    var isLaunchable: Bool { self != .none }
+
+    /// The conventional default port for this service, used to prefill the
+    /// ad-hoc “new connection” form.
+    var defaultPort: Int {
+        switch self {
+        case .webpage: return 8080
+        case .mqtt:    return 1883
+        case .redis:   return 6379
+        case .none:    return 0
+        }
+    }
+
+    /// The terminal-tab kind a launchable service opens, when it's a CLI client
+    /// (mqtt / redis). `.webpage` opens a browser tab instead, so it's nil here.
+    var terminalKind: TerminalSession.Kind? {
+        switch self {
+        case .mqtt:  return .mqtt
+        case .redis: return .redis
+        default:     return nil
+        }
+    }
+}
+
 /// A single port-forwarding rule.
 struct PortForward: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
     var type: ForwardType = .local
+    /// What the forwarded local port exposes (drives the "Open …" launchers).
+    /// Only meaningful for `.local` forwards. `.none` = a plain forward.
+    var category: ForwardCategory = .none
+    /// Username for a categorized **MQTT / Redis** service, passed to the CLI
+    /// client when the tab launches. Not secret, so it lives in the profile; the
+    /// matching **password** is stored in the Keychain keyed by this forward's id.
+    var serviceUsername: String = ""
     /// Optional bind address for the listening side (e.g. 127.0.0.1, 0.0.0.0, *). Empty = ssh default.
     var bindAddress: String = ""
     /// The port that is opened / listened on (local side for -L and -D, remote side for -R).
@@ -75,6 +139,38 @@ struct PortForward: Codable, Identifiable, Hashable {
         case .remote:
             return "srv:\(lp) → \(targetHost):\(targetPort.isEmpty ? "?" : targetPort)"
         }
+    }
+
+    /// The address a local client uses to reach this forward. Only `.local`
+    /// forwards listen on this Mac, so only they have a local endpoint
+    /// (`127.0.0.1:listenPort`, or the chosen bind address).
+    var localEndpoint: (host: String, port: Int)? {
+        guard type == .local,
+              let p = Int(listenPort.trimmingCharacters(in: .whitespaces)), p > 0 else { return nil }
+        let bind = bindAddress.trimmingCharacters(in: .whitespaces)
+        let host = (bind.isEmpty || bind == "*" || bind == "0.0.0.0") ? "127.0.0.1" : bind
+        return (host, p)
+    }
+}
+
+// A hand-written decoder so profiles saved before `category` existed still load
+// (the synthesized one would throw `keyNotFound` on the missing key and, via the
+// app's `try?` load, silently drop every saved profile).
+extension PortForward {
+    enum CodingKeys: String, CodingKey {
+        case id, type, category, serviceUsername, bindAddress, listenPort, targetHost, targetPort
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        type = try c.decodeIfPresent(ForwardType.self, forKey: .type) ?? .local
+        category = try c.decodeIfPresent(ForwardCategory.self, forKey: .category) ?? .none
+        serviceUsername = try c.decodeIfPresent(String.self, forKey: .serviceUsername) ?? ""
+        bindAddress = try c.decodeIfPresent(String.self, forKey: .bindAddress) ?? ""
+        listenPort = try c.decodeIfPresent(String.self, forKey: .listenPort) ?? ""
+        targetHost = try c.decodeIfPresent(String.self, forKey: .targetHost) ?? "localhost"
+        targetPort = try c.decodeIfPresent(String.self, forKey: .targetPort) ?? ""
     }
 }
 
@@ -154,6 +250,10 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     var links: [ProfileLink] = []
     /// Require Touch ID / login password before using the Keychain-stored password.
     var requireAuthForSavedPassword: Bool = true
+    /// Optional name of the workspace this profile's tabs should open in.
+    /// Connecting switches to (or creates) that workspace. Empty = use whatever
+    /// workspace is current.
+    var workspace: String = ""
 
     /// `user@host` style subtitle for list rows.
     var subtitle: String {
@@ -190,6 +290,13 @@ struct SSHProfile: Codable, Identifiable, Hashable {
         let bind = dyn.bindAddress.trimmingCharacters(in: .whitespaces)
         return (bind.isEmpty ? "127.0.0.1" : bind, port)
     }
+
+    /// Local forwards tagged with a launchable service category (Web / MQTT /
+    /// Redis) that have a usable local endpoint, in profile order. Drives the
+    /// "Open …" service launchers in the sidebar and tab menus.
+    var categorizedForwards: [PortForward] {
+        forwards.filter { $0.category.isLaunchable && $0.localEndpoint != nil }
+    }
 }
 
 // Defining `init(from:)` in an extension keeps the synthesized memberwise
@@ -202,6 +309,7 @@ extension SSHProfile {
         case fontSize
         case isLocal, startPath, icon
         case links
+        case workspace
     }
 
     init(from decoder: Decoder) throws {
@@ -227,6 +335,7 @@ extension SSHProfile {
         links = try c.decodeIfPresent([ProfileLink].self, forKey: .links) ?? []
         requireAuthForSavedPassword = try c.decodeIfPresent(Bool.self, forKey: .requireAuthForSavedPassword) ?? true
         fontSize = TerminalFontMetrics.clamp(try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? TerminalFontMetrics.default)
+        workspace = try c.decodeIfPresent(String.self, forKey: .workspace) ?? ""
     }
 }
 

@@ -41,6 +41,19 @@ struct SidebarView: View {
                                     }
                                 }
                             }
+                            if !profile.categorizedForwards.isEmpty {
+                                Menu("Open Service") {
+                                    ForEach(profile.categorizedForwards) { forward in
+                                        Button {
+                                            sessions.openService(forward.category,
+                                                                 forward: forward, profile: profile)
+                                        } label: {
+                                            Label("Open \(forward.category.title) (:\(forward.listenPort))",
+                                                  systemImage: forward.category.symbol)
+                                        }
+                                    }
+                                }
+                            }
                             Button("Edit…") { onEdit(profile) }
                             Button("Duplicate") { store.duplicate(profile) }
                             Button("Export…") {
