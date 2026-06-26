@@ -21,13 +21,77 @@ struct TerminalAreaView: View {
                     AllDetachedView()
                 }
             } else {
+                // The center tab bar + terminals, flanked by any side drawers.
+                DetailAreaView()
+            }
+        }
+    }
+}
+
+/// The area below the workspace bar: the center tab bar + terminals, with any
+/// docked tabs shown as collapsible, resizable drawers on the left and/or right.
+/// Each drawer can stack several docked tabs vertically.
+private struct DetailAreaView: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    /// While dragging a column-width divider: the guide line's x (in detail-area
+    /// coordinates) and which side it belongs to. The drawer keeps its committed
+    /// width during the drag — only this lightweight line moves — so the live
+    /// terminals don't re-lay-out on every pixel (which made dragging jumpy). The
+    /// new width is committed once, on release.
+    @State private var widthGuideX: CGFloat?
+    @State private var widthGuideSide: DockSide?
+    @State private var widthDragBase: Double?
+    @State private var pendingWidth: Double?
+
+    private let dividerThickness: CGFloat = 8
+    private let minDockWidth: CGFloat = 200
+    private let railWidth: CGFloat = 34
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                HStack(spacing: 0) {
+                    if let left = sessions.leftDock {
+                        DockColumnView(column: left, side: .left)
+                            .frame(width: columnWidth(left, total: geo.size.width))
+                        if !left.collapsed {
+                            widthDivider(.left, column: left, total: geo.size.width)
+                        }
+                    }
+
+                    center
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if let right = sessions.rightDock {
+                        if !right.collapsed {
+                            widthDivider(.right, column: right, total: geo.size.width)
+                        }
+                        DockColumnView(column: right, side: .right)
+                            .frame(width: columnWidth(right, total: geo.size.width))
+                    }
+                }
+                if let x = widthGuideX {
+                    Capsule().fill(Color.accentColor)
+                        .frame(width: 2, height: geo.size.height)
+                        .position(x: x, y: geo.size.height / 2)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    /// The center column: the tab bar + tiled / single terminal area, or a hint
+    /// when every tab has been docked to a side.
+    @ViewBuilder private var center: some View {
+        VStack(spacing: 0) {
+            if sessions.centerSessions.isEmpty {
+                DockedOnlyCenter()
+            } else {
                 TabBar()
                 Divider()
-                // Keep ALL terminals mounted (so background tunnels stay alive).
-                // Tiled: lay them out in a grid. Single: stack them and show only
-                // the selected one.
-                if sessions.isTiled && sessions.attachedSessions.count > 1 {
-                    TiledTerminalsView(items: sessions.attachedSessions)
+                if sessions.isTiled && sessions.centerSessions.count > 1 {
+                    TiledTerminalsView(items: sessions.centerSessions)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         // SwiftUI's split views cache their NSSplitView divider /
                         // row state. Without a stable identity that changes when the
@@ -36,11 +100,17 @@ struct TerminalAreaView: View {
                         // workspace + its tab ids so the grid is rebuilt correctly.
                         .id(tiledLayoutID)
                 } else {
+                    // If the "selected" tab is docked (or selection is nil), still
+                    // show a center tab so this area is never blank.
+                    let centerIDs = sessions.centerSessions
+                    let shownID = centerIDs.contains(where: { $0.id == sessions.selectedSessionID })
+                        ? sessions.selectedSessionID
+                        : centerIDs.first?.id
                     ZStack {
-                        ForEach(sessions.attachedSessions) { session in
+                        ForEach(sessions.centerSessions) { session in
                             TerminalContainer(session: session)
-                                .opacity(session.id == sessions.selectedSessionID ? 1 : 0)
-                                .allowsHitTesting(session.id == sessions.selectedSessionID)
+                                .opacity(session.id == shownID ? 1 : 0)
+                                .allowsHitTesting(session.id == shownID)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -49,12 +119,288 @@ struct TerminalAreaView: View {
         }
     }
 
-    /// A stable identity for the tiled grid that changes whenever the current
-    /// workspace or its set/order of attached tabs changes — forcing the split
-    /// views to rebuild instead of reusing a stale pane layout.
+    /// Resolved width in points for a drawer (a thin rail when collapsed).
+    private func columnWidth(_ column: DockColumn, total: CGFloat) -> CGFloat {
+        guard !column.collapsed else { return railWidth }
+        return resolvedWidth(fraction: column.width, total: total)
+    }
+
+    /// Clamp a width fraction to sensible points (min readable width, ≤45%).
+    private func resolvedWidth(fraction: Double, total: CGFloat) -> CGFloat {
+        let cap = max(railWidth, total * 0.45)
+        return min(max(CGFloat(fraction) * total, minDockWidth), cap)
+    }
+
+    /// A draggable divider between a drawer and the center area. It only moves a
+    /// guide line during the drag and commits the new width on release, so the
+    /// terminals don't reflow on every pixel.
+    private func widthDivider(_ side: DockSide, column: DockColumn, total: CGFloat) -> some View {
+        TileDivider(orientation: .vertical, isActive: widthGuideSide == side)
+            .frame(width: dividerThickness)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if widthDragBase == nil { widthDragBase = column.width }
+                        let base = widthDragBase ?? column.width
+                        // Dragging away from the edge widens the drawer.
+                        let deltaPts = side == .left ? value.translation.width
+                                                     : -value.translation.width
+                        let rawFraction = base + Double(deltaPts / max(1, total))
+                        let pts = resolvedWidth(fraction: rawFraction, total: total)
+                        widthGuideSide = side
+                        widthGuideX = side == .left ? pts : total - pts
+                        pendingWidth = Double(pts / total)
+                    }
+                    .onEnded { _ in
+                        if let f = pendingWidth { sessions.setColumnWidth(side, fraction: f) }
+                        widthGuideX = nil
+                        widthGuideSide = nil
+                        widthDragBase = nil
+                        pendingWidth = nil
+                    }
+            )
+    }
+
     private var tiledLayoutID: String {
-        let ids = sessions.attachedSessions.map(\.id.uuidString).joined(separator: ",")
+        let ids = sessions.centerSessions.map(\.id.uuidString).joined(separator: ",")
         return "\(sessions.currentWorkspaceID.uuidString):\(ids)"
+    }
+}
+
+/// A side drawer: one or more docked tabs stacked vertically, each with a slim
+/// header, separated by draggable dividers. Collapsed, the whole column becomes a
+/// thin rail with a slide-out button. Width is dragged via the divider supplied
+/// by `DetailAreaView`; everything is remembered per workspace.
+private struct DockColumnView: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    let column: DockColumn
+    let side: DockSide
+
+    private let dividerThickness: CGFloat = 8
+    private let minPaneHeight: CGFloat = 90
+
+    // Pane-resize guide: like the width divider and the tile grid, the panes keep
+    // their committed heights during a drag (only this line moves), so terminals
+    // don't reflow per pixel. The new split is committed on release.
+    @State private var paneGuideY: CGFloat?
+    @State private var paneDragBoundary: Int?
+    @State private var paneDragBase: [Double]?
+    @State private var pendingWeights: [Double]?
+
+    private var panes: [DockedPane] { column.panes }
+
+    var body: some View {
+        Group {
+            if column.collapsed {
+                rail
+            } else {
+                expanded
+            }
+        }
+        .background(.bar)
+        .overlay(edgeBorder)
+    }
+
+    /// Collapsed: a rail of stacked status dots + icons; click to slide the whole
+    /// drawer back out.
+    private var rail: some View {
+        Button {
+            sessions.toggleColumnCollapsed(side)
+        } label: {
+            VStack(spacing: 14) {
+                Image(systemName: side == .left ? "chevron.right" : "chevron.left")
+                    .font(.system(size: 11, weight: .bold))
+                ForEach(panes, id: \.sessionID) { pane in
+                    if let session = sessions.session(id: pane.sessionID) {
+                        VStack(spacing: 5) {
+                            Circle().fill(statusColor(session)).frame(width: 6, height: 6)
+                            Image(systemName: session.symbolName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Slide out the docked tabs")
+    }
+
+    /// Expanded: the panes stacked vertically, with a draggable divider between
+    /// each pair to size them.
+    private var expanded: some View {
+        GeometryReader { geo in
+            let committed = panes.map(\.heightWeight)
+            let sum = max(0.0001, committed.reduce(0, +))
+            let available = max(1, geo.size.height
+                                - dividerThickness * CGFloat(max(0, panes.count - 1)))
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    ForEach(Array(panes.enumerated()), id: \.element.sessionID) { index, pane in
+                        if let session = sessions.session(id: pane.sessionID) {
+                            DockPaneView(session: session, side: side)
+                                .frame(height: available * CGFloat(committed[index] / sum))
+                        }
+                        if index < panes.count - 1 {
+                            TileDivider(orientation: .horizontal,
+                                        isActive: paneDragBoundary == index)
+                                .frame(height: dividerThickness)
+                                .gesture(paneDrag(boundary: index,
+                                                  available: available, sum: sum))
+                        }
+                    }
+                }
+                if let y = paneGuideY {
+                    Capsule().fill(Color.accentColor)
+                        .frame(width: geo.size.width, height: 2)
+                        .position(x: geo.size.width / 2, y: y)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    /// Drag gesture for the divider between stacked panes `i` and `i+1`.
+    private func paneDrag(boundary i: Int, available: CGFloat, sum: Double) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                let base = paneDragBase ?? panes.map(\.heightWeight)
+                if paneDragBase == nil { paneDragBase = base }
+                paneDragBoundary = i
+                guard base.indices.contains(i + 1) else { return }
+                let minWeight = Double(minPaneHeight / available) * sum
+                let delta = Double(value.translation.height / available) * sum
+                var w = base
+                let lo = minWeight - w[i]
+                let hi = w[i + 1] - minWeight
+                guard hi >= lo else { return }
+                let clamped = min(max(delta, lo), hi)
+                w[i] += clamped
+                w[i + 1] -= clamped
+                pendingWeights = w
+                let topFraction = w.prefix(i + 1).reduce(0, +) / sum
+                paneGuideY = available * CGFloat(topFraction)
+                    + dividerThickness * CGFloat(i) + dividerThickness / 2
+            }
+            .onEnded { _ in
+                if let w = pendingWeights { sessions.setColumnPaneWeights(side, w) }
+                paneGuideY = nil
+                paneDragBoundary = nil
+                paneDragBase = nil
+                pendingWeights = nil
+            }
+    }
+
+    /// A subtle separating line on the inner edge (toward the center area).
+    private var edgeBorder: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.18))
+            .frame(width: 1)
+            .frame(maxWidth: .infinity, alignment: side == .left ? .trailing : .leading)
+            .allowsHitTesting(false)
+    }
+
+    private func statusColor(_ session: TerminalSession) -> Color {
+        if session.isRunning { return .green }
+        if let code = session.exitCode, code != 0 { return .red }
+        return .secondary
+    }
+}
+
+/// One tab inside a side drawer: a slim header (status, title, return-to-tabs and
+/// collapse buttons) above its live content. Several of these stack inside a
+/// `DockColumnView`.
+private struct DockPaneView: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    @ObservedObject var session: TerminalSession
+    let side: DockSide
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            TerminalContainer(session: session)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 7) {
+            Circle().fill(statusColor).frame(width: 7, height: 7)
+            Image(systemName: session.symbolName)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(session.title)
+                .font(.caption)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Button {
+                sessions.undock(session)
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(.borderless)
+            .help("Return this tab to the tab bar")
+            Button {
+                sessions.toggleColumnCollapsed(side)
+            } label: {
+                Image(systemName: side == .left ? "chevron.left" : "chevron.right")
+            }
+            .buttonStyle(.borderless)
+            .help("Collapse this drawer to a rail")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .contextMenu { menu }
+    }
+
+    @ViewBuilder private var menu: some View {
+        TerminalTabContextMenu(
+            session: session,
+            onDetach: {
+                sessions.undock(session)
+                DetachedTerminalController.shared.detach(session)
+            },
+            onClose: { sessions.close(session) }
+        )
+    }
+
+    private var statusColor: Color {
+        if session.isRunning { return .green }
+        if let code = session.exitCode, code != 0 { return .red }
+        return .secondary
+    }
+}
+
+/// Shown in the center when every tab in the workspace has been docked to a side.
+private struct DockedOnlyCenter: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sidebar.squares.leading")
+                .font(.system(size: 40))
+                .foregroundStyle(.tint)
+            Text("Tabs are docked to the side")
+                .font(.title3.weight(.semibold))
+            Text("Use a drawer's return button to bring a tab back here, or open a new one.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+            Button {
+                sessions.openLocalShell()
+            } label: {
+                Label("New Local Terminal", systemImage: "terminal")
+            }
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }
 
@@ -229,7 +575,7 @@ private struct TabBar: View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(sessions.attachedSessions) { session in
+                    ForEach(sessions.centerSessions) { session in
                         TabChip(
                             session: session,
                             isSelected: session.id == sessions.selectedSessionID,
@@ -245,11 +591,11 @@ private struct TabBar: View {
                             _ = provider.loadObject(ofClass: NSString.self) { object, _ in
                                 guard let idString = object as? String,
                                       let uuid = UUID(uuidString: idString),
-                                      let fromIndex = sessions.attachedSessions.firstIndex(where: { $0.id == uuid }),
-                                      let toIndex = sessions.attachedSessions.firstIndex(where: { $0.id == session.id }),
+                                      let fromIndex = sessions.centerSessions.firstIndex(where: { $0.id == uuid }),
+                                      let toIndex = sessions.centerSessions.firstIndex(where: { $0.id == session.id }),
                                       fromIndex != toIndex else { return }
                                 DispatchQueue.main.async {
-                                    sessions.moveAttachedSession(from: fromIndex, to: toIndex)
+                                    sessions.moveCenterTab(from: fromIndex, to: toIndex)
                                 }
                             }
                             return true
@@ -332,7 +678,7 @@ private struct TabBar: View {
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, 8)
-            .disabled(sessions.attachedSessions.count < 2)
+            .disabled(sessions.centerSessions.count < 2)
             .help(sessions.isTiled ? "Show one tab at a time" : "Tile all tabs side by side")
         }
         .background(.bar)
@@ -635,6 +981,38 @@ private struct TerminalTabContextMenu: View {
             } label: {
                 Label("Set Up Passwordless Login…", systemImage: "key")
             }
+        }
+        Divider()
+        Menu {
+            if sessions.dockSide(of: session.id) != .left {
+                Button {
+                    sessions.dock(session, to: .left)
+                } label: {
+                    Label("Dock Left", systemImage: "rectangle.lefthalf.filled")
+                }
+            }
+            if sessions.dockSide(of: session.id) != .right {
+                Button {
+                    sessions.dock(session, to: .right)
+                } label: {
+                    Label("Dock Right", systemImage: "rectangle.righthalf.filled")
+                }
+            }
+            if sessions.isDocked(session.id) {
+                Divider()
+                Button {
+                    sessions.toggleDockCollapsed(session.id)
+                } label: {
+                    Label("Collapse / Expand", systemImage: "arrow.left.and.right")
+                }
+                Button {
+                    sessions.undock(session)
+                } label: {
+                    Label("Return to Tabs", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+            }
+        } label: {
+            Label("Dock", systemImage: "sidebar.right")
         }
         Button {
             onDetach()

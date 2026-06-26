@@ -1,5 +1,46 @@
 import Foundation
 
+/// Which edge a docked column is pinned to.
+enum DockSide: String, Codable, Equatable, Hashable {
+    case left, right
+}
+
+/// One tab inside a side dock column. It stays a live session in the workspace's
+/// `tabIDs`; it's just shown stacked in the side drawer instead of the center.
+struct DockedPane: Codable, Equatable {
+    /// The session shown in this slot of the drawer.
+    var sessionID: UUID
+    /// This pane's relative vertical weight: stacked panes split the column's
+    /// height in proportion to their weights (so 1, 1 = equal halves).
+    var heightWeight: Double
+
+    init(sessionID: UUID, heightWeight: Double = 1) {
+        self.sessionID = sessionID
+        self.heightWeight = heightWeight
+    }
+}
+
+/// A side drawer pinned to the left or right edge: an ordered vertical stack of
+/// one or more docked tabs, a shared width, and a collapsed (slide-out rail)
+/// state. All remembered per workspace.
+struct DockColumn: Codable, Equatable {
+    /// The drawer's width as a fraction of the whole detail area (clamped on use).
+    var width: Double
+    /// When true the whole column is collapsed to a thin rail with a slide-out button.
+    var collapsed: Bool
+    /// The stacked tabs, top to bottom.
+    var panes: [DockedPane]
+
+    init(width: Double = 0.26, collapsed: Bool = false, panes: [DockedPane] = []) {
+        self.width = width
+        self.collapsed = collapsed
+        self.panes = panes
+    }
+
+    /// Session ids of every pane, top to bottom.
+    var sessionIDs: [UUID] { panes.map(\.sessionID) }
+}
+
 /// A "workspace" is one of the big top-level tabs: a named collection of open
 /// terminal / browser tabs. The user switches between workspaces, and can save a
 /// workspace's tab set to reopen later. Sessions live in a single flat list on
@@ -16,16 +57,23 @@ struct Workspace: Identifiable, Equatable {
     /// Saved sizing for the tiled grid (row heights and per-row column widths) so
     /// the user's dragged pane sizes are remembered per workspace.
     var tileLayout: TileLayout
+    /// A drawer pinned to the left edge: a stack of one or more tabs, if any.
+    var leftDock: DockColumn?
+    /// A drawer pinned to the right edge: a stack of one or more tabs, if any.
+    var rightDock: DockColumn?
 
     init(id: UUID = UUID(), name: String, tabIDs: [UUID] = [],
          selectedSessionID: UUID? = nil, isTiled: Bool = false,
-         tileLayout: TileLayout = TileLayout()) {
+         tileLayout: TileLayout = TileLayout(),
+         leftDock: DockColumn? = nil, rightDock: DockColumn? = nil) {
         self.id = id
         self.name = name
         self.tabIDs = tabIDs
         self.selectedSessionID = selectedSessionID
         self.isTiled = isTiled
         self.tileLayout = tileLayout
+        self.leftDock = leftDock
+        self.rightDock = rightDock
     }
 }
 
@@ -165,6 +213,62 @@ struct WorkspaceSnapshot: Codable {
     /// Index (into `tabs`) of the selected tab, if any.
     var selectedIndex: Int?
     var tabs: [SessionSnapshot]
+    /// Side drawers, by tab index (optional so older snapshots still decode).
+    var docks: [DockSnapshot]? = nil
+}
+
+/// A codable description of a docked side drawer; its tabs are referenced by
+/// their index into the workspace's tab list so they re-pair after a relaunch.
+struct DockSnapshot: Codable {
+    var side: DockSide
+    var width: Double
+    var collapsed: Bool
+    var panes: [DockPaneSnapshot]
+    /// Legacy single-pane field (pre-1.9.10). Kept only so old saved state decodes.
+    var tabIndex: Int? = nil
+
+    enum CodingKeys: String, CodingKey { case side, width, collapsed, panes, tabIndex }
+
+    init(side: DockSide, width: Double, collapsed: Bool, panes: [DockPaneSnapshot]) {
+        self.side = side
+        self.width = width
+        self.collapsed = collapsed
+        self.panes = panes
+    }
+
+    // Decode the current multi-pane shape, falling back to the old single
+    // `tabIndex` so docks saved by 1.9.9 still restore (as a one-tab column).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        side = try c.decode(DockSide.self, forKey: .side)
+        width = try c.decodeIfPresent(Double.self, forKey: .width) ?? 0.26
+        collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
+        if let panes = try c.decodeIfPresent([DockPaneSnapshot].self, forKey: .panes) {
+            self.panes = panes
+        } else if let idx = try c.decodeIfPresent(Int.self, forKey: .tabIndex) {
+            self.panes = [DockPaneSnapshot(tabIndex: idx, heightWeight: 1)]
+        } else {
+            self.panes = []
+        }
+    }
+}
+
+/// One tab within a docked drawer snapshot: its index into the workspace's tab
+/// list, plus its relative height within the column.
+struct DockPaneSnapshot: Codable {
+    var tabIndex: Int
+    var heightWeight: Double
+
+    init(tabIndex: Int, heightWeight: Double = 1) {
+        self.tabIndex = tabIndex
+        self.heightWeight = heightWeight
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tabIndex = try c.decode(Int.self, forKey: .tabIndex)
+        heightWeight = try c.decodeIfPresent(Double.self, forKey: .heightWeight) ?? 1
+    }
 }
 
 /// The whole open-tab state across every workspace, for "resume last session".
@@ -182,14 +286,18 @@ struct SavedWorkspace: Identifiable, Codable {
     var isTiled: Bool = false
     /// Saved tiled-grid sizing for the workspace, if any.
     var tileLayout: TileLayout? = nil
+    /// Side drawers, by tab index, if any.
+    var docks: [DockSnapshot]? = nil
 
     init(id: UUID = UUID(), name: String, tabs: [SessionSnapshot],
-         isTiled: Bool = false, tileLayout: TileLayout? = nil) {
+         isTiled: Bool = false, tileLayout: TileLayout? = nil,
+         docks: [DockSnapshot]? = nil) {
         self.id = id
         self.name = name
         self.tabs = tabs
         self.isTiled = isTiled
         self.tileLayout = tileLayout
+        self.docks = docks
     }
 
     // Custom decoding so library entries saved before `isTiled` / `tileLayout`
@@ -205,5 +313,6 @@ struct SavedWorkspace: Identifiable, Codable {
         tabs = try c.decode([SessionSnapshot].self, forKey: .tabs)
         isTiled = try c.decodeIfPresent(Bool.self, forKey: .isTiled) ?? false
         tileLayout = try c.decodeIfPresent(TileLayout.self, forKey: .tileLayout)
+        docks = try c.decodeIfPresent([DockSnapshot].self, forKey: .docks)
     }
 }

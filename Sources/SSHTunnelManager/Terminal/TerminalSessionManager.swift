@@ -91,6 +91,145 @@ final class TerminalSessionManager: ObservableObject {
         return ws.tabIDs.filter { id in sessions.contains { $0.id == id } }.count
     }
 
+    /// Look up a live session by id.
+    func session(id: UUID) -> TerminalSession? {
+        sessions.first { $0.id == id }
+    }
+
+    // MARK: - Docked side panes
+
+    /// The current workspace's left drawer, with only its live, attached panes.
+    var leftDock: DockColumn? { validColumn(currentWorkspace?.leftDock) }
+    /// The current workspace's right drawer, with only its live, attached panes.
+    var rightDock: DockColumn? { validColumn(currentWorkspace?.rightDock) }
+
+    /// A column is only shown for panes whose session still exists and isn't
+    /// detached; an empty column shows nothing.
+    private func validColumn(_ column: DockColumn?) -> DockColumn? {
+        guard var column else { return nil }
+        column.panes = column.panes.filter { pane in
+            sessions.contains(where: { $0.id == pane.sessionID })
+                && !detachedSessionIDs.contains(pane.sessionID)
+        }
+        return column.panes.isEmpty ? nil : column
+    }
+
+    /// Session ids currently docked to a side in the current workspace.
+    private var dockedSessionIDs: Set<UUID> {
+        var ids = Set<UUID>()
+        (leftDock?.panes ?? []).forEach { ids.insert($0.sessionID) }
+        (rightDock?.panes ?? []).forEach { ids.insert($0.sessionID) }
+        return ids
+    }
+
+    /// Attached sessions shown in the center tab bar / tile grid — i.e. everything
+    /// not pulled out into a side drawer.
+    var centerSessions: [TerminalSession] {
+        let docked = dockedSessionIDs
+        return attachedSessions.filter { !docked.contains($0.id) }
+    }
+
+    /// Whether a session is currently pinned to a side drawer.
+    func isDocked(_ id: UUID) -> Bool { dockedSessionIDs.contains(id) }
+
+    /// Which side a session is docked to, if any.
+    func dockSide(of id: UUID) -> DockSide? {
+        if currentWorkspace?.leftDock?.sessionIDs.contains(id) == true { return .left }
+        if currentWorkspace?.rightDock?.sessionIDs.contains(id) == true { return .right }
+        return nil
+    }
+
+    /// Pull a tab out of the center area and add it to the bottom of `side`'s
+    /// drawer, stacking with anything already docked there. Re-expands the drawer.
+    func dock(_ session: TerminalSession, to side: DockSide) {
+        guard let i = currentIndex else { return }
+        withAnimation(.easeInOut(duration: 0.22)) {
+            // Remove it from wherever it might already be docked, then append.
+            removePane(session.id, inWorkspaceAt: i)
+            var column = (side == .left ? workspaces[i].leftDock : workspaces[i].rightDock) ?? DockColumn()
+            column.panes.append(DockedPane(sessionID: session.id))
+            column.collapsed = false
+            setColumn(column, side: side, inWorkspaceAt: i)
+            // If the docked tab was the selected one, move selection to a center tab.
+            if workspaces[i].selectedSessionID == session.id {
+                workspaces[i].selectedSessionID = centerSessions.first?.id
+            }
+        }
+    }
+
+    /// Return a docked tab to the normal tab bar / tile grid and select it.
+    func undock(_ session: TerminalSession) { undock(sessionID: session.id) }
+
+    func undock(sessionID id: UUID) {
+        guard let i = currentIndex else { return }
+        withAnimation(.easeInOut(duration: 0.22)) {
+            removePane(id, inWorkspaceAt: i)
+            workspaces[i].selectedSessionID = id
+        }
+    }
+
+    /// Collapse / expand the whole drawer on a side (the slide-out rail).
+    func toggleColumnCollapsed(_ side: DockSide) {
+        guard let i = currentIndex else { return }
+        withAnimation(.easeInOut(duration: 0.22)) {
+            switch side {
+            case .left:  workspaces[i].leftDock?.collapsed.toggle()
+            case .right: workspaces[i].rightDock?.collapsed.toggle()
+            }
+        }
+    }
+
+    /// Collapse / expand the drawer that contains a given session (used by menus
+    /// that act on a specific tab).
+    func toggleDockCollapsed(_ id: UUID) {
+        guard let side = dockSide(of: id) else { return }
+        toggleColumnCollapsed(side)
+    }
+
+    /// Set a drawer's width as a fraction of the detail-area width (clamped).
+    func setColumnWidth(_ side: DockSide, fraction: Double) {
+        guard let i = currentIndex else { return }
+        let clamped = min(max(fraction, 0.08), 0.45)
+        switch side {
+        case .left:  workspaces[i].leftDock?.width = clamped
+        case .right: workspaces[i].rightDock?.width = clamped
+        }
+    }
+
+    /// Set the relative heights of the stacked panes in a side's drawer.
+    func setColumnPaneWeights(_ side: DockSide, _ weights: [Double]) {
+        guard let i = currentIndex else { return }
+        func apply(_ column: inout DockColumn?) {
+            guard var c = column, c.panes.count == weights.count else { return }
+            for k in c.panes.indices { c.panes[k].heightWeight = max(0.05, weights[k]) }
+            column = c
+        }
+        switch side {
+        case .left:  apply(&workspaces[i].leftDock)
+        case .right: apply(&workspaces[i].rightDock)
+        }
+    }
+
+    /// Remove a session from whichever drawer holds it, dropping an empty column.
+    private func removePane(_ id: UUID, inWorkspaceAt i: Int) {
+        workspaces[i].leftDock?.panes.removeAll { $0.sessionID == id }
+        workspaces[i].rightDock?.panes.removeAll { $0.sessionID == id }
+        if workspaces[i].leftDock?.panes.isEmpty == true { workspaces[i].leftDock = nil }
+        if workspaces[i].rightDock?.panes.isEmpty == true { workspaces[i].rightDock = nil }
+    }
+
+    private func setColumn(_ column: DockColumn, side: DockSide, inWorkspaceAt i: Int) {
+        switch side {
+        case .left:  workspaces[i].leftDock = column
+        case .right: workspaces[i].rightDock = column
+        }
+    }
+
+    /// Clear any dock entry that referenced `id` (used when a tab closes/detaches).
+    private func clearDocks(for id: UUID, inWorkspaceAt i: Int) {
+        removePane(id, inWorkspaceAt: i)
+    }
+
     // MARK: - Workspace operations
 
     func addWorkspace() {
@@ -684,14 +823,22 @@ final class TerminalSessionManager: ObservableObject {
 
     func close(_ session: TerminalSession) {
         guard sessions.contains(where: { $0.id == session.id }) else { return }
-        // Pick the neighbouring tab (next, else previous) within its workspace so
-        // selection lands somewhere sensible after the close.
+        // Pick the neighbouring *center* tab (next, else previous) within its
+        // workspace so selection lands on a visible tab after the close (docked
+        // and detached tabs aren't selection candidates).
         let wsIndex = workspaces.firstIndex { $0.tabIDs.contains(session.id) }
         var neighborID: UUID?
         if let w = wsIndex {
-            let attachedIDs = workspaces[w].tabIDs.filter { !detachedSessionIDs.contains($0) }
-            if let pos = attachedIDs.firstIndex(of: session.id) {
-                neighborID = attachedIDs[(pos + 1)...].first ?? attachedIDs[..<pos].last
+            var docked = Set<UUID>()
+            (workspaces[w].leftDock?.panes ?? []).forEach { docked.insert($0.sessionID) }
+            (workspaces[w].rightDock?.panes ?? []).forEach { docked.insert($0.sessionID) }
+            let centerIDs = workspaces[w].tabIDs.filter {
+                !detachedSessionIDs.contains($0) && !docked.contains($0)
+            }
+            if let pos = centerIDs.firstIndex(of: session.id) {
+                neighborID = centerIDs[(pos + 1)...].first ?? centerIDs[..<pos].last
+            } else {
+                neighborID = centerIDs.last
             }
         }
         // Kill the child process *now* rather than waiting for ARC to drop the last
@@ -703,6 +850,7 @@ final class TerminalSessionManager: ObservableObject {
         sessions.removeAll { $0.id == session.id }
         detachedSessionIDs.remove(session.id)
         if let w = wsIndex {
+            clearDocks(for: session.id, inWorkspaceAt: w)
             workspaces[w].tabIDs.removeAll { $0 == session.id }
             if workspaces[w].selectedSessionID == session.id {
                 workspaces[w].selectedSessionID = neighborID
@@ -745,10 +893,13 @@ final class TerminalSessionManager: ObservableObject {
     /// Mark a session as detached (shown in its own window) and move tab focus.
     func markDetached(_ session: TerminalSession) {
         detachedSessionIDs.insert(session.id)
-        if let w = workspaces.firstIndex(where: { $0.tabIDs.contains(session.id) }),
-           workspaces[w].selectedSessionID == session.id {
-            let remaining = workspaces[w].tabIDs.filter { !detachedSessionIDs.contains($0) }
-            workspaces[w].selectedSessionID = remaining.first
+        if let w = workspaces.firstIndex(where: { $0.tabIDs.contains(session.id) }) {
+            // A detached tab can't also be a side drawer.
+            clearDocks(for: session.id, inWorkspaceAt: w)
+            if workspaces[w].selectedSessionID == session.id {
+                let remaining = workspaces[w].tabIDs.filter { !detachedSessionIDs.contains($0) }
+                workspaces[w].selectedSessionID = remaining.first
+            }
         }
     }
 
@@ -790,15 +941,15 @@ final class TerminalSessionManager: ObservableObject {
 
     // MARK: - Tab reordering
 
-    /// Move an attached tab from one position to another within the current workspace.
-    func moveAttachedSession(from fromIndex: Int, to toIndex: Int) {
-        let attached = attachedSessions
+    /// Move a center tab from one position to another within the current workspace.
+    func moveCenterTab(from fromIndex: Int, to toIndex: Int) {
+        let center = centerSessions
         guard fromIndex != toIndex,
-              attached.indices.contains(fromIndex),
-              attached.indices.contains(toIndex),
+              center.indices.contains(fromIndex),
+              center.indices.contains(toIndex),
               let i = currentIndex else { return }
-        let movingID = attached[fromIndex].id
-        let targetID = attached[toIndex].id
+        let movingID = center[fromIndex].id
+        let targetID = center[toIndex].id
         guard let from = workspaces[i].tabIDs.firstIndex(of: movingID),
               let to = workspaces[i].tabIDs.firstIndex(of: targetID) else { return }
         workspaces[i].tabIDs.remove(at: from)
@@ -815,14 +966,17 @@ final class TerminalSessionManager: ObservableObject {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = trimmed.isEmpty ? ws.name : trimmed
         let tabs = snapshotTabs(for: ws)
+        let docks = dockSnapshots(for: ws)
         if let idx = savedWorkspaces.firstIndex(where: { $0.name == finalName }) {
             savedWorkspaces[idx].tabs = tabs
             savedWorkspaces[idx].isTiled = ws.isTiled
             savedWorkspaces[idx].tileLayout = ws.tileLayout
+            savedWorkspaces[idx].docks = docks
         } else {
             savedWorkspaces.append(SavedWorkspace(name: finalName, tabs: tabs,
                                                   isTiled: ws.isTiled,
-                                                  tileLayout: ws.tileLayout))
+                                                  tileLayout: ws.tileLayout,
+                                                  docks: docks))
         }
         persistSavedWorkspaces()
     }
@@ -837,6 +991,9 @@ final class TerminalSessionManager: ObservableObject {
         suppressWorkspaceRouting = true
         defer { suppressWorkspaceRouting = false }
         for tab in saved.tabs { recreate(tab) }
+        if let w = workspaces.firstIndex(where: { $0.id == ws.id }) {
+            applyDockSnapshots(saved.docks, toWorkspaceAt: w)
+        }
     }
 
     func deleteSavedWorkspace(_ id: UUID) {
@@ -873,6 +1030,43 @@ final class TerminalSessionManager: ObservableObject {
         }
     }
 
+    /// Snapshot a workspace's side drawers by tab index (matching `snapshotTabs`
+    /// order), so they can be re-paired with the recreated tabs on the next launch.
+    private func dockSnapshots(for ws: Workspace) -> [DockSnapshot]? {
+        let liveTabIDs = ws.tabIDs.filter { id in sessions.contains { $0.id == id } }
+        func snapshot(_ column: DockColumn?, _ side: DockSide) -> DockSnapshot? {
+            guard let column else { return nil }
+            let panes = column.panes.compactMap { pane -> DockPaneSnapshot? in
+                guard let idx = liveTabIDs.firstIndex(of: pane.sessionID) else { return nil }
+                return DockPaneSnapshot(tabIndex: idx, heightWeight: pane.heightWeight)
+            }
+            guard !panes.isEmpty else { return nil }
+            return DockSnapshot(side: side, width: column.width,
+                                collapsed: column.collapsed, panes: panes)
+        }
+        let result = [snapshot(ws.leftDock, .left), snapshot(ws.rightDock, .right)]
+            .compactMap { $0 }
+        return result.isEmpty ? nil : result
+    }
+
+    /// Re-pair saved side drawers with the recreated tabs of a workspace.
+    private func applyDockSnapshots(_ docks: [DockSnapshot]?, toWorkspaceAt w: Int) {
+        guard let docks, workspaces.indices.contains(w) else { return }
+        let tabIDs = workspaces[w].tabIDs
+        for d in docks {
+            let panes = d.panes.compactMap { ps -> DockedPane? in
+                guard tabIDs.indices.contains(ps.tabIndex) else { return nil }
+                return DockedPane(sessionID: tabIDs[ps.tabIndex], heightWeight: ps.heightWeight)
+            }
+            guard !panes.isEmpty else { continue }
+            let column = DockColumn(width: d.width, collapsed: d.collapsed, panes: panes)
+            switch d.side {
+            case .left:  workspaces[w].leftDock = column
+            case .right: workspaces[w].rightDock = column
+            }
+        }
+    }
+
     /// Start saving the open workspaces whenever they change, so the next launch
     /// can resume them. Call once, *after* any initial restore.
     func beginPersistingOpenSessions() {
@@ -893,7 +1087,8 @@ final class TerminalSessionManager: ObservableObject {
             let selIndex = ws.selectedSessionID.flatMap { liveTabIDs.firstIndex(of: $0) }
             return WorkspaceSnapshot(name: ws.name, isTiled: ws.isTiled,
                                      tileLayout: ws.tileLayout,
-                                     selectedIndex: selIndex, tabs: snapshotTabs(for: ws))
+                                     selectedIndex: selIndex, tabs: snapshotTabs(for: ws),
+                                     docks: dockSnapshots(for: ws))
         }
         let current = workspaces.firstIndex { $0.id == currentWorkspaceID } ?? 0
         let state = OpenStateSnapshot(workspaces: snaps, currentIndex: current)
@@ -977,10 +1172,12 @@ final class TerminalSessionManager: ObservableObject {
         for (i, snap) in state.workspaces.enumerated() {
             currentWorkspaceID = built[i].id
             for tab in snap.tabs { recreate(tab) }
-            if let sel = snap.selectedIndex,
-               let w = workspaces.firstIndex(where: { $0.id == built[i].id }),
-               workspaces[w].tabIDs.indices.contains(sel) {
-                workspaces[w].selectedSessionID = workspaces[w].tabIDs[sel]
+            if let w = workspaces.firstIndex(where: { $0.id == built[i].id }) {
+                if let sel = snap.selectedIndex,
+                   workspaces[w].tabIDs.indices.contains(sel) {
+                    workspaces[w].selectedSessionID = workspaces[w].tabIDs[sel]
+                }
+                applyDockSnapshots(snap.docks, toWorkspaceAt: w)
             }
         }
         let current = min(max(0, state.currentIndex), workspaces.count - 1)

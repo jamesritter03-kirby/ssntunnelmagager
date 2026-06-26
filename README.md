@@ -287,6 +287,22 @@ workspaces or relaunch). Click the button again (it turns into a single‑pane i
 **⌃⌘T** to go back to single‑tab view. The choice is remembered. Every terminal stays live
 the whole time, tiled or not.
 
+### Docking a tab to the side
+
+Sometimes you want one tab pinned beside everything else rather than in the tile grid — say a
+log you're tailing, or a reference shell. **Right‑click any tab** (or tile) → **Dock ▸ Dock
+Left** / **Dock Right** (or press **⌃⌘[** / **⌃⌘]**) to pull it out into a **slide‑out drawer**
+on that edge. The rest of your tabs keep their normal tab bar / tiled grid in the center.
+
+You can **stack several tabs in one drawer** — dock more than one to the same side and they
+stack vertically, each with its own header; **drag the divider between them** to size them.
+Each drawer has a slim header with two buttons: **collapse** (›/‹) shrinks the whole drawer to
+a thin **rail** along the edge — click the rail to **slide it back out** — and **return** (⤢)
+puts a tab back in the tab bar. **Drag the divider** between a drawer and the center to
+**resize** its width. You can dock on the left and right at the same time. Sides, widths,
+heights and collapsed state are **remembered per workspace** and restored on relaunch. Docked
+terminals stay fully live, and typing in them works as usual.
+
 ### Command history
 
 Each terminal tab keeps a history of the commands you type in it. Click the **clock icon**

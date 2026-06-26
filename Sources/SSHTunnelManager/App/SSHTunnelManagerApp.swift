@@ -98,7 +98,23 @@ struct SSHTunnelManagerApp: App {
                     get: { sessions.isTiled },
                     set: { sessions.isTiled = $0 }))
                     .keyboardShortcut("t", modifiers: [.command, .control])
-                    .disabled(sessions.attachedSessions.count < 2)
+                    .disabled(sessions.centerSessions.count < 2)
+
+                Button("Dock Tab to Left") {
+                    if let session = sessions.selectedSession {
+                        sessions.dock(session, to: .left)
+                    }
+                }
+                .keyboardShortcut("[", modifiers: [.command, .control])
+                .disabled(sessions.selectedSession == nil)
+
+                Button("Dock Tab to Right") {
+                    if let session = sessions.selectedSession {
+                        sessions.dock(session, to: .right)
+                    }
+                }
+                .keyboardShortcut("]", modifiers: [.command, .control])
+                .disabled(sessions.selectedSession == nil)
             }
             CommandGroup(replacing: .help) {
                 Button("SSH Tunnel Manager Help") {

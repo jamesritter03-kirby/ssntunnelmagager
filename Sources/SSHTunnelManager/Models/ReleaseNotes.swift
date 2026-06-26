@@ -45,6 +45,16 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.10", build: 20, date: "Jun 26, 2026",
+            highlights: [
+                "Dock tabs to the left or right edge as slide-out drawers, so terminals can sit beside your tiled or single-tab layout.",
+                "Stack several tabs in one side drawer and drag the dividers to size them; collapse a drawer to a thin rail and click to slide it back out.",
+                "Dock from a tab's right-click menu (Dock ▸ Dock Left / Dock Right) or with ⌃⌘[ and ⌃⌘]; sides, widths and heights are remembered per workspace.",
+                "Smoother divider dragging for docked drawers (and the resize no longer feels jumpy).",
+            ],
+            isDownloadable: true
+        ),
+        Release(
             shortVersion: "1.9.9", build: 19, date: "Jun 26, 2026",
             highlights: [
                 "New Finder tab: browse local files, and drag a file onto a terminal to paste its path or onto an SFTP tab to upload it.",
