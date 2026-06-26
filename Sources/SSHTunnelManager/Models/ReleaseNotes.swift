@@ -45,6 +45,16 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.11", build: 21, date: "Jun 26, 2026",
+            highlights: [
+                "Finder tab now sorts and filters: click a column header to sort by name, size or date, or use the new menu to sort by kind and show folders or files only.",
+                "Type in the Finder filter box to instantly narrow a folder by name.",
+                "Finder and SFTP: click anywhere on a row to select it — not just the empty space between columns.",
+                "Snappier single-click selection in both file browsers.",
+            ],
+            isDownloadable: true
+        ),
+        Release(
             shortVersion: "1.9.10", build: 20, date: "Jun 26, 2026",
             highlights: [
                 "Dock tabs to the left or right edge as slide-out drawers, so terminals can sit beside your tiled or single-tab layout.",

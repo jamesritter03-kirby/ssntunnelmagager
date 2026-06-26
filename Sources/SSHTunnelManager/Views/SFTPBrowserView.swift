@@ -14,6 +14,9 @@ struct SFTPBrowserView: View {
     private static let f5Key = KeyEquivalent(Character(UnicodeScalar(0xF708)!))
 
     @State private var selection: Set<String> = []
+    @State private var selectionAnchor: String?
+    @State private var lastClickID: String?
+    @State private var lastClickTime: Date = .distantPast
     @State private var isDropTargeted = false
     /// The id of the folder row a drag is currently hovering over (drop‑into).
     @State private var dropTargetFolder: String?
@@ -186,13 +189,16 @@ struct SFTPBrowserView: View {
     private func entryRow(_ entry: SFTPEntry) -> some View {
         let row = SFTPRow(entry: entry, isDropTarget: dropTargetFolder == entry.id)
             .tag(entry.id)
-            // A double-click opens a folder / downloads a file. Use a
-            // *simultaneous* gesture so the List still receives the single clicks
-            // it needs for its own selection — including ⌘-click and ⇧-click to
-            // select several rows at once.
-            .simultaneousGesture(TapGesture(count: 2).onEnded {
-                client.open(entry)
-            })
+            // Make the whole row (text included) one hit target, then drive
+            // selection ourselves: once a row carries tap gestures, List's own
+            // single-click selection stops firing, so we replicate it here —
+            // plain click selects, ⌘-click toggles, ⇧-click extends a range.
+            .contentShape(Rectangle())
+            // One tap gesture only, so a single click selects instantly. A
+            // double-click is detected manually inside selectOnClick via the
+            // system double-click interval — pairing count:1 and count:2 tap
+            // gestures makes SwiftUI delay every single click (felt sluggish).
+            .onTapGesture { selectOnClick(entry) }
             .contextMenu { rowMenu(entry) }
         if entry.isDirectory {
             row.onDrop(of: [UTType.fileURL],
@@ -317,6 +323,37 @@ struct SFTPBrowserView: View {
 
     private var selectedEntries: [SFTPEntry] {
         client.entries.filter { selection.contains($0.id) }
+    }
+
+    /// Replicates a List row's native single-click selection (suppressed once a
+    /// row carries tap gestures): plain click selects just this row, ⌘-click
+    /// toggles it, ⇧-click extends a contiguous range from the last anchor. A
+    /// quick second click on the same row opens it — detected here via the system
+    /// double-click interval so we can use just one (instant) tap gesture.
+    private func selectOnClick(_ entry: SFTPEntry) {
+        let id = entry.id
+        let flags = NSEvent.modifierFlags
+        let plain = !flags.contains(.command) && !flags.contains(.shift)
+        if plain, lastClickID == id,
+           Date().timeIntervalSince(lastClickTime) < NSEvent.doubleClickInterval {
+            lastClickTime = .distantPast   // don't let a third click re-trigger
+            client.open(entry)
+            return
+        }
+        lastClickTime = Date()
+        lastClickID = id
+
+        let ids = client.entries.map(\.id)
+        if flags.contains(.command) {
+            if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+            selectionAnchor = id
+        } else if flags.contains(.shift), let anchor = selectionAnchor,
+                  let a = ids.firstIndex(of: anchor), let b = ids.firstIndex(of: id) {
+            selection = Set(ids[min(a, b)...max(a, b)])
+        } else {
+            selection = [id]
+            selectionAnchor = id
+        }
     }
 
     private var statusColor: Color {
