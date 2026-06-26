@@ -198,6 +198,12 @@ private struct DockColumnView: View {
             }
         }
         .background(.bar)
+        // A drawer has a fixed width, but .frame(width:) doesn't clip: wide
+        // content (e.g. a Finder tab with long names) would otherwise bleed over
+        // the center area on a left dock, or run off-screen on a right dock,
+        // hiding the header's collapse button. Clipping keeps everything — most
+        // importantly the top toolbar — inside the drawer's visible bounds.
+        .clipped()
         .overlay(edgeBorder)
     }
 
@@ -322,29 +328,23 @@ private struct DockPaneView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                .zIndex(1)          // keep the collapse/return controls on top
             Divider()
+            // The content keeps its natural width (long Finder names / a wide
+            // toolbar may overflow), but it's clipped to the pane so it can't
+            // spill sideways over the header's collapse button or the center area.
             TerminalContainer(session: session)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
         }
     }
 
     private var header: some View {
         HStack(spacing: 7) {
-            Circle().fill(statusColor).frame(width: 7, height: 7)
-            Image(systemName: session.symbolName)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(session.title)
-                .font(.caption)
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            Button {
-                sessions.undock(session)
-            } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-            }
-            .buttonStyle(.borderless)
-            .help("Return this tab to the tab bar")
+            // Collapse + return live on the leading edge: the drawer clips its
+            // content to a fixed width, and the leading edge is always the
+            // visible one (screen edge for a left dock, the center boundary for a
+            // right dock), so these controls never get clipped by wide content.
             Button {
                 sessions.toggleColumnCollapsed(side)
             } label: {
@@ -352,6 +352,22 @@ private struct DockPaneView: View {
             }
             .buttonStyle(.borderless)
             .help("Collapse this drawer to a rail")
+            Button {
+                sessions.undock(session)
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(.borderless)
+            .help("Return this tab to the tab bar")
+            Circle().fill(statusColor).frame(width: 7, height: 7)
+            Image(systemName: session.symbolName)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(session.title)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)

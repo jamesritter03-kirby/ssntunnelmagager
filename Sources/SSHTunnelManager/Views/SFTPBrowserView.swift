@@ -206,7 +206,13 @@ struct SFTPBrowserView: View {
                 handleDrop(providers, into: entry)
             }
         } else {
-            row
+            // A drop landing on a file row still uploads to the current folder,
+            // so the whole list — not just the empty area — accepts external
+            // files. (The List's rows otherwise swallow the drag before it can
+            // reach the container's drop handler.)
+            row.onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
+                handleDrop(providers)
+            }
         }
     }
 
@@ -481,13 +487,13 @@ private struct SFTPRow: View {
                 .foregroundStyle(entry.isDirectory ? Color.accentColor : Color.secondary)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.name).lineLimit(1)
+                Text(entry.name).lineLimit(1).truncationMode(.middle)
                 if entry.kind == .symlink, let target = entry.symlinkTarget {
                     Text("→ \(target)")
                         .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                 }
             }
-            Spacer(minLength: 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             Text(entry.displaySize)
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(width: 76, alignment: .trailing)

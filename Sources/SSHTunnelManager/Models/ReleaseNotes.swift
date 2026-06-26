@@ -45,6 +45,15 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.12", build: 22, date: "Jun 26, 2026",
+            highlights: [
+                "Docked drawers: the collapse and return buttons now sit on the drawer's inner edge so they're always visible, even with long file names in a Finder or SFTP tab.",
+                "Long names in docked Finder and SFTP tabs are trimmed to fit instead of pushing the toolbar controls out of view.",
+                "SFTP: drop files anywhere in the list to upload — not just in the empty area below the items.",
+            ],
+            isDownloadable: true
+        ),
+        Release(
             shortVersion: "1.9.11", build: 21, date: "Jun 26, 2026",
             highlights: [
                 "Finder tab now sorts and filters: click a column header to sort by name, size or date, or use the new menu to sort by kind and show folders or files only.",
