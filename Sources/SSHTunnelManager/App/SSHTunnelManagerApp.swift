@@ -30,6 +30,7 @@ struct SSHTunnelManagerApp: App {
                     .keyboardShortcut("t", modifiers: .command)
                 Button("New Browser Tab") { sessions.openBlankWeb() }
                     .keyboardShortcut("t", modifiers: [.command, .shift])
+                Button("New Finder Tab") { sessions.openFinder() }
                 Divider()
                 Button("New MQTT Connection…") { ServiceConnectionModel.shared.present(.mqtt) }
                 Button("New Redis Connection…") { ServiceConnectionModel.shared.present(.redis) }
@@ -56,6 +57,8 @@ struct SSHTunnelManagerApp: App {
                     .disabled(sessions.selectedSession == nil)
                 Button("Disconnect All Tunnels") { sessions.disconnectAllTunnels() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
+                Divider()
+                Button("Set Up Passwordless Login…") { sessions.setUpKeyLoginPrompt() }
                 Divider()
                 Button("Increase Terminal Text") { sessions.increaseFontSize() }
                     .keyboardShortcut("+", modifiers: .command)
@@ -96,6 +99,28 @@ struct SSHTunnelManagerApp: App {
                     set: { sessions.isTiled = $0 }))
                     .keyboardShortcut("t", modifiers: [.command, .control])
                     .disabled(sessions.attachedSessions.count < 2)
+            }
+            CommandGroup(replacing: .help) {
+                Button("SSH Tunnel Manager Help") {
+                    HelpWindowController.shared.show(.article("getting-started"))
+                }
+                .keyboardShortcut("?", modifiers: .command)
+                Button("Keyboard Shortcuts") {
+                    HelpWindowController.shared.show(.article("shortcuts"))
+                }
+                Divider()
+                Button("Release Notes") {
+                    HelpWindowController.shared.show(.releaseNotes)
+                }
+                Button("Download Older Versions…") {
+                    HelpWindowController.shared.show(.olderVersions)
+                }
+                Button("Check for Updates…") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+                Divider()
+                Button("Project Page on GitHub") {
+                    NSWorkspace.shared.open(ReleaseCatalog.homePageURL)
+                }
             }
         }
 

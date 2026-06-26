@@ -68,6 +68,7 @@ struct ProfileEditorView: View {
                 }
             }
             .formStyle(.grouped)
+            .textFieldStyle(.roundedBorder)
 
             Divider()
             commandPreview
@@ -120,7 +121,8 @@ struct ProfileEditorView: View {
         Section {
             iconRow
             labeledField("Name", systemImage: "tag",
-                         placeholder: "My Folder", text: $profile.name)
+                         placeholder: "My Folder", text: $profile.name,
+                         required: true)
             startPathRow
         } header: {
             Label("Local Shell", systemImage: "terminal")
@@ -223,7 +225,8 @@ struct ProfileEditorView: View {
         Section {
             iconRow
             labeledField("Name", systemImage: "tag",
-                         placeholder: "My Server", text: $profile.name)
+                         placeholder: "My Server", text: $profile.name,
+                         required: true)
             LabeledContent {
                 HStack(spacing: 8) {
                     TextField("example.com or 10.0.0.5", text: $profile.host)
@@ -235,7 +238,10 @@ struct ProfileEditorView: View {
                         .autocorrectionDisabled()
                 }
             } label: {
-                Label("Host", systemImage: "server.rack")
+                HStack(spacing: 6) {
+                    Label("Host", systemImage: "server.rack")
+                    requiredBadge(profile.host)
+                }
             }
             labeledField("Username", systemImage: "person",
                          placeholder: "deploy (optional)",
@@ -256,10 +262,31 @@ struct ProfileEditorView: View {
             passwordRows
             Toggle("Require Touch ID / login password before use",
                    isOn: $profile.requireAuthForSavedPassword)
+            Button {
+                setUpPasswordlessLogin()
+            } label: {
+                Label("Set Up Passwordless Login…", systemImage: "key")
+            }
+            .disabled(!canSave)
+            .help(canSave
+                  ? "Save this profile, then copy your SSH key to the server with ssh-copy-id so you can sign in without a password."
+                  : "Enter a name and host first.")
         } header: {
             Label("Authentication", systemImage: "lock")
         } footer: {
-            Text("Prefer an SSH key when you can. A saved password lives in your macOS Keychain and is typed automatically when the server asks. Passwords are never included when you export profiles.")
+            Text("Prefer an SSH key when you can. A saved password lives in your macOS Keychain and is typed automatically when the server asks. Passwords are never included when you export profiles.\n\n“Set Up Passwordless Login” saves the profile and uses ssh-copy-id to install your key on the server — generating a new key first if you don’t have one.")
+        }
+    }
+
+    /// Save the profile, then kick off the one-click `ssh-copy-id` key setup for
+    /// it. Deferred a runloop turn so the editor sheet finishes dismissing before
+    /// the key-setup alert / terminal tab appears in the main window behind it.
+    private func setUpPasswordlessLogin() {
+        applyPasswordChanges()
+        let saved = normalized()
+        onSave(saved)
+        DispatchQueue.main.async {
+            TerminalSessionManager.shared.setUpKeyLogin(profile: saved)
         }
     }
 
@@ -374,8 +401,15 @@ struct ProfileEditorView: View {
     private var terminalSection: some View {
         Section {
             Picker("Theme", selection: $profile.theme) {
-                ForEach(TerminalTheme.all) { theme in
-                    Text(theme.name).tag(theme.id)
+                Section("Dark") {
+                    ForEach(TerminalTheme.dark) { theme in
+                        Text(theme.name).tag(theme.id)
+                    }
+                }
+                Section("Light") {
+                    ForEach(TerminalTheme.light) { theme in
+                        Text(theme.name).tag(theme.id)
+                    }
                 }
             }
             ThemePreview(theme: TerminalTheme.theme(id: profile.theme))
@@ -432,7 +466,7 @@ struct ProfileEditorView: View {
             } label: {
                 Label("Open in workspace", systemImage: "rectangle.split.3x1")
             }
-            Text("Connecting this profile switches to this workspace, creating it if it doesn’t exist, so its tabs open there. Leave blank to use whatever workspace is current.")
+            Text("Connecting this profile (including its SFTP and VNC tabs) switches to this workspace, creating it if it doesn’t exist, and keeps the connection there. Leave blank to use whatever workspace is current.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -582,13 +616,33 @@ struct ProfileEditorView: View {
     @ViewBuilder
     private func labeledField(_ title: String, systemImage: String,
                               placeholder: String, text: Binding<String>,
-                              disableAutocorrect: Bool = false) -> some View {
+                              disableAutocorrect: Bool = false,
+                              required: Bool = false) -> some View {
         LabeledContent {
             TextField(placeholder, text: text)
                 .multilineTextAlignment(.leading)
                 .autocorrectionDisabled(disableAutocorrect)
         } label: {
-            Label(title, systemImage: systemImage)
+            HStack(spacing: 6) {
+                Label(title, systemImage: systemImage)
+                if required {
+                    requiredBadge(text.wrappedValue)
+                }
+            }
+        }
+    }
+
+    /// A small amber "Required" pill shown only while `value` is still empty, so
+    /// it disappears the moment the user fills the field in.
+    @ViewBuilder
+    private func requiredBadge(_ value: String) -> some View {
+        if value.trimmingCharacters(in: .whitespaces).isEmpty {
+            Text("Required")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(Color.orange.opacity(0.15), in: Capsule())
         }
     }
 

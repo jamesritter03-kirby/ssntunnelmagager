@@ -30,6 +30,7 @@ struct SidebarView: View {
                             if !profile.isLocal {
                                 Button("Open SFTP") { sessions.connectSFTP(profile: profile) }
                                 Button("Open VNC") { sessions.connectVNC(profile: profile) }
+                                Button("Set Up Key Login…") { sessions.setUpKeyLogin(profile: profile) }
                             }
                             if !profile.links.isEmpty {
                                 Menu("Open Link") {
@@ -126,6 +127,13 @@ struct SidebarView: View {
                             Image(systemName: "display")
                         }
                         .help("Open VNC screen sharing (over SSH) for the selected profile")
+
+                        Button {
+                            sessions.setUpKeyLogin(profile: profile)
+                        } label: {
+                            Image(systemName: "key")
+                        }
+                        .help("Set up passwordless login (copy your SSH key with ssh-copy-id)")
                     }
 
                     Button {

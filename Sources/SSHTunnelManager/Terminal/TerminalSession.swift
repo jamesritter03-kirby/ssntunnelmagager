@@ -22,6 +22,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case web
         case mqtt
         case redis
+        case finder
     }
 
     let kind: Kind
@@ -65,6 +66,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// For `.redis` sessions: the native Redis client behind `RedisBrowserView`.
     let redisClient: RedisClient?
 
+    /// For `.finder` sessions: the local file browser behind `FinderBrowserView`.
+    let finderModel: LocalFileBrowser?
+
     /// For `.mqtt` / `.redis` sessions: the local (forwarded) port the native
     /// client connects to, kept so the tab can be recreated on the next launch.
     let servicePort: Int?
@@ -91,6 +95,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case .web:        return "globe"
         case .mqtt:       return "antenna.radiowaves.left.and.right"
         case .redis:      return "cylinder.split.1x2"
+        case .finder:     return "folder"
         }
     }
 
@@ -166,6 +171,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         } else {
             self.redisClient = nil
         }
+        if kind == .finder {
+            self.finderModel = LocalFileBrowser(startPath: startDirectory)
+        } else {
+            self.finderModel = nil
+        }
         super.init()
         terminalView.processDelegate = self
         terminalView.onUserInput = { [weak self] data in self?.handleInput(data) }
@@ -192,6 +202,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         webModel?.onTitleChange = { [weak self] newTitle in
             let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
             if !trimmed.isEmpty { self?.title = trimmed }
+        }
+        finderModel?.onPathChange = { [weak self] url in
+            let name = url.lastPathComponent
+            self?.title = name.isEmpty ? "/" : name
         }
         applyAppearance()
     }
@@ -244,6 +258,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             isRunning = true
             exitCode = nil
             redisClient?.start()
+            return
+        }
+
+        if kind == .finder {
+            hasStarted = true
+            isRunning = true
+            exitCode = nil
             return
         }
 
@@ -321,6 +342,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             redisClient?.reconnect()
             return
         }
+        if kind == .finder {
+            isRunning = true
+            exitCode = nil
+            finderModel?.reload()
+            return
+        }
         hasStarted = false
         start()
     }
@@ -332,7 +359,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// exactly as if the session had ended on its own. Use `close` on the manager
     /// to remove the tab entirely.
     func disconnect() {
-        if kind == .web {
+        if kind == .web || kind == .finder {
             return
         }
         if kind == .sftp {
@@ -366,6 +393,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     func shutDown() {
         switch kind {
         case .web:
+            return
+        case .finder:
             return
         case .sftp:
             sftpClient?.disconnect()

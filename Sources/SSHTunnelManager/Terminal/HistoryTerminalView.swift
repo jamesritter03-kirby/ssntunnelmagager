@@ -27,9 +27,52 @@ final class HistoryTerminalView: LocalProcessTerminalView {
     /// can mount the view in its window a beat before layout gives it real bounds.
     var onLayout: (() -> Void)?
 
+    /// Whether we've registered for file drops yet (done once, lazily).
+    private var didRegisterDragTypes = false
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { onAttachedToWindow?() }
+        if window != nil {
+            if !didRegisterDragTypes {
+                didRegisterDragTypes = true
+                // Accept file drops so dragging a file in pastes its path, the
+                // way Terminal.app does. Append rather than replace so SwiftTerm's
+                // own drag handling (text drops) keeps working.
+                registerForDraggedTypes(registeredDraggedTypes + [.fileURL])
+            }
+            onAttachedToWindow?()
+        }
+    }
+
+    // MARK: - File drop → paste path
+
+    /// File URLs on the drag pasteboard, if any.
+    private func droppedFileURLs(_ sender: NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        droppedFileURLs(sender).isEmpty ? super.draggingEntered(sender) : .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        droppedFileURLs(sender).isEmpty ? super.draggingUpdated(sender) : .copy
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        droppedFileURLs(sender).isEmpty ? super.prepareForDragOperation(sender) : true
+    }
+
+    /// Drop one or more files to insert their shell-quoted paths at the prompt,
+    /// space-separated and with a trailing space — exactly like Terminal.app.
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = droppedFileURLs(sender)
+        guard !urls.isEmpty else { return super.performDragOperation(sender) }
+        let text = urls.map { SSHCommandBuilder.shellQuote($0.path) }.joined(separator: " ") + " "
+        send(txt: text)
+        return true
     }
 
     override func layout() {

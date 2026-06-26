@@ -401,6 +401,29 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         refresh()
     }
 
+    /// Upload files/folders **into a subfolder** of the current directory — used
+    /// when the user drags a drop onto a specific folder row (rather than the
+    /// list as a whole). `folderName` is a child of `currentPath`; each item is
+    /// sent to `folderName/<item name>` so it lands inside that folder.
+    func upload(_ urls: [URL], into folderName: String) {
+        guard isConnected else { return }
+        let total = urls.count
+        for (index, url) in urls.enumerated() {
+            var isDir: ObjCBool = false
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+            let localQ = SFTPCommandBuilder.quotePath(url.path)
+            let remoteQ = SFTPCommandBuilder.quotePath(folderName + "/" + url.lastPathComponent)
+            let cmd = isDir.boolValue ? "put -r \(localQ) \(remoteQ)" : "put \(localQ) \(remoteQ)"
+            let label = total > 1
+                ? "Uploading \(url.lastPathComponent) → \(folderName) (\(index + 1) of \(total))…"
+                : "Uploading \(url.lastPathComponent) → \(folderName)…"
+            runCommand(cmd, status: label) { [weak self] out in
+                if let problem = SFTPClient.operationError(out) { self?.report(problem) }
+            }
+        }
+        refresh()
+    }
+
     func download(_ entries: [SFTPEntry], reveal: Bool = true) {
         guard isConnected else { return }
         let dir = localDownloadDirectory

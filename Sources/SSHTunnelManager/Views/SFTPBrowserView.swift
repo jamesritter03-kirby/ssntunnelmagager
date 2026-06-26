@@ -8,9 +8,15 @@ import UniformTypeIdentifiers
 struct SFTPBrowserView: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var client: SFTPClient
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    /// F5 (NSF5FunctionKey) — the conventional “refresh” key.
+    private static let f5Key = KeyEquivalent(Character(UnicodeScalar(0xF708)!))
 
     @State private var selection: Set<String> = []
     @State private var isDropTargeted = false
+    /// The id of the folder row a drag is currently hovering over (drop‑into).
+    @State private var dropTargetFolder: String?
     @State private var showLog = false
     @State private var showNewFolder = false
     @State private var newFolderName = ""
@@ -46,6 +52,7 @@ struct SFTPBrowserView: View {
             statusBar
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .background(refreshShortcut)
         .sheet(isPresented: $showLog) { logSheet }
         .alert("New Folder", isPresented: $showNewFolder) {
             TextField("Folder name", text: $newFolderName)
@@ -136,23 +143,14 @@ struct SFTPBrowserView: View {
         ZStack {
             List(selection: $selection) {
                 ForEach(client.entries) { entry in
-                    SFTPRow(entry: entry)
-                        .tag(entry.id)
-                        // A double-click opens a folder / downloads a file. Use a
-                        // *simultaneous* gesture so the List still receives the
-                        // single clicks it needs for its own selection — including
-                        // ⌘-click and ⇧-click to select several rows at once. (A
-                        // plain `.onTapGesture` here swallows those clicks, which is
-                        // what limited transfers to one file at a time.)
-                        .simultaneousGesture(TapGesture(count: 2).onEnded {
-                            client.open(entry)
-                        })
-                        .contextMenu { rowMenu(entry) }
+                    entryRow(entry)
                 }
             }
             .listStyle(.inset)
             // Let the Delete key remove whatever is selected (one row or many).
             .onDeleteCommand { confirmDelete(selectedEntries) }
+            // Right-click in empty space → folder-wide actions (incl. Refresh).
+            .contextMenu { listBackgroundMenu }
 
             if client.entries.isEmpty && !client.isBusy {
                 VStack(spacing: 8) {
@@ -181,6 +179,40 @@ struct SFTPBrowserView: View {
         }
     }
 
+    /// One file/folder row. Folder rows also act as a drop target so a drag can
+    /// upload straight **into** that folder; other rows fall through to the
+    /// whole‑list drop (upload to the current folder).
+    @ViewBuilder
+    private func entryRow(_ entry: SFTPEntry) -> some View {
+        let row = SFTPRow(entry: entry, isDropTarget: dropTargetFolder == entry.id)
+            .tag(entry.id)
+            // A double-click opens a folder / downloads a file. Use a
+            // *simultaneous* gesture so the List still receives the single clicks
+            // it needs for its own selection — including ⌘-click and ⇧-click to
+            // select several rows at once.
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                client.open(entry)
+            })
+            .contextMenu { rowMenu(entry) }
+        if entry.isDirectory {
+            row.onDrop(of: [UTType.fileURL],
+                       isTargeted: folderTargetBinding(entry)) { providers in
+                handleDrop(providers, into: entry)
+            }
+        } else {
+            row
+        }
+    }
+
+    private func folderTargetBinding(_ entry: SFTPEntry) -> Binding<Bool> {
+        Binding(
+            get: { dropTargetFolder == entry.id },
+            set: { targeted in
+                if targeted { dropTargetFolder = entry.id }
+                else if dropTargetFolder == entry.id { dropTargetFolder = nil }
+            })
+    }
+
     @ViewBuilder
     private func rowMenu(_ entry: SFTPEntry) -> some View {
         // If the right-clicked row is part of a multi-row selection, act on the
@@ -199,6 +231,8 @@ struct SFTPBrowserView: View {
         Divider()
         Button(targets.count > 1 ? "Delete \(targets.count) Items" : "Delete",
                role: .destructive) { confirmDelete(targets) }
+        Divider()
+        Button { client.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
     }
 
     // MARK: - State screens
@@ -298,8 +332,49 @@ struct SFTPBrowserView: View {
         Binding(get: { renameTarget != nil }, set: { if !$0 { renameTarget = nil } })
     }
 
+    /// Folder-wide actions for the empty-area right-click menu.
+    @ViewBuilder
+    private var listBackgroundMenu: some View {
+        Button { client.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+            .disabled(!client.isConnected)
+        Button { showNewFolder = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
+            .disabled(!client.isConnected)
+        Button { chooseAndUpload() } label: { Label("Upload…", systemImage: "arrow.up.doc") }
+            .disabled(!client.isConnected)
+    }
+
+    /// An invisible button binding F5 to Refresh, active only on the selected tab
+    /// (every tab stays mounted, so gating avoids duplicate-shortcut ambiguity).
+    private var refreshShortcut: some View {
+        Button("") { if client.isConnected { client.refresh() } }
+            .keyboardShortcut(Self.f5Key, modifiers: [])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+            .disabled(sessions.selectedSessionID != session.id)
+    }
+
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard client.isConnected else { return false }
+        loadFileURLs(from: providers) { urls in
+            if !urls.isEmpty { client.upload(urls) }
+        }
+        return true
+    }
+
+    /// Drop onto a folder row — upload into that folder.
+    private func handleDrop(_ providers: [NSItemProvider], into folder: SFTPEntry) -> Bool {
+        guard client.isConnected, folder.isDirectory else { return false }
+        dropTargetFolder = nil
+        loadFileURLs(from: providers) { urls in
+            if !urls.isEmpty { client.upload(urls, into: folder.name) }
+        }
+        return true
+    }
+
+    /// Resolve the file URLs from a set of drag providers, on the main queue.
+    private func loadFileURLs(from providers: [NSItemProvider],
+                             completion: @escaping ([URL]) -> Void) {
         var urls: [URL] = []
         let group = DispatchGroup()
         for provider in providers {
@@ -310,11 +385,7 @@ struct SFTPBrowserView: View {
                 group.leave()
             }
         }
-        group.notify(queue: .main) {
-            let fileURLs = urls.filter { $0.isFileURL }
-            if !fileURLs.isEmpty { client.upload(fileURLs) }
-        }
-        return true
+        group.notify(queue: .main) { completion(urls.filter { $0.isFileURL }) }
     }
 
     private func chooseAndUpload() {
@@ -365,6 +436,7 @@ struct SFTPBrowserView: View {
 /// One row in the SFTP browser list.
 private struct SFTPRow: View {
     let entry: SFTPEntry
+    var isDropTarget: Bool = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -387,5 +459,14 @@ private struct SFTPRow: View {
                 .frame(width: 116, alignment: .trailing)
         }
         .padding(.vertical, 2)
+        .padding(.horizontal, 6)
+        .background(isDropTarget ? Color.accentColor.opacity(0.18) : .clear,
+                    in: RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            if isDropTarget {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+            }
+        }
     }
 }

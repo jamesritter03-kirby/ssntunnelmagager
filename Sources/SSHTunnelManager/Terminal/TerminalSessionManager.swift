@@ -163,6 +163,9 @@ final class TerminalSessionManager: ObservableObject {
     /// Open a new tab running `ssh` with the profile's tunnel configuration —
     /// or, for a **local** profile, a login shell starting in its folder.
     func connect(profile: SSHProfile) {
+        // Honor the profile's “Open in workspace” assignment up front, so the tab
+        // — whether newly opened or an existing one we reuse — ends up there.
+        let assigned = routeToAssignedWorkspace(for: profile.id)
         if profile.isLocal { connectLocalProfile(profile); return }
         // A profile's tunnel binds fixed forwarded ports, so a second tunnel for
         // the same profile can't bind them (ssh runs with ExitOnForwardFailure=yes)
@@ -172,6 +175,8 @@ final class TerminalSessionManager: ObservableObject {
         if let existing = sessions.first(where: {
             $0.profileID == profile.id && $0.kind == .ssh
         }) {
+            // An assigned profile's tab follows its workspace on every connect.
+            if assigned { adoptSessionIntoCurrentWorkspace(existing) }
             reveal(existing)
             if !existing.isRunning {
                 reapStrayTunnel(for: profile)   // free ports a slow SIGHUP hasn't yet
@@ -241,6 +246,7 @@ final class TerminalSessionManager: ObservableObject {
     /// Open a new tab running an interactive `sftp` file-transfer session for the
     /// profile (same host / auth as a normal connection).
     func connectSFTP(profile: SSHProfile) {
+        routeToAssignedWorkspace(for: profile.id)
         let args = SFTPCommandBuilder.arguments(for: profile)
         let session = TerminalSession(
             kind: .sftp,
@@ -257,9 +263,164 @@ final class TerminalSessionManager: ObservableObject {
         addAndStart(session)
     }
 
+    /// One-click "set up passwordless login": copy this profile's SSH **public
+    /// key** to the server with `ssh-copy-id`, so future connections sign in with
+    /// the key instead of a password. Runs in a local terminal tab so host-key /
+    /// password prompts work normally (and a saved Keychain password autofills).
+    ///
+    /// If the profile has no key yet, offers to generate a new ed25519 key or
+    /// choose an existing public key. When a key is published for a profile that
+    /// had no identity file, the profile adopts it so the next connection uses it.
+    func setUpKeyLogin(profile: SSHProfile) {
+        guard !profile.isLocal else { return }
+        guard !profile.host.trimmingCharacters(in: .whitespaces).isEmpty else {
+            warn(title: "Add a host first",
+                 text: "This profile needs a host before a key can be copied to it.")
+            return
+        }
+
+        if let pub = SSHCopyIDBuilder.publicKey(for: profile) {
+            launchKeyInstall(profile: profile, publicKey: pub, generate: false)
+            return
+        }
+
+        // No usable public key found — offer to generate one or pick an existing.
+        let alert = NSAlert()
+        alert.messageText = "Set up passwordless login"
+        alert.informativeText = """
+        No SSH key was found for “\(profile.name)”. Generate a new ed25519 key and \
+        copy it to \(profile.subtitle), or choose an existing public key to publish.
+        """
+        alert.addButton(withTitle: "Generate New Key")
+        alert.addButton(withTitle: "Choose Existing…")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            launchKeyInstall(profile: profile,
+                             publicKey: SSHCopyIDBuilder.defaultGeneratedPublicKey(),
+                             generate: true)
+        case .alertSecondButtonReturn:
+            if let pub = chooseExistingPublicKey() {
+                launchKeyInstall(profile: profile, publicKey: pub, generate: false)
+            }
+        default:
+            break
+        }
+    }
+
+    /// Open a local terminal tab that runs the key-setup script for the profile.
+    private func launchKeyInstall(profile: SSHProfile, publicKey: String, generate: Bool) {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let script = SSHCopyIDBuilder.setupScript(for: profile, publicKey: publicKey,
+                                                  generateKey: generate)
+        let session = TerminalSession(
+            kind: .localShell,
+            title: "\(profile.name) — Key Setup",
+            executable: shell,
+            args: ["-c", script],
+            commandPreview: SSHCopyIDBuilder.commandPreview(for: profile, publicKey: publicKey),
+            profileID: profile.id,
+            theme: TerminalTheme.theme(id: profile.theme),
+            fontSize: profile.fontSize,
+            autofillPassword: KeychainStore.shared.hasPassword(for: profile.id),
+            requireAuthForPassword: profile.requireAuthForSavedPassword
+        )
+        addAndStart(session)
+
+        // If this profile had no explicit key, adopt the one we just published so
+        // future connections authenticate with it. Only persist for a profile that
+        // actually exists in the store (skip an unsaved one from the editor).
+        if profile.identityFile.trimmingCharacters(in: .whitespaces).isEmpty,
+           ProfileStore.shared.profiles.contains(where: { $0.id == profile.id }) {
+            var updated = profile
+            updated.identityFile = SSHCopyIDBuilder.privateKeyPath(forPublicKey: publicKey)
+            ProfileStore.shared.update(updated)
+        }
+    }
+
+    /// Prompt the user to choose an existing public key (`*.pub`) in `~/.ssh`.
+    private func chooseExistingPublicKey() -> String? {
+        let panel = NSOpenPanel()
+        panel.title = "Choose SSH Public Key"
+        panel.message = "Choose the public key (.pub) to copy to the server."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        panel.directoryURL = URL(fileURLWithPath: SSHCopyIDBuilder.sshDirectory)
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return url.path
+    }
+
+    /// Ad-hoc "set up passwordless login" that isn't tied to a saved profile —
+    /// for when you're in a plain local terminal and just want to push your SSH
+    /// key to some server. Prompts for the destination (and port), then runs the
+    /// same `ssh-copy-id` flow against a throwaway profile (nothing is saved).
+    func setUpKeyLoginPrompt(prefillDestination: String = "") {
+        let alert = NSAlert()
+        alert.messageText = "Set Up Passwordless Login"
+        alert.informativeText = "Copy your SSH key to a server so you can sign in without a password. You’ll be asked for the account password once."
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+
+        let width: CGFloat = 320
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 52))
+
+        let destField = NSTextField(frame: NSRect(x: 0, y: 26, width: width, height: 24))
+        destField.stringValue = prefillDestination
+        destField.placeholderString = "user@server.example.com"
+        container.addSubview(destField)
+
+        let portLabel = NSTextField(labelWithString: "Port")
+        portLabel.frame = NSRect(x: 0, y: 2, width: 34, height: 20)
+        container.addSubview(portLabel)
+
+        let portField = NSTextField(frame: NSRect(x: 38, y: 0, width: 64, height: 24))
+        portField.stringValue = "22"
+        portField.alignment = .center
+        container.addSubview(portField)
+
+        alert.accessoryView = container
+        alert.window.initialFirstResponder = destField
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let raw = destField.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty else { return }
+        var username = ""
+        var host = raw
+        if let at = raw.firstIndex(of: "@") {
+            username = String(raw[..<at]).trimmingCharacters(in: .whitespaces)
+            host = String(raw[raw.index(after: at)...]).trimmingCharacters(in: .whitespaces)
+        }
+        guard !host.isEmpty else {
+            warn(title: "Enter a server",
+                 text: "Type the server to connect to, like deploy@server.example.com.")
+            return
+        }
+        var profile = SSHProfile()
+        profile.name = host
+        profile.host = host
+        profile.username = username
+        let port = portField.stringValue.trimmingCharacters(in: .whitespaces)
+        profile.port = port.isEmpty ? "22" : port
+        setUpKeyLogin(profile: profile)
+    }
+
+    /// Show a simple warning alert.
+    private func warn(title: String, text: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     /// Open a new tab that tunnels VNC over SSH (a local port-forward to the
     /// server's screen) and launches macOS Screen Sharing through it.
     func connectVNC(profile: SSHProfile) {
+        routeToAssignedWorkspace(for: profile.id)
         let localPort = VNCCommandBuilder.freeLocalPort()
         let args = VNCCommandBuilder.arguments(for: profile, localPort: localPort)
         let session = TerminalSession(
@@ -291,7 +452,6 @@ final class TerminalSessionManager: ObservableObject {
     }
 
     private func addAndStart(_ session: TerminalSession) {
-        routeToAssignedWorkspace(for: session.profileID)
         sessions.append(session)
         if let i = currentIndex {
             workspaces[i].tabIDs.append(session.id)
@@ -303,16 +463,22 @@ final class TerminalSessionManager: ObservableObject {
         }
     }
 
-    /// If a tab is being opened from a profile that's assigned to a named
-    /// workspace, make that workspace current (creating it if no open workspace
-    /// has that name) so the tab lands there. No-op for ad-hoc tabs, profiles
-    /// without an assignment, or while restoring saved tabs.
-    private func routeToAssignedWorkspace(for profileID: UUID?) {
+    /// If a profile is assigned to a named workspace (the editor's “Open in
+    /// workspace” field), make that workspace current — switching to the open one
+    /// of that name, or creating it if none is open. Returns whether the profile
+    /// has an assignment, so callers can also pull an existing tab into it.
+    /// No-op (returns false) for ad-hoc tabs, unassigned profiles, or while
+    /// restoring saved tabs. Only the profile's primary tabs (connect / SFTP /
+    /// VNC) call this; utility tabs (key setup, links, services) stay put.
+    @discardableResult
+    private func routeToAssignedWorkspace(for profileID: UUID?) -> Bool {
         guard !suppressWorkspaceRouting, let profileID,
               let profile = ProfileStore.shared.profiles.first(where: { $0.id == profileID })
-        else { return }
+        else { return false }
         let name = profile.workspace.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, currentWorkspace?.name != name else { return }
+        guard !name.isEmpty else { return false }
+        // Already in the right workspace — assignment satisfied, nothing to switch.
+        if currentWorkspace?.name == name { return true }
         if let existing = workspaces.first(where: { $0.name == name }) {
             currentWorkspaceID = existing.id
         } else {
@@ -321,6 +487,26 @@ final class TerminalSessionManager: ObservableObject {
             workspaces.append(ws)
             currentWorkspaceID = ws.id
         }
+        return true
+    }
+
+    /// Move a session into the current workspace if it lives elsewhere, then
+    /// select it. Lets an assigned profile's existing tab follow its workspace
+    /// assignment on reconnect, instead of staying where it was first opened.
+    private func adoptSessionIntoCurrentWorkspace(_ session: TerminalSession) {
+        guard let target = currentIndex else { return }
+        if workspaces[target].tabIDs.contains(session.id) {
+            workspaces[target].selectedSessionID = session.id
+            return
+        }
+        for i in workspaces.indices where workspaces[i].tabIDs.contains(session.id) {
+            workspaces[i].tabIDs.removeAll { $0 == session.id }
+            if workspaces[i].selectedSessionID == session.id {
+                workspaces[i].selectedSessionID = workspaces[i].tabIDs.last
+            }
+        }
+        workspaces[target].tabIDs.append(session.id)
+        workspaces[target].selectedSessionID = session.id
     }
 
     /// Open a saved profile link in an in-app browser tab. Ensures the profile's
@@ -361,6 +547,22 @@ final class TerminalSessionManager: ObservableObject {
             args: [],
             commandPreview: "",
             webURL: nil
+        )
+        addAndStart(session)
+    }
+
+    /// Open a local file-browser (“Finder”) tab. Drag files from it onto a
+    /// terminal to paste their paths, or onto an SFTP tab to upload them.
+    func openFinder(path: String? = nil) {
+        let start = path ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let folderName = URL(fileURLWithPath: start).lastPathComponent
+        let session = TerminalSession(
+            kind: .finder,
+            title: folderName.isEmpty ? "Files" : folderName,
+            executable: "",
+            args: [],
+            commandPreview: start,
+            startDirectory: start
         )
         addAndStart(session)
     }
@@ -665,7 +867,8 @@ final class TerminalSessionManager: ObservableObject {
         ws.tabIDs.compactMap { id -> SessionSnapshot? in
             guard let s = sessions.first(where: { $0.id == id }) else { return nil }
             return SessionSnapshot(kind: s.kind, profileID: s.profileID,
-                                   webURL: s.webModel?.currentURLString, title: s.title,
+                                   webURL: s.webModel?.currentURLString ?? s.finderModel?.currentPath,
+                                   title: s.title,
                                    servicePort: s.servicePort)
         }
     }
@@ -751,6 +954,8 @@ final class TerminalSessionManager: ObservableObject {
                let fwd = profile.forwards.first(where: { $0.localEndpoint?.port == port }) {
                 openService(snap.kind == .redis ? .redis : .mqtt, forward: fwd, profile: profile)
             }
+        case .finder:
+            openFinder(path: snap.webURL)
         }
     }
 

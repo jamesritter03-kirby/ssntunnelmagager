@@ -117,6 +117,16 @@ struct CommandPaletteView: View {
                                  systemImage: "terminal") {
             sessions.openLocalShell()
         })
+        items.append(PaletteItem(title: "New Finder Tab",
+                                 subtitle: "Browse local files",
+                                 systemImage: "folder") {
+            sessions.openFinder()
+        })
+        items.append(PaletteItem(title: "Set Up Passwordless Login…",
+                                 subtitle: "Copy your SSH key to any server (ssh-copy-id)",
+                                 systemImage: "key") {
+            sessions.setUpKeyLoginPrompt()
+        })
 
         // Connect to profiles
         for profile in store.profiles {
@@ -135,6 +145,11 @@ struct CommandPaletteView: View {
                                          subtitle: "Screen sharing over SSH · \(profile.subtitle)",
                                          systemImage: "display") {
                     sessions.connectVNC(profile: profile)
+                })
+                items.append(PaletteItem(title: "Set Up Key Login: \(profile.name)",
+                                         subtitle: "Copy your SSH key (passwordless login) · \(profile.subtitle)",
+                                         systemImage: "key") {
+                    sessions.setUpKeyLogin(profile: profile)
                 })
             }
         }

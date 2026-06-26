@@ -266,6 +266,11 @@ private struct TabBar: View {
                         } label: {
                             Label("New Browser Tab", systemImage: "globe")
                         }
+                        Button {
+                            sessions.openFinder()
+                        } label: {
+                            Label("New Finder Tab", systemImage: "folder")
+                        }
                         Divider()
                         Button {
                             ServiceConnectionModel.shared.present(.mqtt)
@@ -314,7 +319,7 @@ private struct TabBar: View {
                     HistoryMenuButton(session: session)
                 }
                 LinksMenuButton(session: session)
-                if session.kind != .web {
+                if session.kind != .web && session.kind != .finder {
                     DisconnectButton(session: session)
                 }
             }
@@ -594,7 +599,7 @@ private struct TerminalTabContextMenu: View {
            || !profile.links.isEmpty || !profile.categorizedForwards.isEmpty {
             Divider()
         }
-        if session.kind != .web {
+        if session.kind != .web && session.kind != .finder {
             Button {
                 session.disconnect()
             } label: {
@@ -615,6 +620,20 @@ private struct TerminalTabContextMenu: View {
                 sessions.connectVNC(profile: profile)
             } label: {
                 Label("Open VNC", systemImage: "display")
+            }
+        }
+        if let profile, !profile.isLocal {
+            Button {
+                sessions.setUpKeyLogin(profile: profile)
+            } label: {
+                Label("Set Up Key Login…", systemImage: "key")
+            }
+        }
+        if session.kind == .localShell {
+            Button {
+                sessions.setUpKeyLoginPrompt()
+            } label: {
+                Label("Set Up Passwordless Login…", systemImage: "key")
             }
         }
         Button {
@@ -1030,6 +1049,8 @@ struct TerminalContainer: View {
             MQTTExplorerView(session: session)
         } else if session.kind == .redis {
             RedisBrowserView(session: session)
+        } else if session.kind == .finder {
+            FinderBrowserView(session: session)
         } else {
             terminal
         }
@@ -1136,6 +1157,13 @@ private struct WelcomeView: View {
                 }
                 .controlSize(.large)
 
+                Button {
+                    sessions.openFinder()
+                } label: {
+                    Label("New Finder Tab", systemImage: "folder")
+                }
+                .controlSize(.large)
+
                 Menu {
                     Button {
                         ServiceConnectionModel.shared.present(.mqtt)
@@ -1228,6 +1256,11 @@ private struct ProfileLaunchButton: View {
                     sessions.connectVNC(profile: profile)
                 } label: {
                     Label("Open VNC", systemImage: "display")
+                }
+                Button {
+                    sessions.setUpKeyLogin(profile: profile)
+                } label: {
+                    Label("Set Up Key Login…", systemImage: "key")
                 }
             }
         }

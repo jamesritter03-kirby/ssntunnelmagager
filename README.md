@@ -399,13 +399,15 @@ password prompts work exactly like the SSH tabs — then shows the remote folder
 icons, sizes and dates:
 
 - **Drag files or folders from Finder** onto the browser to **upload** them to the current
-  directory (the whole list highlights as a drop zone). There's also an **Upload…** toolbar
-  button.
+  directory (the whole list highlights as a drop zone) — or **drop them onto a folder row** to
+  upload straight **into that folder** (the folder highlights as you hover). There's also an
+  **Upload…** toolbar button.
 - **Double‑click a folder** to open it, or use the **↑ Up** button and the **path menu** to jump
   to any parent folder.
 - **Double‑click a file** (or pick **Download**) to save it to your download folder; set that
   folder with **Save to:** in the status bar. Downloads are revealed in Finder when done.
 - **New Folder**, **Rename…** and **Delete** are on the toolbar and the right‑click menu.
+- **Refresh** from the toolbar, the right‑click menu, or the **F5** key.
 - A **Log** button shows the raw `sftp` transcript if you need to troubleshoot, and a failed
   connection offers **Reconnect**.
 
