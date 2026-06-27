@@ -102,6 +102,10 @@ final class TerminalSessionManager: ObservableObject {
     var leftDock: DockColumn? { validColumn(currentWorkspace?.leftDock) }
     /// The current workspace's right drawer, with only its live, attached panes.
     var rightDock: DockColumn? { validColumn(currentWorkspace?.rightDock) }
+    /// The current workspace's top drawer, with only its live, attached panes.
+    var topDock: DockColumn? { validColumn(currentWorkspace?.topDock) }
+    /// The current workspace's bottom drawer, with only its live, attached panes.
+    var bottomDock: DockColumn? { validColumn(currentWorkspace?.bottomDock) }
 
     /// A column is only shown for panes whose session still exists and isn't
     /// detached; an empty column shows nothing.
@@ -114,39 +118,60 @@ final class TerminalSessionManager: ObservableObject {
         return column.panes.isEmpty ? nil : column
     }
 
-    /// Session ids currently docked to a side in the current workspace.
+    /// Session ids currently docked to any edge in the current workspace.
     private var dockedSessionIDs: Set<UUID> {
         var ids = Set<UUID>()
-        (leftDock?.panes ?? []).forEach { ids.insert($0.sessionID) }
-        (rightDock?.panes ?? []).forEach { ids.insert($0.sessionID) }
+        for side in DockSide.allFour {
+            (dock(side)?.panes ?? []).forEach { ids.insert($0.sessionID) }
+        }
         return ids
     }
 
+    /// The validated drawer for a given side in the current workspace.
+    private func dock(_ side: DockSide) -> DockColumn? {
+        switch side {
+        case .left:   return leftDock
+        case .right:  return rightDock
+        case .top:    return topDock
+        case .bottom: return bottomDock
+        }
+    }
+
     /// Attached sessions shown in the center tab bar / tile grid — i.e. everything
-    /// not pulled out into a side drawer.
+    /// not pulled out into a drawer.
     var centerSessions: [TerminalSession] {
         let docked = dockedSessionIDs
         return attachedSessions.filter { !docked.contains($0.id) }
     }
 
-    /// Whether a session is currently pinned to a side drawer.
+    /// Whether a session is currently pinned to a drawer.
     func isDocked(_ id: UUID) -> Bool { dockedSessionIDs.contains(id) }
 
     /// Which side a session is docked to, if any.
     func dockSide(of id: UUID) -> DockSide? {
-        if currentWorkspace?.leftDock?.sessionIDs.contains(id) == true { return .left }
-        if currentWorkspace?.rightDock?.sessionIDs.contains(id) == true { return .right }
+        for side in DockSide.allFour
+        where rawColumn(side)?.sessionIDs.contains(id) == true { return side }
         return nil
     }
 
-    /// Pull a tab out of the center area and add it to the bottom of `side`'s
+    /// The stored (un-validated) drawer for a side in the current workspace.
+    private func rawColumn(_ side: DockSide) -> DockColumn? {
+        switch side {
+        case .left:   return currentWorkspace?.leftDock
+        case .right:  return currentWorkspace?.rightDock
+        case .top:    return currentWorkspace?.topDock
+        case .bottom: return currentWorkspace?.bottomDock
+        }
+    }
+
+    /// Pull a tab out of the center area and add it to the end of `side`'s
     /// drawer, stacking with anything already docked there. Re-expands the drawer.
     func dock(_ session: TerminalSession, to side: DockSide) {
         guard let i = currentIndex else { return }
         withAnimation(.easeInOut(duration: 0.22)) {
             // Remove it from wherever it might already be docked, then append.
             removePane(session.id, inWorkspaceAt: i)
-            var column = (side == .left ? workspaces[i].leftDock : workspaces[i].rightDock) ?? DockColumn()
+            var column = column(side, inWorkspaceAt: i) ?? DockColumn()
             column.panes.append(DockedPane(sessionID: session.id))
             column.collapsed = false
             setColumn(column, side: side, inWorkspaceAt: i)
@@ -172,10 +197,9 @@ final class TerminalSessionManager: ObservableObject {
     func toggleColumnCollapsed(_ side: DockSide) {
         guard let i = currentIndex else { return }
         withAnimation(.easeInOut(duration: 0.22)) {
-            switch side {
-            case .left:  workspaces[i].leftDock?.collapsed.toggle()
-            case .right: workspaces[i].rightDock?.collapsed.toggle()
-            }
+            guard var c = column(side, inWorkspaceAt: i) else { return }
+            c.collapsed.toggle()
+            setColumn(c, side: side, inWorkspaceAt: i)
         }
     }
 
@@ -186,42 +210,47 @@ final class TerminalSessionManager: ObservableObject {
         toggleColumnCollapsed(side)
     }
 
-    /// Set a drawer's width as a fraction of the detail-area width (clamped).
+    /// Set a drawer's cross-axis size as a fraction of the detail area (clamped):
+    /// width for left/right, height for top/bottom.
     func setColumnWidth(_ side: DockSide, fraction: Double) {
-        guard let i = currentIndex else { return }
-        let clamped = min(max(fraction, 0.08), 0.45)
-        switch side {
-        case .left:  workspaces[i].leftDock?.width = clamped
-        case .right: workspaces[i].rightDock?.width = clamped
-        }
+        guard let i = currentIndex, var c = column(side, inWorkspaceAt: i) else { return }
+        c.width = min(max(fraction, 0.08), 0.45)
+        setColumn(c, side: side, inWorkspaceAt: i)
     }
 
-    /// Set the relative heights of the stacked panes in a side's drawer.
+    /// Set the relative sizes of the stacked panes in a side's drawer.
     func setColumnPaneWeights(_ side: DockSide, _ weights: [Double]) {
-        guard let i = currentIndex else { return }
-        func apply(_ column: inout DockColumn?) {
-            guard var c = column, c.panes.count == weights.count else { return }
-            for k in c.panes.indices { c.panes[k].heightWeight = max(0.05, weights[k]) }
-            column = c
-        }
-        switch side {
-        case .left:  apply(&workspaces[i].leftDock)
-        case .right: apply(&workspaces[i].rightDock)
-        }
+        guard let i = currentIndex, var c = column(side, inWorkspaceAt: i),
+              c.panes.count == weights.count else { return }
+        for k in c.panes.indices { c.panes[k].heightWeight = max(0.05, weights[k]) }
+        setColumn(c, side: side, inWorkspaceAt: i)
     }
 
     /// Remove a session from whichever drawer holds it, dropping an empty column.
     private func removePane(_ id: UUID, inWorkspaceAt i: Int) {
-        workspaces[i].leftDock?.panes.removeAll { $0.sessionID == id }
-        workspaces[i].rightDock?.panes.removeAll { $0.sessionID == id }
-        if workspaces[i].leftDock?.panes.isEmpty == true { workspaces[i].leftDock = nil }
-        if workspaces[i].rightDock?.panes.isEmpty == true { workspaces[i].rightDock = nil }
+        for side in DockSide.allFour {
+            guard var c = column(side, inWorkspaceAt: i) else { continue }
+            c.panes.removeAll { $0.sessionID == id }
+            setColumn(c.panes.isEmpty ? nil : c, side: side, inWorkspaceAt: i)
+        }
     }
 
-    private func setColumn(_ column: DockColumn, side: DockSide, inWorkspaceAt i: Int) {
+    /// The stored drawer for a side in workspace `i`.
+    private func column(_ side: DockSide, inWorkspaceAt i: Int) -> DockColumn? {
         switch side {
-        case .left:  workspaces[i].leftDock = column
-        case .right: workspaces[i].rightDock = column
+        case .left:   return workspaces[i].leftDock
+        case .right:  return workspaces[i].rightDock
+        case .top:    return workspaces[i].topDock
+        case .bottom: return workspaces[i].bottomDock
+        }
+    }
+
+    private func setColumn(_ column: DockColumn?, side: DockSide, inWorkspaceAt i: Int) {
+        switch side {
+        case .left:   workspaces[i].leftDock = column
+        case .right:  workspaces[i].rightDock = column
+        case .top:    workspaces[i].topDock = column
+        case .bottom: workspaces[i].bottomDock = column
         }
     }
 
@@ -1044,7 +1073,8 @@ final class TerminalSessionManager: ObservableObject {
             return DockSnapshot(side: side, width: column.width,
                                 collapsed: column.collapsed, panes: panes)
         }
-        let result = [snapshot(ws.leftDock, .left), snapshot(ws.rightDock, .right)]
+        let result = [snapshot(ws.leftDock, .left), snapshot(ws.rightDock, .right),
+                      snapshot(ws.topDock, .top), snapshot(ws.bottomDock, .bottom)]
             .compactMap { $0 }
         return result.isEmpty ? nil : result
     }
@@ -1061,8 +1091,10 @@ final class TerminalSessionManager: ObservableObject {
             guard !panes.isEmpty else { continue }
             let column = DockColumn(width: d.width, collapsed: d.collapsed, panes: panes)
             switch d.side {
-            case .left:  workspaces[w].leftDock = column
-            case .right: workspaces[w].rightDock = column
+            case .left:   workspaces[w].leftDock = column
+            case .right:  workspaces[w].rightDock = column
+            case .top:    workspaces[w].topDock = column
+            case .bottom: workspaces[w].bottomDock = column
             }
         }
     }

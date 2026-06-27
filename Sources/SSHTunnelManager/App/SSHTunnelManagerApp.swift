@@ -115,6 +115,38 @@ struct SSHTunnelManagerApp: App {
                 }
                 .keyboardShortcut("]", modifiers: [.command, .control])
                 .disabled(sessions.selectedSession == nil)
+
+                Button("Dock Tab to Top") {
+                    if let session = sessions.selectedSession {
+                        sessions.dock(session, to: .top)
+                    }
+                }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .control])
+                .disabled(sessions.selectedSession == nil)
+
+                Button("Dock Tab to Bottom") {
+                    if let session = sessions.selectedSession {
+                        sessions.dock(session, to: .bottom)
+                    }
+                }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .control])
+                .disabled(sessions.selectedSession == nil)
+
+                Button("Dock Tab to Top") {
+                    if let session = sessions.selectedSession {
+                        sessions.dock(session, to: .top)
+                    }
+                }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .control])
+                .disabled(sessions.selectedSession == nil)
+
+                Button("Dock Tab to Bottom") {
+                    if let session = sessions.selectedSession {
+                        sessions.dock(session, to: .bottom)
+                    }
+                }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .control])
+                .disabled(sessions.selectedSession == nil)
             }
             CommandGroup(replacing: .help) {
                 Button("SSH Tunnel Manager Help") {

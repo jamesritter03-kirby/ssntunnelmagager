@@ -1,8 +1,15 @@
 import Foundation
 
-/// Which edge a docked column is pinned to.
+/// Which edge a docked drawer is pinned to.
 enum DockSide: String, Codable, Equatable, Hashable {
-    case left, right
+    case left, right, top, bottom
+
+    /// Top/bottom drawers run horizontally (their panes stack left-to-right and
+    /// they're sized by height); left/right drawers run vertically.
+    var isHorizontal: Bool { self == .top || self == .bottom }
+
+    /// All four edges, in a stable order (used to iterate every drawer).
+    static let allFour: [DockSide] = [.left, .right, .top, .bottom]
 }
 
 /// One tab inside a side dock column. It stays a live session in the workspace's
@@ -10,8 +17,10 @@ enum DockSide: String, Codable, Equatable, Hashable {
 struct DockedPane: Codable, Equatable {
     /// The session shown in this slot of the drawer.
     var sessionID: UUID
-    /// This pane's relative vertical weight: stacked panes split the column's
-    /// height in proportion to their weights (so 1, 1 = equal halves).
+    /// This pane's relative weight along the drawer's stacking axis: stacked
+    /// panes split the drawer in proportion to their weights (so 1, 1 = equal
+    /// halves). For left/right drawers that's vertical height; for top/bottom
+    /// drawers it's horizontal width. (Field name kept for persistence compat.)
     var heightWeight: Double
 
     init(sessionID: UUID, heightWeight: Double = 1) {
@@ -20,11 +29,14 @@ struct DockedPane: Codable, Equatable {
     }
 }
 
-/// A side drawer pinned to the left or right edge: an ordered vertical stack of
-/// one or more docked tabs, a shared width, and a collapsed (slide-out rail)
-/// state. All remembered per workspace.
+/// A drawer pinned to one edge: an ordered stack of one or more docked tabs, a
+/// shared cross-axis size, and a collapsed (slide-out rail) state. Left/right
+/// drawers stack their tabs vertically; top/bottom drawers stack horizontally.
+/// All remembered per workspace.
 struct DockColumn: Codable, Equatable {
-    /// The drawer's width as a fraction of the whole detail area (clamped on use).
+    /// The drawer's size across the short axis, as a fraction of the whole detail
+    /// area (clamped on use): width for left/right drawers, height for top/bottom.
+    /// (Field name kept for persistence compat with versions that only had sides.)
     var width: Double
     /// When true the whole column is collapsed to a thin rail with a slide-out button.
     var collapsed: Bool
@@ -61,11 +73,16 @@ struct Workspace: Identifiable, Equatable {
     var leftDock: DockColumn?
     /// A drawer pinned to the right edge: a stack of one or more tabs, if any.
     var rightDock: DockColumn?
+    /// A drawer pinned to the top edge of the center area, if any.
+    var topDock: DockColumn?
+    /// A drawer pinned to the bottom edge of the center area, if any.
+    var bottomDock: DockColumn?
 
     init(id: UUID = UUID(), name: String, tabIDs: [UUID] = [],
          selectedSessionID: UUID? = nil, isTiled: Bool = false,
          tileLayout: TileLayout = TileLayout(),
-         leftDock: DockColumn? = nil, rightDock: DockColumn? = nil) {
+         leftDock: DockColumn? = nil, rightDock: DockColumn? = nil,
+         topDock: DockColumn? = nil, bottomDock: DockColumn? = nil) {
         self.id = id
         self.name = name
         self.tabIDs = tabIDs
@@ -74,6 +91,8 @@ struct Workspace: Identifiable, Equatable {
         self.tileLayout = tileLayout
         self.leftDock = leftDock
         self.rightDock = rightDock
+        self.topDock = topDock
+        self.bottomDock = bottomDock
     }
 }
 

@@ -123,7 +123,7 @@ enum HelpContent {
             .paragraph("See several tabs at once, pop one out of the window, or pin one to a side."),
             .bullets([
                 "**Tile Tabs** (⌃⌘T) lays the current workspace's tabs out in a resizable grid. Drag the dividers to size each pane; the layout is remembered per workspace.",
-                "**Dock a tab to the side** with a right‑click → **Dock ▸ Dock Left / Dock Right** (or ⌃⌘[ / ⌃⌘]). It slides out into a drawer on that edge while your other tabs stay in the center. **Stack several tabs** in one drawer and drag the dividers to size them; collapse a drawer to a thin rail (click it to slide back out), drag its edge divider to resize the width, or use the return button to put a tab back. Sides, widths, heights and collapsed state are remembered per workspace.",
+                "**Dock a tab to any edge** with a right‑click → **Dock ▸ Dock Left / Right / Top / Bottom** (or ⌃⌘[ / ⌃⌘] for the sides, ⌃⌘↑ / ⌃⌘↓ for top/bottom). It slides out into a drawer on that edge while your other tabs stay in the center; top and bottom drawers span the width between your side drawers. **Stack several tabs** in one drawer and drag the dividers to size them; collapse a drawer to a thin rail (click it to slide back out), drag its edge divider to resize it, or use the return button to put a tab back. Edges, sizes and collapsed state are remembered per workspace.",
                 "**Detach into New Window** (⌃⌘D) moves a tab into its own floating window without disturbing its connection. Closing the window re‑attaches the tab.",
                 "A detached window can be **pinned always‑on‑top**.",
             ]),

@@ -45,6 +45,15 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.13", build: 23, date: "Jun 26, 2026",
+            highlights: [
+                "Dock tabs to the top or bottom too: a docked drawer can now sit along any of the four edges, with top/bottom drawers spanning the width between your side drawers.",
+                "Dock to the top or bottom from a tab's right-click menu (Dock ▸ Dock Top / Dock Bottom) or with ⌃⌘↑ and ⌃⌘↓.",
+                "Stack several tabs in a top/bottom drawer side by side, drag the dividers to size them, and collapse the drawer to a slim rail — just like the side drawers.",
+            ],
+            isDownloadable: true
+        ),
+        Release(
             shortVersion: "1.9.12", build: 22, date: "Jun 26, 2026",
             highlights: [
                 "Docked drawers: the collapse and return buttons now sit on the drawer's inner edge so they're always visible, even with long file names in a Finder or SFTP tab.",

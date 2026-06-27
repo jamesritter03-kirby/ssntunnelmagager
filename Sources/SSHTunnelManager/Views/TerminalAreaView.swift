@@ -34,18 +34,19 @@ struct TerminalAreaView: View {
 private struct DetailAreaView: View {
     @EnvironmentObject var sessions: TerminalSessionManager
 
-    /// While dragging a column-width divider: the guide line's x (in detail-area
-    /// coordinates) and which side it belongs to. The drawer keeps its committed
-    /// width during the drag — only this lightweight line moves — so the live
-    /// terminals don't re-lay-out on every pixel (which made dragging jumpy). The
-    /// new width is committed once, on release.
-    @State private var widthGuideX: CGFloat?
-    @State private var widthGuideSide: DockSide?
-    @State private var widthDragBase: Double?
-    @State private var pendingWidth: Double?
+    /// While dragging an edge divider: the guide line's position (x for left/right,
+    /// y for top/bottom, in detail-area coordinates) and which side it belongs to.
+    /// The drawer keeps its committed size during the drag — only this lightweight
+    /// line moves — so the live terminals don't re-lay-out on every pixel (which
+    /// made dragging jumpy). The new size is committed once, on release.
+    @State private var crossGuide: CGFloat?
+    @State private var crossGuideSide: DockSide?
+    @State private var crossDragBase: Double?
+    @State private var pendingCross: Double?
 
     private let dividerThickness: CGFloat = 8
     private let minDockWidth: CGFloat = 200
+    private let minDockHeight: CGFloat = 120
     private let railWidth: CGFloat = 34
 
     var body: some View {
@@ -54,29 +55,52 @@ private struct DetailAreaView: View {
                 HStack(spacing: 0) {
                     if let left = sessions.leftDock {
                         DockColumnView(column: left, side: .left)
-                            .frame(width: columnWidth(left, total: geo.size.width))
+                            .frame(width: crossSize(left, .left, total: geo.size))
                         if !left.collapsed {
-                            widthDivider(.left, column: left, total: geo.size.width)
+                            edgeDivider(.left, column: left, total: geo.size)
                         }
                     }
 
-                    center
+                    centerStack(geo.size)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     if let right = sessions.rightDock {
                         if !right.collapsed {
-                            widthDivider(.right, column: right, total: geo.size.width)
+                            edgeDivider(.right, column: right, total: geo.size)
                         }
                         DockColumnView(column: right, side: .right)
-                            .frame(width: columnWidth(right, total: geo.size.width))
+                            .frame(width: crossSize(right, .right, total: geo.size))
                     }
                 }
-                if let x = widthGuideX {
-                    Capsule().fill(Color.accentColor)
-                        .frame(width: 2, height: geo.size.height)
-                        .position(x: x, y: geo.size.height / 2)
-                        .allowsHitTesting(false)
+                if let g = crossGuide, let s = crossGuideSide {
+                    crossGuideLine(g, side: s, in: geo.size)
                 }
+            }
+        }
+    }
+
+    /// The center column, with optional top/bottom drawers stacked above and below
+    /// the tab area. These span the width between the left/right drawers — like an
+    /// editor's bottom panel sitting between the sidebars.
+    @ViewBuilder private func centerStack(_ total: CGSize) -> some View {
+        VStack(spacing: 0) {
+            if let top = sessions.topDock {
+                DockColumnView(column: top, side: .top)
+                    .frame(height: crossSize(top, .top, total: total))
+                if !top.collapsed {
+                    edgeDivider(.top, column: top, total: total)
+                }
+            }
+
+            center
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if let bottom = sessions.bottomDock {
+                if !bottom.collapsed {
+                    edgeDivider(.bottom, column: bottom, total: total)
+                }
+                DockColumnView(column: bottom, side: .bottom)
+                    .frame(height: crossSize(bottom, .bottom, total: total))
             }
         }
     }
@@ -119,46 +143,85 @@ private struct DetailAreaView: View {
         }
     }
 
-    /// Resolved width in points for a drawer (a thin rail when collapsed).
-    private func columnWidth(_ column: DockColumn, total: CGFloat) -> CGFloat {
+    /// Resolved cross-axis size in points for a drawer (a thin rail when collapsed).
+    private func crossSize(_ column: DockColumn, _ side: DockSide, total: CGSize) -> CGFloat {
         guard !column.collapsed else { return railWidth }
-        return resolvedWidth(fraction: column.width, total: total)
+        return resolvedCross(fraction: column.width, side: side, total: total)
     }
 
-    /// Clamp a width fraction to sensible points (min readable width, ≤45%).
-    private func resolvedWidth(fraction: Double, total: CGFloat) -> CGFloat {
-        let cap = max(railWidth, total * 0.45)
-        return min(max(CGFloat(fraction) * total, minDockWidth), cap)
+    /// Clamp a cross-axis fraction to sensible points (min readable size, ≤45%).
+    /// The cross axis is width for left/right drawers, height for top/bottom.
+    private func resolvedCross(fraction: Double, side: DockSide, total: CGSize) -> CGFloat {
+        let main = side.isHorizontal ? total.height : total.width
+        let minSize = side.isHorizontal ? minDockHeight : minDockWidth
+        let cap = max(railWidth, main * 0.45)
+        return min(max(CGFloat(fraction) * main, minSize), cap)
     }
 
     /// A draggable divider between a drawer and the center area. It only moves a
-    /// guide line during the drag and commits the new width on release, so the
-    /// terminals don't reflow on every pixel.
-    private func widthDivider(_ side: DockSide, column: DockColumn, total: CGFloat) -> some View {
-        TileDivider(orientation: .vertical, isActive: widthGuideSide == side)
-            .frame(width: dividerThickness)
+    /// guide line during the drag and commits the new size on release, so the
+    /// terminals don't reflow on every pixel. Works on either axis.
+    private func edgeDivider(_ side: DockSide, column: DockColumn, total: CGSize) -> some View {
+        let horizontal = side.isHorizontal
+        return TileDivider(orientation: horizontal ? .horizontal : .vertical,
+                           isActive: crossGuideSide == side)
+            .frame(width: horizontal ? nil : dividerThickness,
+                   height: horizontal ? dividerThickness : nil)
             .gesture(
                 DragGesture()
                     .onChanged { value in
-                        if widthDragBase == nil { widthDragBase = column.width }
-                        let base = widthDragBase ?? column.width
-                        // Dragging away from the edge widens the drawer.
-                        let deltaPts = side == .left ? value.translation.width
-                                                     : -value.translation.width
-                        let rawFraction = base + Double(deltaPts / max(1, total))
-                        let pts = resolvedWidth(fraction: rawFraction, total: total)
-                        widthGuideSide = side
-                        widthGuideX = side == .left ? pts : total - pts
-                        pendingWidth = Double(pts / total)
+                        if crossDragBase == nil { crossDragBase = column.width }
+                        let base = crossDragBase ?? column.width
+                        let main = horizontal ? total.height : total.width
+                        // Dragging away from the edge enlarges the drawer.
+                        let deltaPts: CGFloat
+                        switch side {
+                        case .left:   deltaPts = value.translation.width
+                        case .right:  deltaPts = -value.translation.width
+                        case .top:    deltaPts = value.translation.height
+                        case .bottom: deltaPts = -value.translation.height
+                        }
+                        let rawFraction = base + Double(deltaPts / max(1, main))
+                        let pts = resolvedCross(fraction: rawFraction, side: side, total: total)
+                        crossGuideSide = side
+                        crossGuide = guidePosition(side: side, pts: pts, total: total)
+                        pendingCross = Double(pts / main)
                     }
                     .onEnded { _ in
-                        if let f = pendingWidth { sessions.setColumnWidth(side, fraction: f) }
-                        widthGuideX = nil
-                        widthGuideSide = nil
-                        widthDragBase = nil
-                        pendingWidth = nil
+                        if let f = pendingCross { sessions.setColumnWidth(side, fraction: f) }
+                        crossGuide = nil
+                        crossGuideSide = nil
+                        crossDragBase = nil
+                        pendingCross = nil
                     }
             )
+    }
+
+    /// Absolute position (x for vertical edges, y for horizontal edges) of the
+    /// drag guide for a drawer of `pts` cross-size.
+    private func guidePosition(side: DockSide, pts: CGFloat, total: CGSize) -> CGFloat {
+        switch side {
+        case .left:   return pts
+        case .right:  return total.width - pts
+        case .top:    return pts
+        case .bottom: return total.height - pts
+        }
+    }
+
+    /// The lightweight guide line shown while dragging an edge divider.
+    @ViewBuilder
+    private func crossGuideLine(_ pos: CGFloat, side: DockSide, in total: CGSize) -> some View {
+        if side.isHorizontal {
+            Capsule().fill(Color.accentColor)
+                .frame(width: total.width, height: 2)
+                .position(x: total.width / 2, y: pos)
+                .allowsHitTesting(false)
+        } else {
+            Capsule().fill(Color.accentColor)
+                .frame(width: 2, height: total.height)
+                .position(x: pos, y: total.height / 2)
+                .allowsHitTesting(false)
+        }
     }
 
     private var tiledLayoutID: String {
@@ -167,10 +230,11 @@ private struct DetailAreaView: View {
     }
 }
 
-/// A side drawer: one or more docked tabs stacked vertically, each with a slim
-/// header, separated by draggable dividers. Collapsed, the whole column becomes a
-/// thin rail with a slide-out button. Width is dragged via the divider supplied
-/// by `DetailAreaView`; everything is remembered per workspace.
+/// A drawer: one or more docked tabs stacked along the drawer's main axis, each
+/// with a slim header, separated by draggable dividers. Left/right drawers stack
+/// vertically; top/bottom drawers stack horizontally. Collapsed, the whole drawer
+/// becomes a thin rail with a slide-out button. Its cross-axis size is dragged via
+/// the divider supplied by `DetailAreaView`; everything is remembered per workspace.
 private struct DockColumnView: View {
     @EnvironmentObject var sessions: TerminalSessionManager
     let column: DockColumn
@@ -178,16 +242,19 @@ private struct DockColumnView: View {
 
     private let dividerThickness: CGFloat = 8
     private let minPaneHeight: CGFloat = 90
+    private let minPaneWidth: CGFloat = 140
 
-    // Pane-resize guide: like the width divider and the tile grid, the panes keep
-    // their committed heights during a drag (only this line moves), so terminals
+    // Pane-resize guide: like the edge divider and the tile grid, the panes keep
+    // their committed sizes during a drag (only this line moves), so terminals
     // don't reflow per pixel. The new split is committed on release.
-    @State private var paneGuideY: CGFloat?
+    @State private var paneGuide: CGFloat?
     @State private var paneDragBoundary: Int?
     @State private var paneDragBase: [Double]?
     @State private var pendingWeights: [Double]?
 
     private var panes: [DockedPane] { column.panes }
+    /// Top/bottom drawers stack their panes horizontally.
+    private var isHorizontal: Bool { side.isHorizontal }
 
     var body: some View {
         Group {
@@ -198,23 +265,26 @@ private struct DockColumnView: View {
             }
         }
         .background(.bar)
-        // A drawer has a fixed width, but .frame(width:) doesn't clip: wide
+        // A drawer has a fixed cross-size, but .frame doesn't clip: wide/tall
         // content (e.g. a Finder tab with long names) would otherwise bleed over
-        // the center area on a left dock, or run off-screen on a right dock,
-        // hiding the header's collapse button. Clipping keeps everything — most
-        // importantly the top toolbar — inside the drawer's visible bounds.
+        // the center area or off-screen, hiding the header's collapse button.
+        // Clipping keeps everything — most importantly each pane's toolbar —
+        // inside the drawer's visible bounds.
         .clipped()
         .overlay(edgeBorder)
     }
 
-    /// Collapsed: a rail of stacked status dots + icons; click to slide the whole
-    /// drawer back out.
+    /// Collapsed: a thin rail of status dots + icons; click to slide the whole
+    /// drawer back out. Runs vertically for left/right, horizontally for top/bottom.
     private var rail: some View {
         Button {
             sessions.toggleColumnCollapsed(side)
         } label: {
-            VStack(spacing: 14) {
-                Image(systemName: side == .left ? "chevron.right" : "chevron.left")
+            let layout = isHorizontal
+                ? AnyLayout(HStackLayout(spacing: 14))
+                : AnyLayout(VStackLayout(spacing: 14))
+            layout {
+                Image(systemName: railChevron)
                     .font(.system(size: 11, weight: .bold))
                 ForEach(panes, id: \.sessionID) { pane in
                     if let session = sessions.session(id: pane.sessionID) {
@@ -228,7 +298,7 @@ private struct DockColumnView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 12)
+            .padding(isHorizontal ? .horizontal : .vertical, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
         }
@@ -236,35 +306,59 @@ private struct DockColumnView: View {
         .help("Slide out the docked tabs")
     }
 
-    /// Expanded: the panes stacked vertically, with a draggable divider between
-    /// each pair to size them.
+    /// Chevron on the collapsed rail, pointing the way the drawer slides out.
+    private var railChevron: String {
+        switch side {
+        case .left:   return "chevron.right"
+        case .right:  return "chevron.left"
+        case .top:    return "chevron.down"
+        case .bottom: return "chevron.up"
+        }
+    }
+
+    /// Expanded: the panes stacked along the main axis, with a draggable divider
+    /// between each pair to size them.
     private var expanded: some View {
         GeometryReader { geo in
             let committed = panes.map(\.heightWeight)
             let sum = max(0.0001, committed.reduce(0, +))
-            let available = max(1, geo.size.height
+            let mainLength = isHorizontal ? geo.size.width : geo.size.height
+            let available = max(1, mainLength
                                 - dividerThickness * CGFloat(max(0, panes.count - 1)))
+            let layout = isHorizontal
+                ? AnyLayout(HStackLayout(spacing: 0))
+                : AnyLayout(VStackLayout(spacing: 0))
             ZStack(alignment: .topLeading) {
-                VStack(spacing: 0) {
+                layout {
                     ForEach(Array(panes.enumerated()), id: \.element.sessionID) { index, pane in
                         if let session = sessions.session(id: pane.sessionID) {
+                            let length = available * CGFloat(committed[index] / sum)
                             DockPaneView(session: session, side: side)
-                                .frame(height: available * CGFloat(committed[index] / sum))
+                                .frame(width: isHorizontal ? length : nil,
+                                       height: isHorizontal ? nil : length)
                         }
                         if index < panes.count - 1 {
-                            TileDivider(orientation: .horizontal,
+                            TileDivider(orientation: isHorizontal ? .vertical : .horizontal,
                                         isActive: paneDragBoundary == index)
-                                .frame(height: dividerThickness)
+                                .frame(width: isHorizontal ? dividerThickness : nil,
+                                       height: isHorizontal ? nil : dividerThickness)
                                 .gesture(paneDrag(boundary: index,
                                                   available: available, sum: sum))
                         }
                     }
                 }
-                if let y = paneGuideY {
-                    Capsule().fill(Color.accentColor)
-                        .frame(width: geo.size.width, height: 2)
-                        .position(x: geo.size.width / 2, y: y)
-                        .allowsHitTesting(false)
+                if let g = paneGuide {
+                    if isHorizontal {
+                        Capsule().fill(Color.accentColor)
+                            .frame(width: 2, height: geo.size.height)
+                            .position(x: g, y: geo.size.height / 2)
+                            .allowsHitTesting(false)
+                    } else {
+                        Capsule().fill(Color.accentColor)
+                            .frame(width: geo.size.width, height: 2)
+                            .position(x: geo.size.width / 2, y: g)
+                            .allowsHitTesting(false)
+                    }
                 }
             }
         }
@@ -278,8 +372,11 @@ private struct DockColumnView: View {
                 if paneDragBase == nil { paneDragBase = base }
                 paneDragBoundary = i
                 guard base.indices.contains(i + 1) else { return }
-                let minWeight = Double(minPaneHeight / available) * sum
-                let delta = Double(value.translation.height / available) * sum
+                let minMain = isHorizontal ? minPaneWidth : minPaneHeight
+                let minWeight = Double(minMain / available) * sum
+                let translation = isHorizontal ? value.translation.width
+                                               : value.translation.height
+                let delta = Double(translation / available) * sum
                 var w = base
                 let lo = minWeight - w[i]
                 let hi = w[i + 1] - minWeight
@@ -288,13 +385,13 @@ private struct DockColumnView: View {
                 w[i] += clamped
                 w[i + 1] -= clamped
                 pendingWeights = w
-                let topFraction = w.prefix(i + 1).reduce(0, +) / sum
-                paneGuideY = available * CGFloat(topFraction)
+                let leadingFraction = w.prefix(i + 1).reduce(0, +) / sum
+                paneGuide = available * CGFloat(leadingFraction)
                     + dividerThickness * CGFloat(i) + dividerThickness / 2
             }
             .onEnded { _ in
                 if let w = pendingWeights { sessions.setColumnPaneWeights(side, w) }
-                paneGuideY = nil
+                paneGuide = nil
                 paneDragBoundary = nil
                 paneDragBase = nil
                 pendingWeights = nil
@@ -302,12 +399,22 @@ private struct DockColumnView: View {
     }
 
     /// A subtle separating line on the inner edge (toward the center area).
-    private var edgeBorder: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.18))
-            .frame(width: 1)
-            .frame(maxWidth: .infinity, alignment: side == .left ? .trailing : .leading)
-            .allowsHitTesting(false)
+    @ViewBuilder private var edgeBorder: some View {
+        let line = Rectangle().fill(Color.secondary.opacity(0.18))
+        switch side {
+        case .left:
+            line.frame(width: 1).frame(maxWidth: .infinity, alignment: .trailing)
+                .allowsHitTesting(false)
+        case .right:
+            line.frame(width: 1).frame(maxWidth: .infinity, alignment: .leading)
+                .allowsHitTesting(false)
+        case .top:
+            line.frame(height: 1).frame(maxHeight: .infinity, alignment: .bottom)
+                .allowsHitTesting(false)
+        case .bottom:
+            line.frame(height: 1).frame(maxHeight: .infinity, alignment: .top)
+                .allowsHitTesting(false)
+        }
     }
 
     private func statusColor(_ session: TerminalSession) -> Color {
@@ -342,13 +449,12 @@ private struct DockPaneView: View {
     private var header: some View {
         HStack(spacing: 7) {
             // Collapse + return live on the leading edge: the drawer clips its
-            // content to a fixed width, and the leading edge is always the
-            // visible one (screen edge for a left dock, the center boundary for a
-            // right dock), so these controls never get clipped by wide content.
+            // content to a fixed size, and the leading edge is always a visible
+            // one, so these controls never get clipped by wide/tall content.
             Button {
                 sessions.toggleColumnCollapsed(side)
             } label: {
-                Image(systemName: side == .left ? "chevron.left" : "chevron.right")
+                Image(systemName: collapseChevron)
             }
             .buttonStyle(.borderless)
             .help("Collapse this drawer to a rail")
@@ -384,6 +490,16 @@ private struct DockPaneView: View {
             },
             onClose: { sessions.close(session) }
         )
+    }
+
+    /// Header collapse chevron, pointing toward the edge the drawer collapses to.
+    private var collapseChevron: String {
+        switch side {
+        case .left:   return "chevron.left"
+        case .right:  return "chevron.right"
+        case .top:    return "chevron.up"
+        case .bottom: return "chevron.down"
+        }
     }
 
     private var statusColor: Color {
@@ -1012,6 +1128,20 @@ private struct TerminalTabContextMenu: View {
                     sessions.dock(session, to: .right)
                 } label: {
                     Label("Dock Right", systemImage: "rectangle.righthalf.filled")
+                }
+            }
+            if sessions.dockSide(of: session.id) != .top {
+                Button {
+                    sessions.dock(session, to: .top)
+                } label: {
+                    Label("Dock Top", systemImage: "rectangle.tophalf.filled")
+                }
+            }
+            if sessions.dockSide(of: session.id) != .bottom {
+                Button {
+                    sessions.dock(session, to: .bottom)
+                } label: {
+                    Label("Dock Bottom", systemImage: "rectangle.bottomhalf.filled")
                 }
             }
             if sessions.isDocked(session.id) {
