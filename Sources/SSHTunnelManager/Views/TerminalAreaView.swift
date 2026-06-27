@@ -52,24 +52,24 @@ private struct DetailAreaView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                HStack(spacing: 0) {
-                    if let left = sessions.leftDock {
-                        DockColumnView(column: left, side: .left)
-                            .frame(width: crossSize(left, .left, total: geo.size))
-                        if !left.collapsed {
-                            edgeDivider(.left, column: left, total: geo.size)
+                VStack(spacing: 0) {
+                    if let top = sessions.topDock {
+                        DockColumnView(column: top, side: .top)
+                            .frame(height: crossSize(top, .top, total: geo.size))
+                        if !top.collapsed {
+                            edgeDivider(.top, column: top, total: geo.size)
                         }
                     }
 
-                    centerStack(geo.size)
+                    centerRow(geo.size)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if let right = sessions.rightDock {
-                        if !right.collapsed {
-                            edgeDivider(.right, column: right, total: geo.size)
+                    if let bottom = sessions.bottomDock {
+                        if !bottom.collapsed {
+                            edgeDivider(.bottom, column: bottom, total: geo.size)
                         }
-                        DockColumnView(column: right, side: .right)
-                            .frame(width: crossSize(right, .right, total: geo.size))
+                        DockColumnView(column: bottom, side: .bottom)
+                            .frame(height: crossSize(bottom, .bottom, total: geo.size))
                     }
                 }
                 if let g = crossGuide, let s = crossGuideSide {
@@ -79,28 +79,28 @@ private struct DetailAreaView: View {
         }
     }
 
-    /// The center column, with optional top/bottom drawers stacked above and below
-    /// the tab area. These span the width between the left/right drawers — like an
-    /// editor's bottom panel sitting between the sidebars.
-    @ViewBuilder private func centerStack(_ total: CGSize) -> some View {
-        VStack(spacing: 0) {
-            if let top = sessions.topDock {
-                DockColumnView(column: top, side: .top)
-                    .frame(height: crossSize(top, .top, total: total))
-                if !top.collapsed {
-                    edgeDivider(.top, column: top, total: total)
+    /// The center row, with optional left/right drawers beside the tab area. These
+    /// span the height between the top/bottom drawers — like an editor's sidebars
+    /// sitting between a top toolbar and a bottom panel.
+    @ViewBuilder private func centerRow(_ total: CGSize) -> some View {
+        HStack(spacing: 0) {
+            if let left = sessions.leftDock {
+                DockColumnView(column: left, side: .left)
+                    .frame(width: crossSize(left, .left, total: total))
+                if !left.collapsed {
+                    edgeDivider(.left, column: left, total: total)
                 }
             }
 
             center
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if let bottom = sessions.bottomDock {
-                if !bottom.collapsed {
-                    edgeDivider(.bottom, column: bottom, total: total)
+            if let right = sessions.rightDock {
+                if !right.collapsed {
+                    edgeDivider(.right, column: right, total: total)
                 }
-                DockColumnView(column: bottom, side: .bottom)
-                    .frame(height: crossSize(bottom, .bottom, total: total))
+                DockColumnView(column: right, side: .right)
+                    .frame(width: crossSize(right, .right, total: total))
             }
         }
     }
@@ -759,6 +759,11 @@ private struct TabBar: View {
                             ServiceConnectionModel.shared.present(.redis)
                         } label: {
                             Label("New Redis Connection…", systemImage: ForwardCategory.redis.symbol)
+                        }
+                        Button {
+                            VNCConnectionModel.shared.present()
+                        } label: {
+                            Label("New VNC Connection…", systemImage: "display")
                         }
                         if !store.profiles.isEmpty {
                             Divider()
@@ -1698,6 +1703,11 @@ private struct WelcomeView: View {
                         ServiceConnectionModel.shared.present(.redis)
                     } label: {
                         Label("New Redis Connection…", systemImage: ForwardCategory.redis.symbol)
+                    }
+                    Button {
+                        VNCConnectionModel.shared.present()
+                    } label: {
+                        Label("New VNC Connection…", systemImage: "display")
                     }
                 } label: {
                     Label("New Connection", systemImage: "bolt.horizontal.circle")

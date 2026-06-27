@@ -50,6 +50,25 @@ else
     echo "    (Auto-update will be unavailable in this build.)"
 fi
 
+# ----- Embed libRoyalVNCKit.dylib (in-app VNC viewer) -----
+# RoyalVNCKit is a dynamic library; CryptoSwift and the C helpers are statically
+# linked into it, so this single dylib is all we need. The executable resolves
+# @rpath/libRoyalVNCKit.dylib via the @executable_path/../Frameworks rpath added
+# above for Sparkle.
+RVNC_DYLIB="$BIN_PATH/libRoyalVNCKit.dylib"
+if [[ -f "$RVNC_DYLIB" ]]; then
+    echo "▶︎  Embedding libRoyalVNCKit.dylib…"
+    mkdir -p "$BUNDLE/Contents/Frameworks"
+    cp "$RVNC_DYLIB" "$BUNDLE/Contents/Frameworks/"
+    # Make sure the Frameworks rpath exists even if the Sparkle block was skipped
+    # (a duplicate add is harmless and silently ignored).
+    install_name_tool -add_rpath @executable_path/../Frameworks \
+        "$BUNDLE/Contents/MacOS/$EXE" 2>/dev/null || true
+else
+    echo "⚠︎  libRoyalVNCKit.dylib not found in $BIN_PATH — run 'swift build' first."
+    echo "    (The in-app VNC viewer will be unavailable in this build.)"
+fi
+
 # Strip detritus xattrs + ad-hoc sign (inside-out, verified). Shared with the
 # packaging scripts so the DMG and update zips are signed identically.
 #

@@ -33,7 +33,22 @@ if [[ -d "$SP" ]]; then
     done
     codesign --force --sign - "$SP" >/dev/null 2>&1 || true
 fi
+
+# Sign any standalone dylibs we embed (e.g. libRoyalVNCKit.dylib) before the
+# main executable so the inside-out order holds.
+if [[ -d "$BUNDLE/Contents/Frameworks" ]]; then
+    while IFS= read -r dylib; do
+        codesign --force --sign - "$dylib" >/dev/null 2>&1 || true
+    done < <(find "$BUNDLE/Contents/Frameworks" -maxdepth 1 -name '*.dylib' -type f)
+fi
+
+# Re-strip detritus that iCloud may have re-applied to nested files while we were
+# signing them, then sign the executable and the bundle back-to-back. On
+# ~/Documents the provenance / FinderInfo xattrs reappear within seconds and
+# would otherwise break the outer bundle seal ("resource fork … not allowed").
+xattr -cr "$BUNDLE" 2>/dev/null || true
 codesign --force --sign - "$BUNDLE/Contents/MacOS/$EXE_NAME" >/dev/null 2>&1 || true
+xattr -cr "$BUNDLE" 2>/dev/null || true
 codesign --force --sign - "$BUNDLE" >/dev/null 2>&1 || true
 
 # 3. Verify (warn but don't abort callers — a failure still leaves a launchable app).

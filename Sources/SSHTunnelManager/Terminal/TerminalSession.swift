@@ -57,6 +57,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// For `.vnc` sessions: the headless ssh-tunnel driver behind the console.
     let vncClient: VNCClient?
 
+    /// For `.vnc` sessions: the embedded RoyalVNCKit viewer that renders the
+    /// remote desktop. Owned by the **session** (not the SwiftUI view) so the
+    /// live VNC connection — and its remembered credential — survives workspace
+    /// switches and tab re-mounts instead of reconnecting (and re-prompting for
+    /// the password) every time the tab leaves and re-enters the view hierarchy.
+    let embeddedVNCViewer: EmbeddedVNCViewer?
+
     /// For `.web` sessions: the in-app browser tab's navigation model.
     let webModel: WebTabModel?
 
@@ -72,6 +79,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// For `.mqtt` / `.redis` sessions: the local (forwarded) port the native
     /// client connects to, kept so the tab can be recreated on the next launch.
     let servicePort: Int?
+
+    /// For native-client tabs that connect **directly** to a host (ad-hoc
+    /// `.mqtt` / `.redis`, and direct `.vnc`): the target host, optional username
+    /// and password. For a direct VNC tab these point the embedded viewer at the
+    /// VNC server (no SSH tunnel / profile).
+    let serviceHost: String
+    let serviceUsername: String
+    let servicePassword: String
 
     /// Extra environment variables merged into the child process's environment
     /// (e.g. `REDISCLI_AUTH` so a Redis password never appears in `args` / `ps`).
@@ -138,6 +153,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         self.requireAuthForPassword = requireAuthForPassword
         self.startDirectory = startDirectory
         self.servicePort = servicePort
+        self.serviceHost = serviceHost
+        self.serviceUsername = serviceUsername
+        self.servicePassword = servicePassword
         self.extraEnvironment = extraEnvironment
         self.terminalView = HistoryTerminalView(frame: NSRect(x: 0, y: 0, width: 820, height: 480))
         if kind == .sftp {
@@ -147,12 +165,48 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         } else {
             self.sftpClient = nil
         }
-        if kind == .vnc {
+        // A profile/SSH-tunneled VNC tab carries `ssh -L` args and gets a
+        // `VNCClient` to drive the tunnel. An ad-hoc *direct* VNC tab has no args
+        // (it connects straight to `serviceHost:servicePort`), so it has no
+        // tunnel client — `VNCConsoleView` points the embedded viewer at the host.
+        if kind == .vnc, !args.isEmpty {
             self.vncClient = VNCClient(executable: executable, args: args, profileID: profileID,
                                        autofillPassword: autofillPassword,
                                        requireAuthForPassword: requireAuthForPassword)
         } else {
             self.vncClient = nil
+        }
+        // Build the embedded viewer up front so it lives as long as the session.
+        if kind == .vnc {
+            let vncProfile = profileID.flatMap { id in
+                ProfileStore.shared.profiles.first { $0.id == id }
+            }
+            let vHost: String, vPort: Int, vPreset: String?, vLabel: String, vUser: String
+            let vRequireBio: Bool
+            if let client = self.vncClient {
+                // Tunneled: dial the local end of the ssh forward.
+                vHost = "127.0.0.1"
+                vPort = client.localPort
+                vPreset = nil
+                vLabel = vncProfile?.name ?? "\(client.remoteHost):\(client.remotePort)"
+                vUser = (vncProfile?.username).flatMap { $0.isEmpty ? nil : $0 } ?? NSUserName()
+                vRequireBio = vncProfile?.requireAuthForSavedPassword ?? false
+            } else {
+                // Direct (ad-hoc): dial the typed host:port.
+                let p = servicePort ?? VNCCommandBuilder.defaultRemotePort
+                vHost = serviceHost
+                vPort = p
+                vPreset = servicePassword.isEmpty ? nil : servicePassword
+                vLabel = "\(serviceHost):\(p)"
+                vUser = serviceUsername.isEmpty ? NSUserName() : serviceUsername
+                vRequireBio = false
+            }
+            self.embeddedVNCViewer = EmbeddedVNCViewer(
+                host: vHost, port: vPort, profileID: profileID,
+                defaultUsername: vUser, serverLabel: vLabel,
+                presetPassword: vPreset, requireBiometricAuth: vRequireBio)
+        } else {
+            self.embeddedVNCViewer = nil
         }
         if kind == .web {
             self.webModel = WebTabModel(initialURL: webURL, proxy: webProxy)
@@ -327,7 +381,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         if kind == .vnc {
             isRunning = true
             exitCode = nil
-            vncClient?.reconnect()
+            if let vncClient {
+                vncClient.reconnect()   // the embedded viewer re-dials once the tunnel is up
+            } else {
+                embeddedVNCViewer?.connect()
+            }
             return
         }
         if kind == .mqtt {
@@ -367,6 +425,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             return
         }
         if kind == .vnc {
+            embeddedVNCViewer?.disconnect()
             vncClient?.disconnect()
             return
         }
@@ -399,6 +458,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case .sftp:
             sftpClient?.disconnect()
         case .vnc:
+            embeddedVNCViewer?.disconnect()
             vncClient?.disconnect()
         case .mqtt:
             mqttClient?.disconnect()

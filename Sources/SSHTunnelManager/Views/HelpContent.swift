@@ -163,8 +163,10 @@ enum HelpContent {
     static let vnc = HelpArticle(
         id: "vnc", title: "VNC Screen Sharing", icon: "display",
         blocks: [
-            .paragraph("Open a **VNC tab** to view a server's screen over the SSH connection. The app forwards a local port to the server's VNC service and launches macOS Screen Sharing through it — so the session is tunneled and encrypted."),
-            .paragraph("Right‑click a remote profile ▸ **Open VNC**, use the display button in the sidebar, or the command palette."),
+            .paragraph("Open a **VNC tab** to view a server's screen over the SSH connection. The app forwards a local port to the server's VNC service and connects its **built‑in viewer** to it, so the remote desktop appears **right inside the tab** — tunneled and encrypted, no external app required."),
+            .paragraph("Right‑click a remote profile ▸ **Open VNC**, use the display button in the sidebar, or the command palette. Or, with no profile at all, choose **New VNC Connection…** from the **+** menu / **File ▸ New** to connect the viewer **directly** to any host:port (not tunneled — best for a machine on your LAN)."),
+            .paragraph("The desktop toolbar lets you switch between **Scale to fit** and **Actual size**, hand off to macOS **Screen Sharing** if you prefer it, view the raw `ssh` **Log**, or **Disconnect**. If the screen needs a password you'll be prompted (a Screen Sharing password, or an account name + password for *Apple Remote Desktop* auth) and can **remember** it in the Keychain."),
+            .paragraph("For a VNC tab opened from a **profile**, the toolbar's **File Transfer** menu (↕) lets you **Open SFTP Browser** or **Upload Files…** to the same server over the SSH connection — handy for moving files while you work on the remote desktop. (Ad-hoc, non-tunneled VNC tabs have no SSH connection, so they don't offer file transfer.)"),
         ])
 
     // MARK: Services

@@ -39,9 +39,11 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
   with a click — using the same host, key and saved password as a normal connection.
 - 🖥️ **VNC screen sharing over SSH** — open a **VNC tab** for any profile (sidebar
   right‑click → *Open VNC*, the 🖵 button, a terminal **tab’s right‑click menu**, or the
-  command palette). It opens an encrypted SSH tunnel to the server’s screen and launches
-  macOS **Screen Sharing** through it — so the remote desktop is private, using the same
-  host, key and saved password as a normal connection.
+  command palette). It opens an encrypted SSH tunnel to the server’s screen and renders the
+  remote **desktop right inside the tab** — no external app — using the same host, key and
+  saved password as a normal connection. macOS **Screen Sharing** stays one click away as a
+  fallback. You can also open an **ad‑hoc** VNC tab to any host from the **+** menu
+  (*New VNC Connection…*) — no profile required.
 - 📚 **Example profiles on first launch** — a fresh install starts with four ready‑to‑read
   examples (local `-L`, dynamic `-D`, remote `-R`, and a jump‑host `-J` with a shell) so the
   options are easy to learn. Edit or delete them freely — they're only ever added once.
@@ -442,14 +444,26 @@ Want the remote **desktop** instead of a shell or files? Open a **VNC tab** for 
 
 VNC is normally **unencrypted**, so rather than connecting to it directly this opens a
 tunnels‑only `ssh -N` connection that **forwards a local port to the server’s screen**
-(`127.0.0.1:5900` on the server) and then launches macOS’s built‑in **Screen Sharing** pointed
-at the local end. The screen session therefore travels **inside the encrypted SSH tunnel**, and
-host‑key / password prompts work exactly like the SSH and SFTP tabs.
+(`127.0.0.1:5900` on the server). The app then connects its **built‑in VNC client** to the
+local end of that tunnel and shows the live desktop **inside the tab**. The screen session
+therefore travels **inside the encrypted SSH tunnel**, and host‑key / password prompts work
+exactly like the SSH and SFTP tabs.
 
-The VNC tab itself is a small **status console**: it shows when the tunnel is live, the
-forwarded address, an **Open Screen Sharing** button (in case the viewer didn’t pop up or you
-closed it), **Reconnect** if the tunnel drops, and a **Log** of the raw `ssh` output. Closing
-the tab (or **Disconnect**) tears the tunnel down.
+The embedded desktop has a slim toolbar: toggle **Scale to fit / Actual size**, a **File
+Transfer** menu (for a profile VNC tab — **Open SFTP Browser** or **Upload Files…** to the same
+server over SSH), **Open in Screen Sharing** (hand off to macOS’s built‑in viewer if you prefer
+it), a **Log** of the raw `ssh` output, and **Disconnect**. The first time a screen asks for
+credentials you’ll get a prompt — a single **Screen Sharing password**, or an **account name +
+password** for Macs set to *Apple Remote Desktop* authentication — with an option to **remember**
+it (stored in the Keychain, separate from your SSH password). Closing the tab (or **Disconnect**)
+tears the tunnel down.
+
+**On‑demand VNC.** You don’t need a profile. From the tab bar **+** menu (or **File → New**, or
+the welcome screen) choose **New VNC Connection…**, enter a host, port (default `5900`) and an
+optional password, and the app opens an embedded VNC tab pointed **directly** at that server.
+This connection isn’t tunnelled — it’s meant for a machine on your LAN or one you’ve already
+made reachable; for an encrypted session over an untrusted network, open VNC from a profile so
+it rides the SSH tunnel.
 
 > The server must have a VNC / screen‑sharing server listening on its `localhost:5900` (e.g.
 > macOS **System Settings → General → Sharing → Screen Sharing**, or a Linux VNC server). To

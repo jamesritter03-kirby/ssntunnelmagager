@@ -415,8 +415,13 @@ final class TerminalSessionManager: ObservableObject {
     /// profile (same host / auth as a normal connection).
     func connectSFTP(profile: SSHProfile) {
         routeToAssignedWorkspace(for: profile.id)
+        addAndStart(makeSFTPSession(for: profile))
+    }
+
+    /// Build (but don't start) an interactive `sftp` session tab for a profile.
+    private func makeSFTPSession(for profile: SSHProfile) -> TerminalSession {
         let args = SFTPCommandBuilder.arguments(for: profile)
-        let session = TerminalSession(
+        return TerminalSession(
             kind: .sftp,
             title: "\(profile.name) — SFTP",
             executable: SFTPCommandBuilder.sftpPath,
@@ -428,7 +433,50 @@ final class TerminalSessionManager: ObservableObject {
             autofillPassword: KeychainStore.shared.hasPassword(for: profile.id),
             requireAuthForPassword: profile.requireAuthForSavedPassword
         )
+    }
+
+    /// Reveal an existing SFTP tab for `profile`, or open a new one (reconnecting
+    /// a disconnected one). Used by the VNC tab's **File Transfer** menu so using
+    /// it repeatedly focuses the same browser instead of stacking duplicate tabs.
+    @discardableResult
+    func revealOrOpenSFTP(profile: SSHProfile) -> TerminalSession {
+        routeToAssignedWorkspace(for: profile.id)
+        if let existing = sessions.first(where: {
+            $0.profileID == profile.id && $0.kind == .sftp
+        }) {
+            reveal(existing)
+            if !existing.isRunning { existing.restart() }
+            return existing
+        }
+        let session = makeSFTPSession(for: profile)
         addAndStart(session)
+        return session
+    }
+
+    /// Open (or reveal) an SFTP tab for `profile` and upload `urls` once it's
+    /// connected — the "Upload Files…" action on a VNC tab's File Transfer menu.
+    /// The tab is left open afterwards for further browsing / transfers.
+    func uploadViaSFTP(profile: SSHProfile, urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let session = revealOrOpenSFTP(profile: profile)
+        guard let client = session.sftpClient else { return }
+        whenSFTPReady(client) { client.upload(urls) }
+    }
+
+    /// Run `action` once an SFTP client reaches a connected state, polling briefly.
+    /// Gives up if the connection fails/ends or after ~10s (the tab stays open so
+    /// the user can still transfer manually).
+    private func whenSFTPReady(_ client: SFTPClient, remainingAttempts: Int = 40,
+                               _ action: @escaping () -> Void) {
+        if client.isConnected { action(); return }
+        switch client.phase {
+        case .failed, .ended: return
+        default: break
+        }
+        guard remainingAttempts > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.whenSFTPReady(client, remainingAttempts: remainingAttempts - 1, action)
+        }
     }
 
     /// One-click "set up passwordless login": copy this profile's SSH **public
@@ -748,6 +796,27 @@ final class TerminalSessionManager: ObservableObject {
             executable: "",
             args: [],
             commandPreview: "\(category.title) \(cleanHost):\(port)",
+            servicePort: port,
+            serviceHost: cleanHost,
+            serviceUsername: username.trimmingCharacters(in: .whitespaces),
+            servicePassword: password
+        )
+        addAndStart(session)
+    }
+
+    /// Open an **ad-hoc** VNC tab that points the built-in viewer **directly** at
+    /// `host:port` (no SSH tunnel / profile). Used by the “New VNC Connection”
+    /// setup sheet. For a tunneled, encrypted session, open VNC from a profile.
+    func openAdHocVNC(host: String, port: Int, username: String, password: String) {
+        guard port > 0 else { return }
+        let cleanHost = host.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "127.0.0.1" : host.trimmingCharacters(in: .whitespaces)
+        let session = TerminalSession(
+            kind: .vnc,
+            title: "VNC — \(cleanHost):\(port)",
+            executable: "",
+            args: [],
+            commandPreview: "vnc://\(cleanHost):\(port)",
             servicePort: port,
             serviceHost: cleanHost,
             serviceUsername: username.trimmingCharacters(in: .whitespaces),

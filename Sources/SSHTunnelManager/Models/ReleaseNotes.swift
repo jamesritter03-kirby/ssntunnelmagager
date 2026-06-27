@@ -45,6 +45,18 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.14", build: 24, date: "Jun 26, 2026",
+            highlights: [
+                "VNC tabs now show the remote desktop right inside the tab instead of handing off to macOS Screen Sharing — with a one-click “Open in Screen Sharing” fallback still available.",
+                "New VNC Connection…: connect straight to a VNC server by host and port without setting up a profile first (from the + menu or File ▸ New).",
+                "Transfer files from a VNC tab: the new File Transfer menu opens an SFTP browser or uploads files to the same server over your SSH connection.",
+                "VNC connections stay live when you switch workspaces — no more re-entering the Screen Sharing password each time you come back.",
+                "Remember a VNC password in the Keychain and unlock it with Touch ID, using each profile’s existing Touch ID setting.",
+                "Docked drawers rearranged: the left and right drawers now sit between the top and bottom drawers, so the top and bottom span the full width.",
+            ],
+            isDownloadable: true
+        ),
+        Release(
             shortVersion: "1.9.13", build: 23, date: "Jun 26, 2026",
             highlights: [
                 "Dock tabs to the top or bottom too: a docked drawer can now sit along any of the four edges, with top/bottom drawers spanning the width between your side drawers.",

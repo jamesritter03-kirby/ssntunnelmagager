@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var editingProfile: SSHProfile?
     @ObservedObject private var sidebar = SidebarModel.shared
     @ObservedObject private var serviceConnection = ServiceConnectionModel.shared
+    @ObservedObject private var vncConnection = VNCConnectionModel.shared
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebar.columnVisibility) {
@@ -44,6 +45,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $serviceConnection.isPresented) {
             ServiceConnectionView(model: serviceConnection)
+                .environmentObject(sessions)
+        }
+        .sheet(isPresented: $vncConnection.isPresented) {
+            VNCConnectionView(model: vncConnection)
                 .environmentObject(sessions)
         }
     }

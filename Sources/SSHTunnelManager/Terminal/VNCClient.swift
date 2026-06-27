@@ -49,7 +49,7 @@ final class VNCClient: NSObject, ObservableObject, LocalProcessDelegate {
     private var buffer = ""
     private var didAutofillPassword = false
     private var handlingAuthPrompt = false
-    private var didLaunchViewer = false
+    private var didMarkConnected = false
 
     init(executable: String, args: [String], profileID: UUID?,
          autofillPassword: Bool, requireAuthForPassword: Bool) {
@@ -73,7 +73,7 @@ final class VNCClient: NSObject, ObservableObject, LocalProcessDelegate {
         buffer = ""
         didAutofillPassword = false
         handlingAuthPrompt = false
-        didLaunchViewer = false
+        didMarkConnected = false
         errorMessage = nil
         phase = .connecting
         statusMessage = "Opening secure tunnel…"
@@ -140,7 +140,7 @@ final class VNCClient: NSObject, ObservableObject, LocalProcessDelegate {
         if SFTPClient.looksLikeHostKeyPrompt(buffer) { handleHostKeyPrompt(); return }
         if let failure = SFTPClient.failureMessage(in: buffer) { fail(failure); return }
         // The local listener is bound once ssh logs this (it then accepts
-        // connections), so it's safe to launch the viewer.
+        // connections), so it's safe for the in-app viewer to connect.
         if buffer.contains("Local forwarding listening on")
             || buffer.contains("Entering interactive session") {
             markConnected()
@@ -148,15 +148,15 @@ final class VNCClient: NSObject, ObservableObject, LocalProcessDelegate {
     }
 
     private func markConnected() {
-        guard !didLaunchViewer else { return }
-        didLaunchViewer = true
+        guard !didMarkConnected else { return }
+        didMarkConnected = true
         buffer = ""
         phase = .connected
-        statusMessage = "Connected · 127.0.0.1:\(localPort)"
-        // A hair of delay so the listener is fully ready before Screen Sharing connects.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.openViewer()
-        }
+        statusMessage = "Tunnel ready · 127.0.0.1:\(localPort)"
+        // No external app is launched here any more: `VNCConsoleView` watches for
+        // `.connected` and connects the embedded VNC viewer to the local port.
+        // `openViewer()` remains available as a manual "Open in Screen Sharing"
+        // fallback.
     }
 
     private func handleSecretPrompt() {
