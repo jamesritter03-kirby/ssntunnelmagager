@@ -45,6 +45,16 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.16", build: 26, date: "Jun 29, 2026",
+            highlights: [
+                "New ZeroTier Devices browser: see every device across your ZeroTier networks and connect (SSH, SFTP or VNC) straight to any of its IP addresses — open it from the welcome screen, the sidebar, or File ▸ Browse ZeroTier Devices.",
+                "Add multiple ZeroTier accounts (one API token each) and browse them together; filter devices by name, node id or IP, and hide ones that are offline.",
+                "Self-hosted ZeroTier (e.g. ZTNET) is supported alongside ZeroTier Central — just add your server’s URL, including organization API tokens, which now work automatically.",
+                "Pick a ZeroTier device IP right where you type a host: a globe button next to the host field in the Remote Terminal, SFTP, VNC, MQTT and Redis sheets and in the profile editor.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.15", build: 25, date: "Jun 29, 2026",
             highlights: [
                 "Welcome screen now has a Recently Closed list: reopen a tab — or a whole workspace — you closed without saving, with one click.",
@@ -56,7 +66,7 @@ enum ReleaseCatalog {
                 "Open an ad-hoc Remote Terminal, SFTP, or VNC connection to any host without making a profile first — right from an empty workspace.",
                 "Empty-workspace welcome screen: every connection type is now a labeled button, including MQTT and Redis.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.14", build: 24, date: "Jun 26, 2026",

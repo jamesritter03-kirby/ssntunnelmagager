@@ -102,9 +102,12 @@ struct ServiceConnectionView: View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 10) {
             GridRow {
                 Text("Host").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
-                TextField("127.0.0.1", text: $model.host)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($hostFocused)
+                HStack(spacing: 6) {
+                    TextField("127.0.0.1", text: $model.host)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($hostFocused)
+                    ZeroTierPickerButton { model.host = $0 }
+                }
             }
             GridRow {
                 Text("Port").gridColumnAlignment(.trailing).foregroundStyle(.secondary)

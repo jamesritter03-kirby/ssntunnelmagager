@@ -37,6 +37,8 @@ struct SSHTunnelManagerApp: App {
                 Button("New MQTT Connection…") { ServiceConnectionModel.shared.present(.mqtt) }
                 Button("New Redis Connection…") { ServiceConnectionModel.shared.present(.redis) }
                 Button("New VNC Connection…") { VNCConnectionModel.shared.present() }
+                Divider()
+                Button("Browse ZeroTier Devices…") { ZeroTierBrowserModel.shared.present() }
             }
             CommandGroup(after: .newItem) {
                 Button("Close Tab") { sessions.closeSelected() }

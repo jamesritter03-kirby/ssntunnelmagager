@@ -6,7 +6,7 @@ import Foundation
 enum HelpContent {
     static let articles: [HelpArticle] = [
         gettingStarted, profiles, tunnels, passwordless, terminal, snippets,
-        workspaces, tilingDetaching, sftp, finder, vnc, services, links,
+        workspaces, tilingDetaching, sftp, finder, vnc, zerotier, services, links,
         paletteAndMenuBar, updates, shortcuts,
     ]
 
@@ -174,6 +174,28 @@ enum HelpContent {
             .paragraph("For a VNC tab opened from a **profile**, the toolbar's **File Transfer** menu (↕) lets you **Open SFTP Browser** or **Upload Files…** to the same server over the SSH connection — handy for moving files while you work on the remote desktop. (Ad-hoc, non-tunneled VNC tabs have no SSH connection, so they don't offer file transfer.)"),
             .paragraph("**Right‑click the VNC tab** for a **VNC** menu with more options: **Scaling** (Scale to Fit / Actual Size), **Color Depth** (True Color, High Color or 256 Colors — drop it for a snappier picture over a slow link), **View Only** (watch without sending input), **Share Clipboard** (sync copy/paste with the remote), **Send Ctrl+Alt+Del**, **Reconnect**, and **Open in Screen Sharing**. Changing a display or input option briefly reconnects — your remembered password is reused, so you won't be asked again."),
             .paragraph("At **Actual Size** (scaling off), if the remote screen is bigger than the tab, scroll bars appear on the edges — **drag them to pan** around the desktop. (Two‑finger scrolling is sent to the remote computer, so use the scroll bars to move the view.) Switch back to **Scale to Fit** to see the whole screen at once."),
+        ])
+
+    // MARK: ZeroTier
+
+    static let zerotier = HelpArticle(
+        id: "zerotier", title: "ZeroTier Devices", icon: "globe.americas.fill",
+        blocks: [
+            .paragraph("Browse the devices on your **ZeroTier** networks and connect straight to any of their managed IP addresses — no need to look up addresses by hand. Open it from the **ZeroTier** button on the welcome screen, the globe button in the sidebar, or **File ▸ Browse ZeroTier Devices…**."),
+            .steps([
+                "Create an **API token** at *my.zerotier.com/account* and paste it into **Add an account**. Give it a name (e.g. *Work*) and click **Add**. Tokens are stored in your macOS **Keychain** (never synced, never in exports).",
+                "Pick a network on the left — or **All Networks** — to list its **members**. Each device shows whether it's **online**, its node id, last‑seen time and every managed **IP address**.",
+                "Type a **username** (used for SSH/SFTP), then click the **SSH**, **SFTP** or **VNC** button next to any IP to open a tab connected to that device.",
+            ]),
+            .bullets([
+                "**Multiple accounts** — add as many ZeroTier API tokens as you like (one per ZeroTier login). Networks are grouped by account in the list, and the **All Networks** view shows every device together. Use the **key** button to add, rename, re‑token or remove accounts.",
+                "**Self‑hosted controllers** (e.g. **ZTNET**) work too — when adding an account, put your server’s URL (e.g. `https://zt.example.com`) in the **Server** field and use that server’s API token. Leave **Server** blank for ZeroTier Central.",
+                "**Filter** the list by name, node id or IP, and flip **Online only** to hide devices that are currently offline.",
+                "Connections are **ad‑hoc** (profile‑free): your SSH keys are tried first and a typed password isn't stored. Create a profile for anything you use often.",
+                "Tabs open **behind** the browser window — close it to see them, or connect to several devices in a row first.",
+            ]),
+            .tip("Anywhere you enter a host or IP — the **New Remote Terminal / SFTP / VNC / MQTT / Redis** sheets and the **profile editor** — a small **globe** button sits next to the field. Click it to pick a device IP from ZeroTier without leaving the form."),
+            .tip("ZeroTier IPs are reachable only while this Mac is joined to the same network in the ZeroTier app. The browser just lists devices and dials them — it doesn't join networks for you."),
         ])
 
     // MARK: Services

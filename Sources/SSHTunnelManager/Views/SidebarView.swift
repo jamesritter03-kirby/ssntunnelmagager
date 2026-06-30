@@ -79,6 +79,13 @@ struct SidebarView: View {
                 }
                 .help("Open a local shell (⌘T)")
 
+                Button {
+                    ZeroTierBrowserModel.shared.present()
+                } label: {
+                    Image(systemName: "globe.americas.fill")
+                }
+                .help("Browse and connect to devices on your ZeroTier networks")
+
                 Spacer()
 
                 Menu {

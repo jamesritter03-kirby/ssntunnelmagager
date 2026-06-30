@@ -288,6 +288,7 @@ struct ProfileEditorView: View {
                 HStack(spacing: 8) {
                     TextField("example.com or 10.0.0.5", text: $profile.host)
                         .autocorrectionDisabled()
+                    ZeroTierPickerButton { profile.host = $0 }
                     Text("Port").font(.caption).foregroundStyle(.secondary)
                     TextField("22", text: $profile.port)
                         .frame(width: 56)

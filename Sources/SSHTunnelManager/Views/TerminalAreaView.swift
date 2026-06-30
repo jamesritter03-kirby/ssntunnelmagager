@@ -1828,6 +1828,14 @@ private struct WelcomeView: View {
                     }
                     .controlSize(.large)
                     .help("Browse a Redis server")
+
+                    Button {
+                        ZeroTierBrowserModel.shared.present()
+                    } label: {
+                        Label("ZeroTier", systemImage: "globe.americas.fill")
+                    }
+                    .controlSize(.large)
+                    .help("Browse and connect to devices on your ZeroTier networks")
                 }
             }
 

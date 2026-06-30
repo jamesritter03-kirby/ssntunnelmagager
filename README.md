@@ -262,14 +262,38 @@ starting points in one place:
 
 - **Resume Last Session** reopens every tab that was open when you last quit.
 - **New Local Terminal**, **New Browser Tab**, **New Finder Tab** and a **New Connection** menu.
-- **Connect to a server** — quick **Remote Terminal**, **SFTP** and **VNC** buttons that don’t
-  need a saved profile.
+- **Connect to a server** — quick **Remote Terminal**, **SFTP**, **VNC**, **MQTT**, **Redis** and
+  **ZeroTier** buttons that don’t need a saved profile.
 - **Profiles** — a grid of one‑click launch cards (right‑click for SFTP/VNC/key setup).
 - **Recently Closed** — a running list of tabs **and whole workspaces** you closed without
   saving. Click an entry to **reopen** it (a tab returns to the current workspace; a workspace
   opens as a new one), **right‑click** to remove a single entry, or use **Clear** to empty the
   list. Profile‑free ad‑hoc connections are remembered too — reopening one reconnects and
   re‑prompts for the password (which is never stored). The list survives quitting and relaunching.
+
+### ZeroTier devices
+
+Browse the devices on your **ZeroTier** networks and connect straight to any of their managed IP
+addresses. Open it from the **ZeroTier** button on the welcome screen, the globe button in the
+sidebar, or **File ▸ Browse ZeroTier Devices…**.
+
+- Paste a ZeroTier Central **API token** (from *my.zerotier.com/account*) under **Add an account** —
+  add **as many accounts as you like**, one per ZeroTier login. Tokens are stored in your macOS
+  **Keychain**, never synced and never included in exports.
+- Pick a network (or **All Networks**, which spans every account) to list its **members**: online
+  status, node id, last‑seen time and every managed **IP address**. Networks are grouped by account.
+- **Filter** by name, node id or IP, toggle **Online only**, set a **username** for SSH/SFTP, then
+  click **SSH**, **SFTP** or **VNC** next to any IP to open a tab connected to that device.
+- Connections are profile‑free (ad‑hoc); your SSH keys are tried first and a typed password isn’t
+  stored. The **key** button manages accounts (add / rename / change token / remove).
+- **Self‑hosted** controllers (e.g. [ZTNET](https://ztnet.network)) are supported: when adding an
+  account, enter your server’s URL (e.g. `https://zt.example.com`) in the **Server** field and use
+  that server’s API token. Leave **Server** blank to use ZeroTier Central.
+- Anywhere you enter a host or IP — the **Remote Terminal / SFTP / VNC / MQTT / Redis** sheets and
+  the **profile editor** — a small **globe** button lets you pick a device IP from ZeroTier inline.
+
+> ZeroTier IPs are reachable only while this Mac is joined to the same network in the ZeroTier app.
+> The browser lists devices and dials them; it doesn’t join networks for you.
 
 ### Workspaces
 

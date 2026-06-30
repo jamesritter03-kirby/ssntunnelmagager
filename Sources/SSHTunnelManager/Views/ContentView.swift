@@ -11,6 +11,7 @@ struct ContentView: View {
     @ObservedObject private var serviceConnection = ServiceConnectionModel.shared
     @ObservedObject private var vncConnection = VNCConnectionModel.shared
     @ObservedObject private var remoteConnection = RemoteConnectionModel.shared
+    @ObservedObject private var zerotier = ZeroTierBrowserModel.shared
     @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
 
     var body: some View {
@@ -55,6 +56,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $remoteConnection.isPresented) {
             RemoteConnectionView(model: remoteConnection)
+                .environmentObject(sessions)
+        }
+        .sheet(isPresented: $zerotier.isPresented) {
+            ZeroTierBrowserView()
                 .environmentObject(sessions)
         }
         .alert("Save changes to this profile before quitting?",
