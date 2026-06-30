@@ -46,6 +46,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     let autofillPassword: Bool
     /// Whether to require Touch ID / login password before using it.
     let requireAuthForPassword: Bool
+    /// A password supplied up front (the ad-hoc “new connection” sheet) to type
+    /// at the first password prompt, instead of reading one from the Keychain.
+    /// Used for profile-free SSH / SFTP tabs; never persisted.
+    let presetPassword: String?
     /// For local-shell sessions: the folder the shell should start in (nil = default).
     let startDirectory: String?
 
@@ -140,7 +144,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// pending start runs once `startIfPending()` sees the view attached.
     private var pendingStart = false
 
-    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", extraEnvironment: [String: String] = [:]) {
+    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", presetPassword: String? = nil, extraEnvironment: [String: String] = [:], vncScaling: Bool = true, vncViewOnly: Bool = false, vncColorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor) {
         self.kind = kind
         self.title = title
         self.executable = executable
@@ -156,12 +160,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         self.serviceHost = serviceHost
         self.serviceUsername = serviceUsername
         self.servicePassword = servicePassword
+        self.presetPassword = presetPassword
         self.extraEnvironment = extraEnvironment
         self.terminalView = HistoryTerminalView(frame: NSRect(x: 0, y: 0, width: 820, height: 480))
         if kind == .sftp {
             self.sftpClient = SFTPClient(executable: executable, args: args, profileID: profileID,
                                          autofillPassword: autofillPassword,
-                                         requireAuthForPassword: requireAuthForPassword)
+                                         requireAuthForPassword: requireAuthForPassword,
+                                         presetPassword: presetPassword)
         } else {
             self.sftpClient = nil
         }
@@ -204,7 +210,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             self.embeddedVNCViewer = EmbeddedVNCViewer(
                 host: vHost, port: vPort, profileID: profileID,
                 defaultUsername: vUser, serverLabel: vLabel,
-                presetPassword: vPreset, requireBiometricAuth: vRequireBio)
+                presetPassword: vPreset, requireBiometricAuth: vRequireBio,
+                scaling: vncScaling, viewOnly: vncViewOnly, colorDepth: vncColorDepth)
         } else {
             self.embeddedVNCViewer = nil
         }
@@ -546,7 +553,20 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// On the first password prompt, fetch the saved password (gated by Touch ID)
     /// and type it in. One-shot, so a wrong saved password can't cause a loop.
     private func maybeAutofillPassword() {
-        guard autofillPassword, !didAutofillPassword, let pid = profileID else { return }
+        guard !didAutofillPassword else { return }
+        // An ad-hoc tab carries its typed password directly (no Keychain).
+        if let preset = presetPassword, !preset.isEmpty {
+            didAutofillPassword = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isRunning else { return }
+                self.isInjecting = true
+                self.terminalView.send(txt: preset)
+                self.terminalView.send(txt: "\r")
+                self.isInjecting = false
+            }
+            return
+        }
+        guard autofillPassword, let pid = profileID else { return }
         didAutofillPassword = true
         KeychainStore.shared.password(
             for: pid,

@@ -93,7 +93,10 @@ struct SFTPBrowserView: View {
             Button { chooseAndUpload() } label: { Image(systemName: "arrow.up.doc") }
                 .help("Upload files or folders…").disabled(!client.isConnected)
             Button { client.download(selectedEntries) } label: { Image(systemName: "arrow.down.doc") }
-                .help("Download selected (⌘- or ⇧-click to select several)")
+                .help("Download selected to \(client.localDownloadDirectory.lastPathComponent) (⌘- or ⇧-click to select several)")
+                .disabled(selectedEntries.isEmpty)
+            Button { chooseFolderAndDownload(selectedEntries) } label: { Image(systemName: "tray.and.arrow.down") }
+                .help("Download selected to a folder you choose…")
                 .disabled(selectedEntries.isEmpty)
             Button(role: .destructive) { confirmDelete(selectedEntries) } label: { Image(systemName: "trash") }
                 .help("Delete selected").disabled(selectedEntries.isEmpty)
@@ -199,6 +202,9 @@ struct SFTPBrowserView: View {
             // system double-click interval — pairing count:1 and count:2 tap
             // gestures makes SwiftUI delay every single click (felt sluggish).
             .onTapGesture { selectOnClick(entry) }
+            // Drag a remote file/folder straight out to Finder: the bytes are
+            // fetched on demand into a temp folder when the drop is accepted.
+            .onDrag { dragProvider(for: entry) }
             .contextMenu { rowMenu(entry) }
         if entry.isDirectory {
             row.onDrop(of: [UTType.fileURL],
@@ -236,6 +242,9 @@ struct SFTPBrowserView: View {
         }
         Button(targets.count > 1 ? "Download \(targets.count) Items" : "Download") {
             client.download(targets)
+        }
+        Button(targets.count > 1 ? "Download \(targets.count) Items To…" : "Download To…") {
+            chooseFolderAndDownload(targets)
         }
         if targets.count == 1 {
             Button("Rename…") { renameText = entry.name; renameTarget = entry }
@@ -455,6 +464,72 @@ struct SFTPBrowserView: View {
         if panel.runModal() == .OK, let url = panel.urls.first {
             client.localDownloadDirectory = url
         }
+    }
+
+    /// Prompt for a destination folder, then download the given entries there
+    /// (a one‑off — it doesn't change the default “Save to” folder).
+    private func chooseFolderAndDownload(_ entries: [SFTPEntry]) {
+        guard !entries.isEmpty else { return }
+        let what = entries.count == 1 ? entries[0].name : "\(entries.count) items"
+        let panel = NSOpenPanel()
+        panel.title = "Download To"
+        panel.message = "Choose where to save \(what)."
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = client.localDownloadDirectory
+        panel.prompt = "Download"
+        if panel.runModal() == .OK, let url = panel.urls.first {
+            client.download(entries, to: url, reveal: true)
+        }
+    }
+
+    /// Build a drag item for a remote entry. Because the file lives on the server,
+    /// the bytes are pulled **on demand**: when the drop's receiver (e.g. Finder)
+    /// asks for the representation, we download the entry into a unique temp folder
+    /// and hand back that URL, so it lands wherever it was dropped.
+    private func dragProvider(for entry: SFTPEntry) -> NSItemProvider {
+        guard client.isConnected else { return NSItemProvider() }
+        let provider = NSItemProvider()
+        provider.suggestedName = entry.name
+        provider.registerFileRepresentation(forTypeIdentifier: dragTypeIdentifier(for: entry),
+                                            fileOptions: [],
+                                            visibility: .all) { completion in
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("SSHTM-Drag-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let sem = DispatchSemaphore(value: 0)
+            var saved: URL?
+            // The download must be kicked off on the main actor (it mutates the
+            // client's published state); this load handler runs on a background
+            // queue, so blocking it until the transfer completes is safe.
+            DispatchQueue.main.async {
+                client.download([entry], to: tempDir) { urls in
+                    saved = urls.first
+                    sem.signal()
+                }
+            }
+            // Guard against a dropped connection leaving this thread blocked forever.
+            _ = sem.wait(timeout: .now() + 300)
+            if let url = saved, FileManager.default.fileExists(atPath: url.path) {
+                completion(url, false, nil)
+            } else {
+                completion(nil, false, NSError(domain: "SFTP", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "Couldn’t download \(entry.name)."]))
+            }
+            return nil
+        }
+        return provider
+    }
+
+    /// The uniform type to advertise for a dragged entry so the receiver knows
+    /// what it's getting (a folder, a typed file, or generic data).
+    private func dragTypeIdentifier(for entry: SFTPEntry) -> String {
+        if entry.isDirectory { return UTType.folder.identifier }
+        let ext = (entry.name as NSString).pathExtension
+        if !ext.isEmpty, let type = UTType(filenameExtension: ext) { return type.identifier }
+        return UTType.data.identifier
     }
 
     private func confirmDelete(_ entries: [SFTPEntry]) {

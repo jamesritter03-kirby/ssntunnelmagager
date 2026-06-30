@@ -32,6 +32,8 @@ struct SSHTunnelManagerApp: App {
                     .keyboardShortcut("t", modifiers: [.command, .shift])
                 Button("New Finder Tab") { sessions.openFinder() }
                 Divider()
+                Button("New Remote Terminal…") { RemoteConnectionModel.shared.present(.ssh) }
+                Button("New SFTP Connection…") { RemoteConnectionModel.shared.present(.sftp) }
                 Button("New MQTT Connection…") { ServiceConnectionModel.shared.present(.mqtt) }
                 Button("New Redis Connection…") { ServiceConnectionModel.shared.present(.redis) }
                 Button("New VNC Connection…") { VNCConnectionModel.shared.present() }
@@ -237,6 +239,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    // Warn before quitting if a profile editor is open with unsaved edits.
+    // (Committed profiles auto-save, so an open editor is the only unsaved state.)
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isDuplicateInstance else { return .terminateNow }
+        let coordinator = ProfileEditCoordinator.shared
+        // A quit we re-issued ourselves after the user chose Save / Don't Save.
+        if coordinator.isForceQuitting { return .terminateNow }
+        guard coordinator.hasUnsavedEdits else { return .terminateNow }
+        // Cancel this quit and ask via a SwiftUI alert instead — running an AppKit
+        // modal from here is unreliable for Apple-Event quits (Dock, osascript).
+        // The user's choice re-issues a clean quit through `isForceQuitting`.
+        NSApp.activate(ignoringOtherApps: true)
+        coordinator.requestQuitConfirmation()
+        return .terminateCancel
     }
 
     // Save the open tabs one last time so they can be resumed next launch.

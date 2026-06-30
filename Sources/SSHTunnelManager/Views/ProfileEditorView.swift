@@ -16,10 +16,16 @@ struct ProfileEditorView: View {
     @State private var serviceRemovePasswords: Set<UUID> = []
     private let isNew: Bool
 
+    /// The profile as it was loaded, to detect unsaved edits (for the save-on-quit
+    /// prompt).
+    @State private var originalProfile: SSHProfile
+    @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
+
     init(profile: SSHProfile,
          onSave: @escaping (SSHProfile) -> Void,
          onCancel: @escaping () -> Void) {
         _profile = State(initialValue: profile)
+        _originalProfile = State(initialValue: profile)
         _hasSavedPassword = State(initialValue: KeychainStore.shared.hasPassword(for: profile.id))
         isNew = !ProfileStore.shared.profiles.contains { $0.id == profile.id }
         self.onSave = onSave
@@ -75,6 +81,57 @@ struct ProfileEditorView: View {
             Divider()
             actionBar
         }
+        .onAppear { syncCoordinator() }
+        .onDisappear {
+            // The sheet closed; nothing is "open and unsaved" any more.
+            editCoordinator.isOpen = false
+            editCoordinator.isDirty = false
+        }
+        .onChange(of: editFingerprint) { _ in syncCoordinator() }
+        .onChange(of: editCoordinator.commitRequested) { requested in
+            guard requested else { return }
+            editCoordinator.commitRequested = false
+            // Run the editor's normal save (or, if the profile is incomplete and
+            // can't be saved, just dismiss) so a "Save" from the quit prompt does
+            // exactly what the Save button would.
+            if canSave {
+                applyPasswordChanges()
+                onSave(normalized())
+            } else {
+                onCancel()
+            }
+            editCoordinator.editorDidFinishCommit()
+        }
+    }
+
+    // MARK: - Unsaved-edit tracking (for the save-on-quit prompt)
+
+    /// Whether the editor currently holds edits that differ from what was loaded.
+    private var isDirtyNow: Bool {
+        if profile != originalProfile { return true }
+        if !newPassword.isEmpty { return true }
+        if removePassword { return true }
+        if serviceNewPasswords.values.contains(where: { !$0.isEmpty }) { return true }
+        if !serviceRemovePasswords.isEmpty { return true }
+        return false
+    }
+
+    /// A value that changes whenever any editable state changes, so a single
+    /// `onChange` can keep the coordinator in sync.
+    private var editFingerprint: Int {
+        var h = Hasher()
+        h.combine(profile)
+        h.combine(newPassword)
+        h.combine(removePassword)
+        for (key, value) in serviceNewPasswords { h.combine(key); h.combine(value) }
+        h.combine(serviceRemovePasswords)
+        return h.finalize()
+    }
+
+    private func syncCoordinator() {
+        editCoordinator.isOpen = true
+        editCoordinator.isDirty = isDirtyNow
+        editCoordinator.canSave = canSave
     }
 
     // MARK: - Header

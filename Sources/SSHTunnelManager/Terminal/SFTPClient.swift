@@ -128,6 +128,9 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
     private let profileID: UUID?
     private let autofillPassword: Bool
     private let requireAuthForPassword: Bool
+    /// A password supplied up front (the ad-hoc “new connection” sheet) to send
+    /// at the first password prompt instead of reading one from the Keychain.
+    private let presetPassword: String?
 
     private var process: LocalProcess!
     private var rawBuffer = ""
@@ -146,12 +149,14 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
     }
 
     init(executable: String, args: [String], profileID: UUID?,
-         autofillPassword: Bool, requireAuthForPassword: Bool) {
+         autofillPassword: Bool, requireAuthForPassword: Bool,
+         presetPassword: String? = nil) {
         self.executable = executable
         self.args = args
         self.profileID = profileID
         self.autofillPassword = autofillPassword
         self.requireAuthForPassword = requireAuthForPassword
+        self.presetPassword = presetPassword
         super.init()
         process = LocalProcess(delegate: self, dispatchQueue: .main)
     }
@@ -267,6 +272,13 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
     private func handleSecretPrompt() {
         handlingAuthPrompt = true
         rawBuffer = ""
+        // An ad-hoc tab carries its typed password directly (no Keychain).
+        if !didAutofillPassword, let preset = presetPassword, !preset.isEmpty {
+            didAutofillPassword = true
+            sendRaw(preset + "\n")
+            handlingAuthPrompt = false
+            return
+        }
         if !didAutofillPassword, autofillPassword, let pid = profileID {
             didAutofillPassword = true
             KeychainStore.shared.password(for: pid, requireAuth: requireAuthForPassword,
@@ -424,29 +436,38 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         refresh()
     }
 
+    /// Download `entries` into the user's chosen default folder (`localDownloadDirectory`).
     func download(_ entries: [SFTPEntry], reveal: Bool = true) {
-        guard isConnected else { return }
-        let dir = localDownloadDirectory
+        download(entries, to: localDownloadDirectory, reveal: reveal)
+    }
+
+    /// Download `entries` into a specific local `destination` folder. `completion`
+    /// is called on the main thread with the saved local URLs once every transfer
+    /// has finished — used both by **Download To…** (a one‑off destination) and by
+    /// **drag‑to‑Finder**, which downloads the file on demand into a temp folder.
+    /// When `reveal` is true the saved files are shown in Finder afterwards.
+    func download(_ entries: [SFTPEntry], to destination: URL,
+                  reveal: Bool = false,
+                  completion: (([URL]) -> Void)? = nil) {
+        guard isConnected else { completion?([]); return }
+        let lq = SFTPCommandBuilder.quotePath(destination.path)
         var saved: [URL] = []
         let total = entries.count
         for (index, entry) in entries.enumerated() {
             let rq = SFTPCommandBuilder.quotePath(entry.name)
-            let lq = SFTPCommandBuilder.quotePath(dir.path)
             let recurse = entry.isDirectory ? "-r " : ""
-            saved.append(dir.appendingPathComponent(entry.name))
+            saved.append(destination.appendingPathComponent(entry.name))
             let label = total > 1
                 ? "Downloading \(entry.name) (\(index + 1) of \(total))…"
                 : "Downloading \(entry.name)…"
             runCommand("get \(recurse)\(rq) \(lq)", status: label) { [weak self] out in
-                guard let self else { return }
-                if let problem = SFTPClient.operationError(out) { self.report(problem) }
+                if let problem = SFTPClient.operationError(out) { self?.report(problem) }
             }
         }
-        if reveal {
-            runCommand("pwd") { [weak self] _ in
-                guard self != nil, !saved.isEmpty else { return }
-                NSWorkspace.shared.activateFileViewerSelecting(saved)
-            }
+        // Commands run FIFO, so a trailing no‑op fires once every get above is done.
+        runCommand("pwd") { _ in
+            if reveal, !saved.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(saved) }
+            completion?(saved)
         }
     }
 

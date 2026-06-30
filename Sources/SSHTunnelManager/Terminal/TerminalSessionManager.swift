@@ -13,6 +13,9 @@ final class TerminalSessionManager: ObservableObject {
     @Published var currentWorkspaceID: UUID
     /// Named collections of tabs the user saved to reopen later.
     @Published private(set) var savedWorkspaces: [SavedWorkspace] = []
+    /// Tabs / workspaces the user recently closed without saving, newest first,
+    /// shown on the welcome screen so an accidental close can be undone.
+    @Published private(set) var recentlyClosed: [ClosedItem] = []
 
     static let shared = TerminalSessionManager()
 
@@ -22,6 +25,7 @@ final class TerminalSessionManager: ObservableObject {
         workspaces = [first]
         currentWorkspaceID = first.id
         loadSavedWorkspaces()
+        loadRecentlyClosed()
     }
 
     // MARK: - Current workspace
@@ -300,6 +304,9 @@ final class TerminalSessionManager: ObservableObject {
     func closeWorkspace(_ id: UUID) {
         guard workspaces.count > 1,
               let i = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        // Remember the whole workspace (its tabs + drawers) so it can be reopened
+        // from the welcome screen if the close was accidental.
+        recordClosedWorkspace(workspaces[i])
         let removingCurrent = (currentWorkspaceID == id)
         let tabIDs = workspaces[i].tabIDs
         // Dropping the sessions tears down their PTYs / tunnels; the detached-window
@@ -807,7 +814,9 @@ final class TerminalSessionManager: ObservableObject {
     /// Open an **ad-hoc** VNC tab that points the built-in viewer **directly** at
     /// `host:port` (no SSH tunnel / profile). Used by the “New VNC Connection”
     /// setup sheet. For a tunneled, encrypted session, open VNC from a profile.
-    func openAdHocVNC(host: String, port: Int, username: String, password: String) {
+    func openAdHocVNC(host: String, port: Int, username: String, password: String,
+                      scaling: Bool = true, viewOnly: Bool = false,
+                      colorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor) {
         guard port > 0 else { return }
         let cleanHost = host.trimmingCharacters(in: .whitespaces).isEmpty
             ? "127.0.0.1" : host.trimmingCharacters(in: .whitespaces)
@@ -820,7 +829,66 @@ final class TerminalSessionManager: ObservableObject {
             servicePort: port,
             serviceHost: cleanHost,
             serviceUsername: username.trimmingCharacters(in: .whitespaces),
-            servicePassword: password
+            servicePassword: password,
+            vncScaling: scaling,
+            vncViewOnly: viewOnly,
+            vncColorDepth: colorDepth
+        )
+        addAndStart(session)
+    }
+
+    /// Build a throwaway `SSHProfile` (a fresh id, **not** saved to the store)
+    /// from a host / port / username so the existing SSH and SFTP command
+    /// builders can construct an ad-hoc, profile-free connection.
+    private func adHocProfile(host: String, port: Int, username: String) -> SSHProfile {
+        var profile = SSHProfile()
+        let cleanHost = host.trimmingCharacters(in: .whitespaces)
+        let cleanUser = username.trimmingCharacters(in: .whitespaces)
+        profile.host = cleanHost
+        profile.port = String(port)
+        profile.username = cleanUser
+        profile.name = cleanUser.isEmpty ? cleanHost : "\(cleanUser)@\(cleanHost)"
+        return profile
+    }
+
+    /// Open an **ad-hoc** remote terminal (SSH) tab to `host:port` without a saved
+    /// profile. A typed password (optional — key auth is tried first) is sent at
+    /// the prompt but never stored. Used by the “New Remote Terminal” setup sheet.
+    func openAdHocSSH(host: String, port: Int, username: String, password: String) {
+        let cleanHost = host.trimmingCharacters(in: .whitespaces)
+        guard !cleanHost.isEmpty, port > 0 else { return }
+        let profile = adHocProfile(host: cleanHost, port: port, username: username)
+        let session = TerminalSession(
+            kind: .ssh,
+            title: profile.name,
+            executable: SSHCommandBuilder.sshPath,
+            args: SSHCommandBuilder.arguments(for: profile),
+            commandPreview: SSHCommandBuilder.commandPreview(for: profile),
+            servicePort: port,
+            serviceHost: cleanHost,
+            serviceUsername: username.trimmingCharacters(in: .whitespaces),
+            presetPassword: password.isEmpty ? nil : password
+        )
+        addAndStart(session)
+    }
+
+    /// Open an **ad-hoc** SFTP file-transfer tab to `host:port` without a saved
+    /// profile. A typed password (optional) is sent at the prompt but never
+    /// stored. Used by the “New SFTP Connection” setup sheet.
+    func openAdHocSFTP(host: String, port: Int, username: String, password: String) {
+        let cleanHost = host.trimmingCharacters(in: .whitespaces)
+        guard !cleanHost.isEmpty, port > 0 else { return }
+        let profile = adHocProfile(host: cleanHost, port: port, username: username)
+        let session = TerminalSession(
+            kind: .sftp,
+            title: "\(profile.name) — SFTP",
+            executable: SFTPCommandBuilder.sftpPath,
+            args: SFTPCommandBuilder.arguments(for: profile),
+            commandPreview: SFTPCommandBuilder.commandPreview(for: profile),
+            servicePort: port,
+            serviceHost: cleanHost,
+            serviceUsername: username.trimmingCharacters(in: .whitespaces),
+            presetPassword: password.isEmpty ? nil : password
         )
         addAndStart(session)
     }
@@ -921,6 +989,10 @@ final class TerminalSessionManager: ObservableObject {
 
     func close(_ session: TerminalSession) {
         guard sessions.contains(where: { $0.id == session.id }) else { return }
+        // Remember this tab so it can be reopened from the welcome screen if the
+        // close was accidental (skips tabs we couldn't recreate, e.g. profile-free
+        // tabs whose profile is gone).
+        recordClosedTab(session)
         // Pick the neighbouring *center* tab (next, else previous) within its
         // workspace so selection lands on a visible tab after the close (docked
         // and detached tabs aren't selection candidates).
@@ -1111,6 +1183,101 @@ final class TerminalSessionManager: ObservableObject {
         savedWorkspaces = saved
     }
 
+    // MARK: - Recently-closed history
+
+    private let recentlyClosedKey = "closedHistory.v1"
+    /// How many recently-closed entries to keep (oldest dropped past this).
+    private let maxRecentlyClosed = 25
+
+    /// Record a single closed tab so it can be reopened from the welcome screen.
+    /// Skips tabs we can't recreate (so the list never shows a dead entry).
+    private func recordClosedTab(_ session: TerminalSession) {
+        let snap = snapshot(of: session)
+        guard canRecreate(snap) else { return }
+        let item = ClosedItem(kind: .tab,
+                              title: session.title,
+                              symbol: session.symbolName,
+                              closedAt: Date(),
+                              tab: snap)
+        pushClosedItem(item)
+    }
+
+    /// Record a closed workspace (its tabs + drawers) for later reopening. Skips
+    /// empty workspaces and ones with nothing recreatable.
+    private func recordClosedWorkspace(_ ws: Workspace) {
+        let tabs = snapshotTabs(for: ws).filter { canRecreate($0) }
+        guard !tabs.isEmpty else { return }
+        let saved = SavedWorkspace(name: ws.name, tabs: tabs,
+                                   isTiled: ws.isTiled, tileLayout: ws.tileLayout,
+                                   docks: dockSnapshots(for: ws))
+        let item = ClosedItem(kind: .workspace,
+                              title: ws.name,
+                              symbol: "rectangle.stack",
+                              closedAt: Date(),
+                              workspace: saved)
+        pushClosedItem(item)
+    }
+
+    /// Whether a snapshot can actually be rebuilt, so we never record a dead entry.
+    private func canRecreate(_ snap: SessionSnapshot) -> Bool {
+        let hasProfile = snap.profileID.flatMap { id in
+            ProfileStore.shared.profiles.contains { $0.id == id }
+        } ?? false
+        switch snap.kind {
+        case .localShell, .web, .finder:
+            return true
+        case .ssh, .sftp, .vnc:
+            return hasProfile || (snap.serviceHost?.isEmpty == false)
+        case .mqtt, .redis:
+            return hasProfile && snap.servicePort != nil
+        }
+    }
+
+    private func pushClosedItem(_ item: ClosedItem) {
+        recentlyClosed.insert(item, at: 0)
+        if recentlyClosed.count > maxRecentlyClosed {
+            recentlyClosed.removeLast(recentlyClosed.count - maxRecentlyClosed)
+        }
+        persistRecentlyClosed()
+    }
+
+    /// Reopen a recently-closed entry: a tab returns to the current workspace, a
+    /// workspace opens as a new top-level workspace. The entry is then removed
+    /// from the list (it's no longer "closed").
+    func reopenClosedItem(_ item: ClosedItem) {
+        switch item.kind {
+        case .tab:
+            if let snap = item.tab { recreate(snap) }
+        case .workspace:
+            if let ws = item.workspace { openSavedWorkspace(ws) }
+        }
+        removeClosedItem(item)
+    }
+
+    /// Forget a single recently-closed entry.
+    func removeClosedItem(_ item: ClosedItem) {
+        recentlyClosed.removeAll { $0.id == item.id }
+        persistRecentlyClosed()
+    }
+
+    /// Clear the entire recently-closed history.
+    func clearRecentlyClosed() {
+        recentlyClosed.removeAll()
+        persistRecentlyClosed()
+    }
+
+    private func persistRecentlyClosed() {
+        if let data = try? JSONEncoder().encode(recentlyClosed) {
+            UserDefaults.standard.set(data, forKey: recentlyClosedKey)
+        }
+    }
+
+    private func loadRecentlyClosed() {
+        guard let data = UserDefaults.standard.data(forKey: recentlyClosedKey),
+              let items = try? JSONDecoder().decode([ClosedItem].self, from: data) else { return }
+        recentlyClosed = items
+    }
+
     // MARK: - Session persistence ("resume last session")
 
     private let openStateKey = "openState.v2"
@@ -1121,11 +1288,28 @@ final class TerminalSessionManager: ObservableObject {
     private func snapshotTabs(for ws: Workspace) -> [SessionSnapshot] {
         ws.tabIDs.compactMap { id -> SessionSnapshot? in
             guard let s = sessions.first(where: { $0.id == id }) else { return nil }
-            return SessionSnapshot(kind: s.kind, profileID: s.profileID,
-                                   webURL: s.webModel?.currentURLString ?? s.finderModel?.currentPath,
-                                   title: s.title,
-                                   servicePort: s.servicePort)
+            return snapshot(of: s)
         }
+    }
+
+    /// Capture one live session as a codable snapshot — enough to recreate it
+    /// later (resume, saved workspace, or the recently-closed history). For an
+    /// **ad-hoc** (profile-free) ssh / sftp / vnc tab the target host & username
+    /// are captured so it can reconnect; a password is never stored.
+    private func snapshot(of s: TerminalSession) -> SessionSnapshot {
+        var host: String? = nil
+        var user: String? = nil
+        if s.profileID == nil, s.kind == .ssh || s.kind == .sftp || s.kind == .vnc {
+            let h = s.serviceHost.trimmingCharacters(in: .whitespaces)
+            if !h.isEmpty { host = h }
+            let u = s.serviceUsername.trimmingCharacters(in: .whitespaces)
+            if !u.isEmpty { user = u }
+        }
+        return SessionSnapshot(kind: s.kind, profileID: s.profileID,
+                               webURL: s.webModel?.currentURLString ?? s.finderModel?.currentPath,
+                               title: s.title,
+                               servicePort: s.servicePort,
+                               serviceHost: host, serviceUsername: user)
     }
 
     /// Snapshot a workspace's side drawers by tab index (matching `snapshotTabs`
@@ -1230,10 +1414,22 @@ final class TerminalSessionManager: ObservableObject {
             if let profile { connect(profile: profile) } else { openLocalShell() }
         case .ssh:
             if let profile { connect(profile: profile) }
+            else if let host = snap.serviceHost {
+                openAdHocSSH(host: host, port: snap.servicePort ?? 22,
+                             username: snap.serviceUsername ?? "", password: "")
+            }
         case .sftp:
             if let profile { connectSFTP(profile: profile) }
+            else if let host = snap.serviceHost {
+                openAdHocSFTP(host: host, port: snap.servicePort ?? 22,
+                              username: snap.serviceUsername ?? "", password: "")
+            }
         case .vnc:
             if let profile { connectVNC(profile: profile) }
+            else if let host = snap.serviceHost {
+                openAdHocVNC(host: host, port: snap.servicePort ?? 5900,
+                             username: snap.serviceUsername ?? "", password: "")
+            }
         case .web:
             if let s = snap.webURL, let url = URL(string: s) {
                 var proxy: WebProxy? = nil

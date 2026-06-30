@@ -23,6 +23,7 @@ enum HelpContent {
             ]),
             .tip("No server yet? Use **File ▸ New Local Terminal** (⌘T) for a normal shell on this Mac, or **New Finder Tab** to browse local files."),
             .paragraph("Everything lives in **tabs** inside **workspaces**. Drag tabs to reorder, detach a tab into its own window, or tile several side by side."),
+            .tip("The **welcome screen** (shown whenever a workspace is empty) gathers **Resume Last Session**, quick **Connect to a server** buttons, your **Profiles**, and a **Recently Closed** list — click any recently‑closed tab or workspace to reopen it."),
         ])
 
     // MARK: Profiles
@@ -39,6 +40,7 @@ enum HelpContent {
             ]),
             .paragraph("Right‑click a profile in the sidebar to **Connect**, open **SFTP/VNC**, **Set Up Key Login**, **Edit**, **Duplicate**, **Export** or **Delete**. The **Command Preview** at the bottom of the editor shows the exact `ssh` command, which you can copy."),
             .tip("Give each profile an **icon** and a **theme** so its tabs are instantly recognizable."),
+            .tip("If you try to quit while a profile editor is still open with unsaved changes, the app **asks whether to save** first — so edits are never lost by accident."),
         ])
 
     // MARK: Tunnels
@@ -77,6 +79,7 @@ enum HelpContent {
         id: "terminal", title: "Terminal Tabs & History", icon: "terminal",
         blocks: [
             .paragraph("Each connection (and each local shell) is a full terminal tab powered by SwiftTerm, with true‑color, themes and adjustable text size."),
+            .paragraph("Connect from a **profile**, or open a quick **remote terminal** without one: choose **New Remote Terminal…** from the **+** menu, **File ▸ New**, or the welcome screen, then enter a host, port and optional username/password. Your SSH keys are tried first; a typed password is sent at the prompt but isn’t saved. For tunnels, a custom key or a jump host, make a profile instead."),
             .bullets([
                 "**Right‑click** behavior is configurable in Settings: copy‑then‑paste (Windows/Linux style), paste, or a context menu.",
                 "**Command history** — the tab remembers commands you type. Open the history menu to re‑run one, or **import/export** history (including `.zsh_history`/`.bash_history`).",
@@ -110,6 +113,7 @@ enum HelpContent {
             .bullets([
                 "Create one with **Workspace ▸ New Workspace** (⇧⌘N) and switch with **⇧⌘[** / **⇧⌘]**.",
                 "**Save** a workspace's tab set to reopen the whole group later.",
+                "**Closed one by accident?** The welcome screen's **Recently Closed** list reopens a closed tab or a whole workspace — even if it was never saved.",
                 "Assign a profile to a workspace with **“Open in workspace”** in the editor — connecting that profile (and opening its SFTP/VNC tabs) switches to that workspace, creating it if needed.",
             ]),
             .tip("Leave **Open in workspace** blank to open the profile wherever you currently are."),
@@ -134,11 +138,12 @@ enum HelpContent {
     static let sftp = HelpArticle(
         id: "sftp", title: "SFTP File Transfer", icon: "arrow.up.arrow.down",
         blocks: [
-            .paragraph("Open an **SFTP tab** for any remote profile to move files with a graphical browser (right‑click a profile ▸ **Open SFTP**, the ⬆⬇ button, or ⌘K)."),
+            .paragraph("Open an **SFTP tab** for any remote profile to move files with a graphical browser (right‑click a profile ▸ **Open SFTP**, the ⬆⬇ button, or ⌘K). With no profile, pick **New SFTP Connection…** from the **+** menu, **File ▸ New**, or the welcome screen to connect by host and port."),
             .bullets([
                 "**Drag files or folders from Finder** onto the browser to upload them to the current folder — or **drop them onto a folder row** to upload straight into that folder.",
+                "**Drag a file or folder out to Finder** (or the Desktop) to download it right where you drop it — the bytes are fetched on demand.",
                 "**Double‑click a folder** to open it; use **↑ Up** and the **path menu** to navigate.",
-                "**Double‑click a file** (or **Download**) to save it to your download folder (set it with **Save to:**).",
+                "**Double‑click a file** (or **Download**) to save it to your default folder (set with **Save to:**), or pick **Download To…** to choose a destination that one time.",
                 "**New Folder**, **Rename** and **Delete** are on the toolbar and the right‑click menu.",
                 "**Refresh** from the toolbar, the right‑click menu, or the **F5** key.",
             ]),
@@ -167,6 +172,8 @@ enum HelpContent {
             .paragraph("Right‑click a remote profile ▸ **Open VNC**, use the display button in the sidebar, or the command palette. Or, with no profile at all, choose **New VNC Connection…** from the **+** menu / **File ▸ New** to connect the viewer **directly** to any host:port (not tunneled — best for a machine on your LAN)."),
             .paragraph("The desktop toolbar lets you switch between **Scale to fit** and **Actual size**, hand off to macOS **Screen Sharing** if you prefer it, view the raw `ssh` **Log**, or **Disconnect**. If the screen needs a password you'll be prompted (a Screen Sharing password, or an account name + password for *Apple Remote Desktop* auth) and can **remember** it in the Keychain."),
             .paragraph("For a VNC tab opened from a **profile**, the toolbar's **File Transfer** menu (↕) lets you **Open SFTP Browser** or **Upload Files…** to the same server over the SSH connection — handy for moving files while you work on the remote desktop. (Ad-hoc, non-tunneled VNC tabs have no SSH connection, so they don't offer file transfer.)"),
+            .paragraph("**Right‑click the VNC tab** for a **VNC** menu with more options: **Scaling** (Scale to Fit / Actual Size), **Color Depth** (True Color, High Color or 256 Colors — drop it for a snappier picture over a slow link), **View Only** (watch without sending input), **Share Clipboard** (sync copy/paste with the remote), **Send Ctrl+Alt+Del**, **Reconnect**, and **Open in Screen Sharing**. Changing a display or input option briefly reconnects — your remembered password is reused, so you won't be asked again."),
+            .paragraph("At **Actual Size** (scaling off), if the remote screen is bigger than the tab, scroll bars appear on the edges — **drag them to pan** around the desktop. (Two‑finger scrolling is sent to the remote computer, so use the scroll bars to move the view.) Switch back to **Scale to Fit** to see the whole screen at once."),
         ])
 
     // MARK: Services

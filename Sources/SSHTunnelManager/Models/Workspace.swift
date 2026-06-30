@@ -203,13 +203,30 @@ struct SessionSnapshot: Codable {
     /// the matching forward can be found and relaunched. Optional so snapshots
     /// written by older versions still decode.
     var servicePort: Int? = nil
+    /// For **ad-hoc** (profile-free) `.ssh` / `.sftp` / `.vnc` tabs: the target
+    /// host and username, so a profile-less connection can be recreated. A
+    /// password is *never* stored here — the user is re-prompted on relaunch.
+    var serviceHost: String? = nil
+    var serviceUsername: String? = nil
+
+    init(kind: TerminalSession.Kind, profileID: UUID? = nil, webURL: String? = nil,
+         title: String? = nil, servicePort: Int? = nil,
+         serviceHost: String? = nil, serviceUsername: String? = nil) {
+        self.kind = kind
+        self.profileID = profileID
+        self.webURL = webURL
+        self.title = title
+        self.servicePort = servicePort
+        self.serviceHost = serviceHost
+        self.serviceUsername = serviceUsername
+    }
 }
 
 // Hand-written decoder so snapshots saved before `servicePort` existed still load
 // (the synthesized one would throw on the missing key and drop the resume state).
 extension SessionSnapshot {
     enum CodingKeys: String, CodingKey {
-        case kind, profileID, webURL, title, servicePort
+        case kind, profileID, webURL, title, servicePort, serviceHost, serviceUsername
     }
 
     init(from decoder: Decoder) throws {
@@ -219,6 +236,8 @@ extension SessionSnapshot {
         webURL = try c.decodeIfPresent(String.self, forKey: .webURL)
         title = try c.decodeIfPresent(String.self, forKey: .title)
         servicePort = try c.decodeIfPresent(Int.self, forKey: .servicePort)
+        serviceHost = try c.decodeIfPresent(String.self, forKey: .serviceHost)
+        serviceUsername = try c.decodeIfPresent(String.self, forKey: .serviceUsername)
     }
 }
 

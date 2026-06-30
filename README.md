@@ -255,6 +255,22 @@ broker on your LAN, or one you’ve already tunnelled by other means.
 > "always paste", or "always show menu"). When a full‑screen app has mouse reporting on
 > (vim, htop, tmux…), the right‑click is passed through to that app instead.
 
+### Welcome screen
+
+Whenever a workspace has no open tabs, the center area shows a **welcome screen** that puts your
+starting points in one place:
+
+- **Resume Last Session** reopens every tab that was open when you last quit.
+- **New Local Terminal**, **New Browser Tab**, **New Finder Tab** and a **New Connection** menu.
+- **Connect to a server** — quick **Remote Terminal**, **SFTP** and **VNC** buttons that don’t
+  need a saved profile.
+- **Profiles** — a grid of one‑click launch cards (right‑click for SFTP/VNC/key setup).
+- **Recently Closed** — a running list of tabs **and whole workspaces** you closed without
+  saving. Click an entry to **reopen** it (a tab returns to the current workspace; a workspace
+  opens as a new one), **right‑click** to remove a single entry, or use **Clear** to empty the
+  list. Profile‑free ad‑hoc connections are remembered too — reopening one reconnects and
+  re‑prompts for the password (which is never stored). The list survives quitting and relaunching.
+
 ### Workspaces
 
 The bar above the tabs holds your **workspaces** — named groups of tabs you can switch between
@@ -348,6 +364,11 @@ sidebar, the command palette, the editor header, and on the session's tab.
 A live **command preview** at the bottom shows exactly what will run (the `ssh` command, or the
 shell + `cd` for a local profile), and the header tells you whether you're adding or editing.
 
+> **Unsaved changes are protected.** Profiles save automatically once you press **Save/Add
+> Profile**, but if you try to **quit** while a profile editor is still open with edits you
+> haven’t committed, the app asks whether to **Save**, **Don’t Save**, or **Cancel** first — so a
+> stray ⌘Q never throws away work in progress.
+
 ### Import & export profiles
 
 Share connection setups between Macs. Use **File → Export All Profiles…** (or the
@@ -412,6 +433,8 @@ Need to move files instead of run commands? Open an **SFTP tab** for a profile:
   at the bottom of the sidebar.
 - A terminal **tab’s right‑click menu** → **Open SFTP** (opens an SFTP tab for that tab’s profile).
 - **Command palette** (**⌘K**) → *SFTP: ‹profile›*.
+- **Without a profile**, choose **New SFTP Connection…** from the **+** menu, **File → New**, or the
+  welcome screen and enter a host, port and optional credentials.
 
 This opens a **graphical file browser** (not a text prompt). It connects with `sftp` using the
 same host, port, key, jump host and saved password as a normal connection — so host‑key and
@@ -422,10 +445,14 @@ icons, sizes and dates:
   directory (the whole list highlights as a drop zone) — or **drop them onto a folder row** to
   upload straight **into that folder** (the folder highlights as you hover). There's also an
   **Upload…** toolbar button.
+- **Drag a file or folder out to a Finder window or the Desktop** to **download** it right where
+  you drop it — the file is fetched from the server on demand into the spot you choose.
 - **Double‑click a folder** to open it, or use the **↑ Up** button and the **path menu** to jump
   to any parent folder.
-- **Double‑click a file** (or pick **Download**) to save it to your download folder; set that
-  folder with **Save to:** in the status bar. Downloads are revealed in Finder when done.
+- **Double‑click a file** (or pick **Download**) to save it to your default folder; set that
+  folder with **Save to:** in the status bar. To save somewhere else just this once, use the
+  **Download To…** toolbar button (tray icon) or right‑click menu and pick a destination.
+  Downloads are revealed in Finder when done.
 - **New Folder**, **Rename…** and **Delete** are on the toolbar and the right‑click menu.
 - **Refresh** from the toolbar, the right‑click menu, or the **F5** key.
 - A **Log** button shows the raw `sftp` transcript if you need to troubleshoot, and a failed
@@ -457,6 +484,18 @@ credentials you’ll get a prompt — a single **Screen Sharing password**, or a
 password** for Macs set to *Apple Remote Desktop* authentication — with an option to **remember**
 it (stored in the Keychain, separate from your SSH password). Closing the tab (or **Disconnect**)
 tears the tunnel down.
+
+**Right‑click the VNC tab** for a **VNC** submenu of common screen‑sharing options: **Scaling**
+(Scale to Fit / Actual Size), **Color Depth** (True Color · High Color · 256 Colors — drop it for
+a snappier picture over a slow link), **View Only** (watch without sending any input), **Share
+Clipboard** (sync copy/paste with the remote), **Send Ctrl+Alt+Del**, **Reconnect**, and **Open in
+Screen Sharing**. Changing a display or input option reconnects for a moment, reusing your
+remembered password so there's no re‑prompt.
+
+**Panning at actual size.** With scaling off (**Actual Size**), if the remote screen is larger
+than the tab, scroll bars appear along the edges — **drag them to pan** around the desktop.
+(Two‑finger scrolling is forwarded to the remote computer, so the scroll bars are what move the
+view.) Switch back to **Scale to Fit** to see the whole screen at once.
 
 **On‑demand VNC.** You don’t need a profile. From the tab bar **+** menu (or **File → New**, or
 the welcome screen) choose **New VNC Connection…**, enter a host, port (default `5900`) and an

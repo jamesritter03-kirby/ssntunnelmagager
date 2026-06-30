@@ -45,6 +45,20 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.15", build: 25, date: "Jun 29, 2026",
+            highlights: [
+                "Welcome screen now has a Recently Closed list: reopen a tab — or a whole workspace — you closed without saving, with one click.",
+                "Get a Save / Don’t Save prompt if you quit with a profile editor still open and unsaved, so edits in progress are never lost by accident.",
+                "Right-click a VNC tab for quick options: scaling, color depth, view-only, share clipboard, send Ctrl+Alt+Del, reconnect, or open in Screen Sharing.",
+                "New VNC Connection… now lets you set scaling (fit or actual size), color depth, and view-only up front.",
+                "Pan around a VNC desktop shown at actual size by dragging — handy when the remote screen is larger than the tab.",
+                "Drag files straight out of an SFTP tab into any Finder window, and use Download To… to save them anywhere (not just Downloads).",
+                "Open an ad-hoc Remote Terminal, SFTP, or VNC connection to any host without making a profile first — right from an empty workspace.",
+                "Empty-workspace welcome screen: every connection type is now a labeled button, including MQTT and Redis.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.14", build: 24, date: "Jun 26, 2026",
             highlights: [
                 "VNC tabs now show the remote desktop right inside the tab instead of handing off to macOS Screen Sharing — with a one-click “Open in Screen Sharing” fallback still available.",

@@ -751,6 +751,16 @@ private struct TabBar: View {
                         }
                         Divider()
                         Button {
+                            RemoteConnectionModel.shared.present(.ssh)
+                        } label: {
+                            Label("New Remote Terminal…", systemImage: "network")
+                        }
+                        Button {
+                            RemoteConnectionModel.shared.present(.sftp)
+                        } label: {
+                            Label("New SFTP Connection…", systemImage: "arrow.up.arrow.down")
+                        }
+                        Button {
                             ServiceConnectionModel.shared.present(.mqtt)
                         } label: {
                             Label("New MQTT Connection…", systemImage: ForwardCategory.mqtt.symbol)
@@ -1091,6 +1101,9 @@ private struct TerminalTabContextMenu: View {
             }
             .disabled(!session.isRunning)
         }
+        if session.kind == .vnc, let viewer = session.embeddedVNCViewer {
+            VNCTabOptionsMenu(viewer: viewer)
+        }
         if let profile, !profile.isLocal, session.kind != .sftp {
             Button {
                 sessions.connectSFTP(profile: profile)
@@ -1175,6 +1188,80 @@ private struct TerminalTabContextMenu: View {
             onClose()
         } label: {
             Label("Close Tab", systemImage: "xmark")
+        }
+    }
+}
+
+/// The VNC-specific options shown in a `.vnc` tab's right-click menu: display
+/// scaling, colour depth, view-only / clipboard toggles, and quick actions like
+/// Send Ctrl+Alt+Del, Reconnect and Open in Screen Sharing. Observing the viewer
+/// keeps the checkmarks in sync with the live connection's settings.
+private struct VNCTabOptionsMenu: View {
+    @ObservedObject var viewer: EmbeddedVNCViewer
+
+    var body: some View {
+        Menu {
+            // Display scaling (mutually exclusive).
+            Menu {
+                checkButton("Scale to Fit Window", on: viewer.isScalingEnabled) {
+                    viewer.setScaling(true)
+                }
+                checkButton("Actual Size", on: !viewer.isScalingEnabled) {
+                    viewer.setScaling(false)
+                }
+            } label: {
+                Label("Scaling", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
+
+            // Colour depth (mutually exclusive).
+            Menu {
+                ForEach(EmbeddedVNCViewer.ColorDepthOption.allCases) { depth in
+                    checkButton(depth.title, on: viewer.colorDepth == depth) {
+                        viewer.setColorDepth(depth)
+                    }
+                }
+            } label: {
+                Label("Color Depth", systemImage: "paintpalette")
+            }
+
+            Divider()
+
+            Toggle(isOn: Binding(get: { viewer.isViewOnly },
+                                 set: { viewer.setViewOnly($0) })) {
+                Label("View Only", systemImage: "eye")
+            }
+            Toggle(isOn: Binding(get: { viewer.isClipboardSharingEnabled },
+                                 set: { viewer.setClipboardSharing($0) })) {
+                Label("Share Clipboard", systemImage: "doc.on.clipboard")
+            }
+
+            Divider()
+
+            Button { viewer.sendCtrlAltDel() } label: {
+                Label("Send Ctrl+Alt+Del", systemImage: "command")
+            }
+            .disabled(viewer.status != .connected)
+            Button { viewer.reconnect() } label: {
+                Label("Reconnect", systemImage: "arrow.clockwise")
+            }
+            Button { viewer.openExternal() } label: {
+                Label("Open in Screen Sharing", systemImage: "macwindow")
+            }
+        } label: {
+            Label("VNC", systemImage: "display")
+        }
+    }
+
+    /// A menu button that shows a leading checkmark when `on` is true.
+    @ViewBuilder
+    private func checkButton(_ title: String, on: Bool,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            if on {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
         }
     }
 }
@@ -1653,7 +1740,7 @@ private struct WelcomeView: View {
                     .foregroundStyle(.tint)
                 Text("SSH Tunnel Manager")
                     .font(.largeTitle.bold())
-                Text("Resume your last session, open a local terminal, or click a profile to connect.")
+                Text("Resume your last session, open a local terminal, connect to a server, or click a profile.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 460)
@@ -1692,29 +1779,56 @@ private struct WelcomeView: View {
                     Label("New Finder Tab", systemImage: "folder")
                 }
                 .controlSize(.large)
+            }
 
-                Menu {
+            // Quick, profile-free connections to a server (the blank-workspace
+            // shortcuts for the remote tab kinds).
+            VStack(spacing: 8) {
+                Text("Connect to a server")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
                     Button {
-                        ServiceConnectionModel.shared.present(.mqtt)
+                        RemoteConnectionModel.shared.present(.ssh)
                     } label: {
-                        Label("New MQTT Connection…", systemImage: ForwardCategory.mqtt.symbol)
+                        Label("Remote Terminal", systemImage: "network")
                     }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .help("Open an SSH terminal on a server")
+
                     Button {
-                        ServiceConnectionModel.shared.present(.redis)
+                        RemoteConnectionModel.shared.present(.sftp)
                     } label: {
-                        Label("New Redis Connection…", systemImage: ForwardCategory.redis.symbol)
+                        Label("SFTP", systemImage: "arrow.up.arrow.down")
                     }
+                    .controlSize(.large)
+                    .help("Browse and transfer files over SFTP")
+
                     Button {
                         VNCConnectionModel.shared.present()
                     } label: {
-                        Label("New VNC Connection…", systemImage: "display")
+                        Label("VNC", systemImage: "display")
                     }
-                } label: {
-                    Label("New Connection", systemImage: "bolt.horizontal.circle")
+                    .controlSize(.large)
+                    .help("View a computer’s screen over VNC")
+
+                    Button {
+                        ServiceConnectionModel.shared.present(.mqtt)
+                    } label: {
+                        Label("MQTT", systemImage: ForwardCategory.mqtt.symbol)
+                    }
+                    .controlSize(.large)
+                    .help("Browse an MQTT broker")
+
+                    Button {
+                        ServiceConnectionModel.shared.present(.redis)
+                    } label: {
+                        Label("Redis", systemImage: ForwardCategory.redis.symbol)
+                    }
+                    .controlSize(.large)
+                    .help("Browse a Redis server")
                 }
-                .menuStyle(.borderlessButton)
-                .controlSize(.large)
-                .fixedSize()
             }
 
             if !store.profiles.isEmpty {
@@ -1734,9 +1848,101 @@ private struct WelcomeView: View {
                 }
                 .frame(maxWidth: 580)
             }
+
+            if !sessions.recentlyClosed.isEmpty {
+                RecentlyClosedSection()
+                    .frame(maxWidth: 580)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(28)
+    }
+}
+
+/// The welcome screen's "Recently Closed" list — tabs and whole workspaces the
+/// user closed without saving, each reopenable with one click.
+private struct RecentlyClosedSection: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Recently Closed")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Clear") {
+                    sessions.clearRecentlyClosed()
+                }
+                .buttonStyle(.plain)
+                .font(.callout)
+                .foregroundStyle(.tint)
+                .help("Forget every recently-closed item")
+            }
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(sessions.recentlyClosed) { item in
+                        RecentlyClosedRow(item: item)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .frame(maxHeight: 200)
+        }
+    }
+}
+
+/// One clickable row in the "Recently Closed" list. Click reopens it; the menu
+/// button forgets it.
+private struct RecentlyClosedRow: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    let item: ClosedItem
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                sessions.reopenClosedItem(item)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: item.symbol)
+                        .font(.title3)
+                        .foregroundStyle(.tint)
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                        Text(item.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+            }
+            .buttonStyle(.plain)
+            .help(item.kind == .workspace ? "Reopen this workspace" : "Reopen this tab")
+            .contextMenu {
+                Button {
+                    sessions.reopenClosedItem(item)
+                } label: {
+                    Label("Reopen", systemImage: "arrow.uturn.backward")
+                }
+                Button(role: .destructive) {
+                    sessions.removeClosedItem(item)
+                } label: {
+                    Label("Remove", systemImage: "trash")
+                }
+            }
+        }
     }
 }
 

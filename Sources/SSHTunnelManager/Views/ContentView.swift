@@ -10,6 +10,8 @@ struct ContentView: View {
     @ObservedObject private var sidebar = SidebarModel.shared
     @ObservedObject private var serviceConnection = ServiceConnectionModel.shared
     @ObservedObject private var vncConnection = VNCConnectionModel.shared
+    @ObservedObject private var remoteConnection = RemoteConnectionModel.shared
+    @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebar.columnVisibility) {
@@ -50,6 +52,19 @@ struct ContentView: View {
         .sheet(isPresented: $vncConnection.isPresented) {
             VNCConnectionView(model: vncConnection)
                 .environmentObject(sessions)
+        }
+        .sheet(isPresented: $remoteConnection.isPresented) {
+            RemoteConnectionView(model: remoteConnection)
+                .environmentObject(sessions)
+        }
+        .alert("Save changes to this profile before quitting?",
+               isPresented: $editCoordinator.showQuitConfirmation) {
+            Button("Save") { editCoordinator.saveAndQuit() }
+                .disabled(!editCoordinator.canSave)
+            Button("Don't Save", role: .destructive) { editCoordinator.discardAndQuit() }
+            Button("Cancel", role: .cancel) { editCoordinator.cancelQuit() }
+        } message: {
+            Text("If you don't save, the changes you made to this profile will be lost.")
         }
     }
 }

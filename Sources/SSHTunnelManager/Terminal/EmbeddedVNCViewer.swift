@@ -21,12 +21,36 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
         case failed(String)
     }
 
+    /// Remote-desktop colour fidelity, surfaced without leaking RoyalVNCKit types.
+    enum ColorDepthOption: UInt8, CaseIterable, Identifiable {
+        case trueColor = 24   // ~16.7M colours
+        case highColor = 16   // ~65K colours
+        case lowColor  = 8    // 256 colours
+        var id: UInt8 { rawValue }
+        var title: String {
+            switch self {
+            case .trueColor: return "True Color (24-bit)"
+            case .highColor: return "High Color (16-bit)"
+            case .lowColor:  return "256 Colors (8-bit)"
+            }
+        }
+    }
+
     @Published private(set) var status: Status = .idle
     /// The live `VNCCAFramebufferView` (an `NSView`) to embed, or `nil` while
     /// connecting / after a disconnect.
     @Published private(set) var framebufferView: NSView?
+    /// The remote screen's native pixel size, used to size the 1:1 (Actual Size)
+    /// scroll content so it can be panned when it's larger than the tab.
+    @Published private(set) var framebufferSize: CGSize = .zero
     /// Whether the remote screen is scaled to fit the tab (vs. shown 1:1).
     @Published private(set) var isScalingEnabled: Bool
+    /// Whether remote input is suppressed (look, don't touch).
+    @Published private(set) var isViewOnly = false
+    /// Whether the local and remote clipboards are kept in sync.
+    @Published private(set) var isClipboardSharingEnabled = true
+    /// The remote desktop colour fidelity (higher = better image, more bandwidth).
+    @Published private(set) var colorDepth: ColorDepthOption = .trueColor
 
     private let host: String
     private let port: UInt16
@@ -53,7 +77,8 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
     init(host: String, port: Int, profileID: UUID?,
          defaultUsername: String, serverLabel: String,
          presetPassword: String? = nil, requireBiometricAuth: Bool = false,
-         scaling: Bool = true) {
+         scaling: Bool = true, viewOnly: Bool = false,
+         colorDepth: ColorDepthOption = .trueColor) {
         self.host = host
         self.port = UInt16(max(0, min(port, 65535)))
         self.profileID = profileID
@@ -62,6 +87,8 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
         self.requireBiometricAuth = requireBiometricAuth
         self.presetPassword = presetPassword
         self.isScalingEnabled = scaling
+        self.isViewOnly = viewOnly
+        self.colorDepth = colorDepth
         super.init()
     }
 
@@ -94,12 +121,67 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
         connection?.disconnect()
     }
 
-    /// Switch between fit-to-window and 1:1. Because `Settings` is immutable, this
-    /// reconnects with the new value, reusing the cached credential so there's no
-    /// re-prompt.
+    /// Switch between fit-to-window and 1:1.
     func setScaling(_ enabled: Bool) {
         guard enabled != isScalingEnabled else { return }
         isScalingEnabled = enabled
+        reconnectPreservingCredential()
+    }
+
+    /// Toggle view-only mode (suppress all mouse/keyboard input to the remote).
+    func setViewOnly(_ enabled: Bool) {
+        guard enabled != isViewOnly else { return }
+        isViewOnly = enabled
+        reconnectPreservingCredential()
+    }
+
+    /// Toggle clipboard sharing between this Mac and the remote machine.
+    func setClipboardSharing(_ enabled: Bool) {
+        guard enabled != isClipboardSharingEnabled else { return }
+        isClipboardSharingEnabled = enabled
+        reconnectPreservingCredential()
+    }
+
+    /// Change the remote colour fidelity.
+    func setColorDepth(_ depth: ColorDepthOption) {
+        guard depth != colorDepth else { return }
+        colorDepth = depth
+        reconnectPreservingCredential()
+    }
+
+    /// Send the Ctrl+Alt+Del secure-attention chord to the remote machine.
+    func sendCtrlAltDel() {
+        guard let connection, status == .connected else { return }
+        connection.keyDown(.control)
+        connection.keyDown(.option)        // Alt
+        connection.keyDown(.forwardDelete) // Del
+        connection.keyUp(.forwardDelete)
+        connection.keyUp(.option)
+        connection.keyUp(.control)
+    }
+
+    /// Re-establish the VNC session (the SSH tunnel, if any, stays up), reusing
+    /// the remembered credential so it won't re-prompt.
+    func reconnect() {
+        if connection != nil {
+            reconnectPreservingCredential()
+        } else {
+            connect()
+        }
+    }
+
+    private var vncColorDepth: VNCConnection.Settings.ColorDepth {
+        switch colorDepth {
+        case .trueColor: return .depth24Bit
+        case .highColor: return .depth16Bit
+        case .lowColor:  return .depth8Bit
+        }
+    }
+
+    /// Because `Settings` is immutable, changing any connection option means
+    /// reconnecting. The cached credential is preserved, so there's no re-prompt —
+    /// just a brief reconnect flash.
+    private func reconnectPreservingCredential() {
         guard let old = connection else { return }
         old.delegate = nil
         old.disconnect()
@@ -119,9 +201,9 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
             isShared: true,
             isScalingEnabled: isScalingEnabled,
             useDisplayLink: false,
-            inputMode: .forwardKeyboardShortcutsIfNotInUseLocally,
-            isClipboardRedirectionEnabled: true,
-            colorDepth: .depth24Bit,
+            inputMode: isViewOnly ? .none : .forwardKeyboardShortcutsIfNotInUseLocally,
+            isClipboardRedirectionEnabled: isClipboardSharingEnabled,
+            colorDepth: vncColorDepth,
             frameEncodings: .default
         )
         let conn = VNCConnection(settings: settings)
@@ -245,6 +327,7 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
                                             connectionDelegate: self)
             self.didReachFramebuffer = true
             self.usedSavedCredentialWithoutPrompt = false
+            self.framebufferSize = size
             self.framebufferView = view
             self.status = .connected
         }
@@ -430,32 +513,67 @@ enum VNCCredentialStore {
 
 // MARK: - SwiftUI host for the framebuffer NSView
 
-/// Hosts the live `VNCCAFramebufferView` inside SwiftUI. The view is created
-/// asynchronously by `EmbeddedVNCViewer` (in a delegate callback), so this just
-/// swaps it into a black container whenever it changes.
+/// Hosts the live `VNCCAFramebufferView` inside SwiftUI, wrapped in an
+/// `NSScrollView`. When **scaling** is on, the framebuffer fills the visible
+/// area and RoyalVNCKit scales the remote image to fit. When showing **actual
+/// size**, the framebuffer is laid out at its native pixel size so the scroll
+/// view can **pan** it — the remote desktop forwards two-finger scrolling to the
+/// server, so the (always-draggable) scroll bars are what move the view.
 struct VNCFramebufferHostView: NSViewRepresentable {
     let framebufferView: NSView?
+    /// The remote screen's native pixel size (for 1:1 / Actual Size layout).
+    let nativeSize: CGSize
+    /// Whether the remote image is scaled to fit (vs. shown at actual size).
+    let isScaling: Bool
 
-    func makeNSView(context: Context) -> NSView {
-        let container = NSView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.black.cgColor
-        return container
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.drawsBackground = true
+        scroll.backgroundColor = .black
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
+        // Legacy (persistent, draggable) scrollers: at actual size the remote
+        // eats the scroll wheel, so the user pans by dragging these bars.
+        scroll.scrollerStyle = .legacy
+        scroll.contentView.drawsBackground = true
+        scroll.contentView.backgroundColor = .black
+        return scroll
     }
 
-    func updateNSView(_ container: NSView, context: Context) {
-        if container.subviews.first === framebufferView { return }
-        container.subviews.forEach { $0.removeFromSuperview() }
-        guard let fb = framebufferView else { return }
-        fb.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(fb)
-        NSLayoutConstraint.activate([
-            fb.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            fb.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            fb.topAnchor.constraint(equalTo: container.topAnchor),
-            fb.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-        ])
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        guard let fb = framebufferView else {
+            scroll.documentView = nil
+            return
+        }
+        if scroll.documentView !== fb {
+            fb.translatesAutoresizingMaskIntoConstraints = true
+            scroll.documentView = fb
+        }
+        layout(fb, in: scroll)
         // Give the remote screen keyboard focus so typing is forwarded.
         DispatchQueue.main.async { fb.window?.makeFirstResponder(fb) }
+    }
+
+    private func layout(_ fb: NSView, in scroll: NSScrollView) {
+        let visible = scroll.contentSize
+        if isScaling {
+            // Fill the viewport; RoyalVNCKit scales the image. No scrolling.
+            scroll.hasVerticalScroller = false
+            scroll.hasHorizontalScroller = false
+            fb.autoresizingMask = [.width, .height]
+            fb.frame = NSRect(origin: .zero, size: visible)
+        } else {
+            // Lay the framebuffer out at native size so it can be panned. If the
+            // remote screen is smaller than the tab, fill instead (no scrolling).
+            scroll.hasVerticalScroller = true
+            scroll.hasHorizontalScroller = true
+            let w = max(nativeSize.width, 1)
+            let h = max(nativeSize.height, 1)
+            let size = NSSize(width: max(w, visible.width), height: max(h, visible.height))
+            fb.autoresizingMask = []
+            fb.frame = NSRect(origin: .zero, size: size)
+        }
     }
 }

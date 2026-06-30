@@ -301,7 +301,9 @@ private struct VNCDesktopView: View {
     private var desktopBody: some View {
         switch viewer.status {
         case .connected:
-            VNCFramebufferHostView(framebufferView: viewer.framebufferView)
+            VNCFramebufferHostView(framebufferView: viewer.framebufferView,
+                                   nativeSize: viewer.framebufferSize,
+                                   isScaling: viewer.isScalingEnabled)
         case .failed(let message):
             VStack(spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill")

@@ -1,43 +1,65 @@
 import SwiftUI
 
-/// Drives the "new VNC connection" setup sheet. A singleton so the tab-bar **+**
-/// menu, the **New** menu and the welcome screen can all trigger it while the
-/// main window presents it. Mirrors `ServiceConnectionModel`.
-final class VNCConnectionModel: ObservableObject {
-    static let shared = VNCConnectionModel()
+/// The two profile-free remote connection kinds the "new connection" sheet can
+/// open: an interactive SSH **terminal** or an **SFTP** file browser.
+enum RemoteConnectionKind {
+    case ssh
+    case sftp
+
+    var title: String {
+        switch self {
+        case .ssh:  return "New Remote Terminal"
+        case .sftp: return "New SFTP Connection"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .ssh:  return "Open an SSH terminal on a server."
+        case .sftp: return "Browse and transfer files over SFTP."
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .ssh:  return "network"
+        case .sftp: return "arrow.up.arrow.down"
+        }
+    }
+}
+
+/// Drives the "new remote connection" setup sheet for ad-hoc **SSH** and
+/// **SFTP** tabs. A singleton so the tab-bar **+** menu, the **New** menu and the
+/// welcome screen can all trigger it while the main window presents it. Mirrors
+/// `VNCConnectionModel` / `ServiceConnectionModel`.
+final class RemoteConnectionModel: ObservableObject {
+    static let shared = RemoteConnectionModel()
     private init() {}
 
     @Published var isPresented = false
+    @Published var kind: RemoteConnectionKind = .ssh
     @Published var host = ""
     @Published var port = ""
     @Published var username = ""
     @Published var password = ""
-    /// Scale the remote screen to fit the tab (vs. show it 1:1 / actual size).
-    @Published var scaling = true
-    /// Look, don’t touch — suppress all mouse/keyboard input to the remote.
-    @Published var viewOnly = false
-    /// Remote-desktop colour fidelity.
-    @Published var colorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor
 
-    /// Present the sheet pre-filled with the default VNC port.
-    func present() {
+    /// Present the sheet for `kind`, pre-filled with the default SSH port (22).
+    func present(_ kind: RemoteConnectionKind) {
+        self.kind = kind
         host = ""
-        port = String(VNCCommandBuilder.defaultRemotePort)   // 5900
+        port = "22"
         username = ""
         password = ""
-        scaling = true
-        viewOnly = false
-        colorDepth = .trueColor
         isPresented = true
     }
 }
 
-/// The sheet for opening an **ad-hoc** VNC tab: the user types a host, port and
-/// optional credentials, and the app opens an embedded VNC tab that connects
-/// **directly** to that server (no SSH tunnel / profile required). For an
-/// encrypted session, open VNC from a profile instead — that tunnels over SSH.
-struct VNCConnectionView: View {
-    @ObservedObject var model: VNCConnectionModel
+/// The sheet for opening an **ad-hoc** SSH terminal or SFTP tab: the user types a
+/// host, port and optional credentials and the app connects without a saved
+/// profile. Key-based auth is tried first; a typed password is sent at the
+/// prompt but never stored. Create a profile for anything you connect to often.
+struct RemoteConnectionView: View {
+    @ObservedObject var model: RemoteConnectionModel
     @EnvironmentObject var sessions: TerminalSessionManager
 
     @FocusState private var hostFocused: Bool
@@ -67,14 +89,14 @@ struct VNCConnectionView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "display")
+            Image(systemName: model.kind.symbol)
                 .font(.system(size: 26))
                 .foregroundStyle(.tint)
                 .frame(width: 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text("New VNC Connection")
+                Text(model.kind.title)
                     .font(.title3.weight(.semibold))
-                Text("View a computer’s screen over VNC.")
+                Text(model.kind.blurb)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -92,7 +114,7 @@ struct VNCConnectionView: View {
             }
             GridRow {
                 Text("Port").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
-                TextField("\(VNCCommandBuilder.defaultRemotePort)", text: $model.port)
+                TextField("22", text: $model.port)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 110)
                     .onChange(of: model.port) { newValue in
@@ -110,33 +132,6 @@ struct VNCConnectionView: View {
                 Text("Password").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
                 SecureField("optional", text: $model.password)
                     .textFieldStyle(.roundedBorder)
-            }
-            GridRow {
-                Text("Display").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
-                Picker("", selection: $model.scaling) {
-                    Text("Scale to Fit").tag(true)
-                    Text("Actual Size").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .gridColumnAlignment(.leading)
-            }
-            GridRow {
-                Text("Colors").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
-                Picker("", selection: $model.colorDepth) {
-                    ForEach(EmbeddedVNCViewer.ColorDepthOption.allCases) { depth in
-                        Text(depth.title).tag(depth)
-                    }
-                }
-                .labelsHidden()
-                .fixedSize()
-                .gridColumnAlignment(.leading)
-            }
-            GridRow {
-                Text("Input").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
-                Toggle("View only (don’t send mouse or keyboard)", isOn: $model.viewOnly)
-                    .toggleStyle(.checkbox)
-                    .gridColumnAlignment(.leading)
             }
         }
     }
@@ -158,20 +153,21 @@ struct VNCConnectionView: View {
     }
 
     private var hint: String {
-        "Connects **directly** to the VNC server — this is not tunneled. For an encrypted "
-        + "connection over SSH, open VNC from a profile instead. The username (for Apple Remote "
-        + "Desktop) and password are optional and aren’t saved."
+        "Connects without a saved profile. Your SSH keys are tried first; a typed "
+        + "password is sent at the prompt but isn’t saved. For tunnels, a custom key, "
+        + "a jump host or anything you use often, create a profile instead."
     }
 
     private func connect() {
         guard let port = parsedPort else { return }
-        sessions.openAdHocVNC(host: trimmedHost,
-                              port: port,
-                              username: model.username,
-                              password: model.password,
-                              scaling: model.scaling,
-                              viewOnly: model.viewOnly,
-                              colorDepth: model.colorDepth)
+        switch model.kind {
+        case .ssh:
+            sessions.openAdHocSSH(host: trimmedHost, port: port,
+                                  username: model.username, password: model.password)
+        case .sftp:
+            sessions.openAdHocSFTP(host: trimmedHost, port: port,
+                                   username: model.username, password: model.password)
+        }
         model.isPresented = false
     }
 }
