@@ -147,29 +147,54 @@ final class RedisClient: ObservableObject {
 
     // MARK: - Handshake
 
+    /// Authenticate (when a password is set), then *verify* the link with a PING
+    /// before declaring ourselves connected. That verification is what catches a
+    /// server which **requires** a password we didn't supply — without it the TCP
+    /// socket is happily "connected" while every command comes back `NOAUTH`,
+    /// which looks like a broken, empty browser.
     private func handshake() {
-        // Authenticate if a password was provided, then verify with a PING and
-        // grab the server version for the status bar.
-        if !password.isEmpty {
-            let authArgs = username.isEmpty || username == "default"
-                ? ["AUTH", password]
-                : ["AUTH", username, password]
-            command(authArgs) { [weak self] reply in
-                guard let self else { return }
-                if case .error(let message) = reply {
-                    self.fail("Authentication failed: \(message)")
+        guard !password.isEmpty else { verify(); return }
+        let authArgs = username.isEmpty || username == "default"
+            ? ["AUTH", password]
+            : ["AUTH", username, password]
+        command(authArgs) { [weak self] reply in
+            guard let self else { return }
+            if case .error(let message) = reply {
+                // A password was supplied but the server has none configured —
+                // that isn't a real failure, so connect anyway rather than
+                // erroring out on a superfluous AUTH.
+                if RedisClient.isNoPasswordConfigured(message) {
+                    self.verify()
                 } else {
-                    self.finishConnect()
+                    self.fail("Authentication failed: \(message)")
                 }
+            } else {
+                self.verify()
             }
-        } else {
-            finishConnect()
+        }
+    }
+
+    /// Confirm the connection is actually usable with a `PING`. A `NOAUTH` reply
+    /// means the server needs a password we don't have — surface that plainly
+    /// instead of pretending to be connected.
+    private func verify() {
+        command(["PING"]) { [weak self] reply in
+            guard let self else { return }
+            if case .error(let message) = reply, RedisClient.isAuthRequired(message) {
+                self.fail(self.password.isEmpty
+                    ? "This Redis server requires a password. Add one to the forward’s service credentials."
+                    : "Authentication failed: \(message)")
+                return
+            }
+            self.finishConnect()
         }
     }
 
     private func finishConnect() {
         phase = .connected
         onRunningChanged?(true)
+        // Best‑effort: grab the version for the status bar. Never fatal — some
+        // managed Redis deployments disable or rename INFO.
         command(["INFO", "server"]) { [weak self] reply in
             guard let self, let text = reply.stringValue else { return }
             for line in text.split(separator: "\n") where line.hasPrefix("redis_version:") {
@@ -178,6 +203,19 @@ final class RedisClient: ObservableObject {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
+    }
+
+    /// A `NOAUTH` reply — the server requires a password we didn't send.
+    private static func isAuthRequired(_ message: String) -> Bool {
+        message.uppercased().hasPrefix("NOAUTH")
+    }
+
+    /// AUTH was rejected only because the server has no password set, i.e. our
+    /// password is superfluous and the connection is fine without it.
+    private static func isNoPasswordConfigured(_ message: String) -> Bool {
+        let m = message.lowercased()
+        return m.contains("without any password configured")
+            || m.contains("no password is set")
     }
 
     // MARK: - Commands

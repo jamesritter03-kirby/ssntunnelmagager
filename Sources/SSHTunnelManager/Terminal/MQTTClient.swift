@@ -34,11 +34,28 @@ final class MQTTClient: ObservableObject {
         var payloadString: String { String(decoding: payload, as: UTF8.self) }
     }
 
+    /// One timestamped snapshot of the numeric values found in a payload, used to
+    /// graph a topic over time. A payload's numeric leaves are flattened into a
+    /// `path → value` map (`{"a":{"b":1}}` → `["a.b": 1]`), so a single topic can
+    /// expose several plottable series — the "individual items" you can chart.
+    struct NumericSample: Identifiable {
+        let id = UUID()
+        let time: Date
+        let values: [String: Double]
+    }
+
     @Published private(set) var phase: Phase = .idle
     /// Every topic seen this session → its most recent payload + message count.
     @Published private(set) var topics: [String: TopicState] = [:]
+    /// Per‑topic time series of the numeric values pulled from each payload,
+    /// capped to `maxSamplesPerTopic` points so memory stays bounded. Topics
+    /// whose payloads carry no numbers never appear here. Drives the graph view.
+    @Published private(set) var history: [String: [NumericSample]] = [:]
     @Published private(set) var totalMessages: Int = 0
     @Published private(set) var lastActivity: Date?
+
+    /// Upper bound on graph samples retained per topic (oldest dropped first).
+    private let maxSamplesPerTopic = 600
 
     /// Mirrors connection state to the owning session's running indicator.
     var onRunningChanged: ((Bool) -> Void)?
@@ -169,6 +186,7 @@ final class MQTTClient: ObservableObject {
     /// Forget all collected topics/messages (keeps the connection open).
     func clear() {
         topics = [:]
+        history = [:]
         totalMessages = 0
     }
 
@@ -243,8 +261,58 @@ final class MQTTClient: ObservableObject {
         state.count += 1
         state.lastUpdate = now
         topics[topic] = state
+        if let values = MQTTClient.numericValues(from: payload), !values.isEmpty {
+            var series = history[topic] ?? []
+            series.append(NumericSample(time: now, values: values))
+            if series.count > maxSamplesPerTopic {
+                series.removeFirst(series.count - maxSamplesPerTopic)
+            }
+            history[topic] = series
+        }
         totalMessages += 1
         lastActivity = now
+    }
+
+    // MARK: - Numeric extraction (graphing)
+
+    /// Pull the numeric leaves out of a payload so a topic can be graphed.
+    /// Handles a bare number (`23.5` → `["value": 23.5]`) and JSON objects/arrays
+    /// whose nested keys are flattened with `.` (array indices as `[i]`); JSON
+    /// booleans map to 1/0. Returns `nil` when nothing finite & numeric is found.
+    static func numericValues(from payload: Data) -> [String: Double]? {
+        if payload.isEmpty { return nil }
+        // Fast path: a bare scalar like a lone sensor reading.
+        if let text = String(data: payload, encoding: .utf8) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, let d = Double(trimmed), d.isFinite {
+                return ["value": d]
+            }
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: payload,
+                                                             options: [.fragmentsAllowed]) else {
+            return nil
+        }
+        var out: [String: Double] = [:]
+        MQTTClient.flattenNumeric(object, prefix: "", into: &out)
+        return out.isEmpty ? nil : out
+    }
+
+    private static func flattenNumeric(_ value: Any, prefix: String, into out: inout [String: Double]) {
+        switch value {
+        case let dict as [String: Any]:
+            for (key, child) in dict {
+                flattenNumeric(child, prefix: prefix.isEmpty ? key : prefix + "." + key, into: &out)
+            }
+        case let array as [Any]:
+            for (index, child) in array.enumerated() {
+                flattenNumeric(child, prefix: prefix + "[\(index)]", into: &out)
+            }
+        case let number as NSNumber:
+            let d = number.doubleValue
+            if d.isFinite { out[prefix.isEmpty ? "value" : prefix] = d }
+        default:
+            break   // strings, null — not graphable
+        }
     }
 
     // MARK: - Keep‑alive

@@ -206,7 +206,7 @@ enum HelpContent {
             .paragraph("Tag a **Local port forward** with a **category** in the profile editor to get a one‑click tool against that forwarded port:"),
             .bullets([
                 "**Web Page** — opens the port in an in‑app browser tab.",
-                "**MQTT** — a native MQTT explorer with a **topic tree** (right‑click to Expand/Collapse) and publishing.",
+                "**MQTT** — a native MQTT explorer with a **topic tree** (right‑click to Expand/Collapse), publishing, and a **Graph** view that plots a topic's numeric values (or individual JSON fields) live over time.",
                 "**Redis** — a native Redis browser: scan keys, view typed values with TTLs, and run commands.",
             ]),
             .paragraph("You can also open **ad‑hoc** MQTT/Redis connections — not tied to a profile — from the **+** menu or **File ▸ New MQTT/Redis Connection**, pointing them at any host and port (optionally through a tunnel you've already started)."),

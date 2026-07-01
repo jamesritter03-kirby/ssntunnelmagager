@@ -124,6 +124,12 @@ private struct ZeroTierIPPickerPopover: View {
                 }
             }
             .padding(.horizontal, 4)
+            HStack(spacing: 4) {
+                Image(systemName: "globe").font(.system(size: 8)).foregroundStyle(.secondary)
+                Text(store.networkName(for: member.networkId))
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .padding(.horizontal, 4)
             ForEach(member.ipAssignments, id: \.self) { ip in
                 Button { onPick(ip) } label: {
                     HStack(spacing: 6) {

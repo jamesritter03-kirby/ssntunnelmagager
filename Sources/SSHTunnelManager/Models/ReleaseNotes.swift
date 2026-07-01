@@ -45,6 +45,15 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.17", build: 27, date: "Jul 1, 2026",
+            highlights: [
+                "MQTT: graph a topic’s numbers over time — the detail pane has a new Payload / Graph switch that plots a bare numeric payload, or lets you toggle individual numeric fields inside a JSON payload on and off as separate live series.",
+                "Redis: fixed a connection bug where a password-protected server could look “Connected” while every command silently failed — the client now verifies the link and tells you plainly when a password is required (or harmlessly ignores a superfluous one).",
+                "ZeroTier: the IP picker now shows each device’s network name beneath it, so it’s clear which network an address belongs to.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.16", build: 26, date: "Jun 29, 2026",
             highlights: [
                 "New ZeroTier Devices browser: see every device across your ZeroTier networks and connect (SSH, SFTP or VNC) straight to any of its IP addresses — open it from the welcome screen, the sidebar, or File ▸ Browse ZeroTier Devices.",
@@ -52,7 +61,7 @@ enum ReleaseCatalog {
                 "Self-hosted ZeroTier (e.g. ZTNET) is supported alongside ZeroTier Central — just add your server’s URL, including organization API tokens, which now work automatically.",
                 "Pick a ZeroTier device IP right where you type a host: a globe button next to the host field in the Remote Terminal, SFTP, VNC, MQTT and Redis sheets and in the profile editor.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.15", build: 25, date: "Jun 29, 2026",

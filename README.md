@@ -218,8 +218,11 @@ that local port so it can offer a matching **Open** action:
 - **MQTT** — opens a built‑in **MQTT Explorer**: a native MQTT 3.1.1 client subscribes to every
   topic and shows a live, filterable **topic tree** (grouped by the `/`‑delimited path, with
   per‑topic message counts and retained flags), a **detail pane** that pretty‑prints the latest
-  payload (JSON when possible), and a **publish** panel (topic + payload + retain). New branches
-  expand automatically; **right‑click** the tree to **Expand All / Collapse All** (or a branch).
+  payload (JSON when possible), and a **publish** panel (topic + payload + retain). The detail
+  pane also has a **Graph** tab for any topic with numeric data: it plots the value over time
+  (Swift Charts), and for JSON payloads you can toggle **individual fields** on and off to chart
+  them as separate series. New branches expand automatically; **right‑click** the tree to
+  **Expand All / Collapse All** (or a branch).
 - **Redis** — opens a built‑in **Redis browser**: a native RESP client lets you **scan** keys
   (with a `MATCH` pattern), inspect a key’s **typed value** (string / list / set / sorted‑set /
   hash) with its **TTL**, **delete** keys, and run **arbitrary commands** in a small console.

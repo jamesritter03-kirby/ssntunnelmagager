@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 /// The tab UI for a `.mqtt` session — a compact "MQTT Explorer": a live,
 /// filterable **tree** of every topic the broker has published (grouped by the
@@ -14,6 +15,11 @@ struct MQTTExplorerView: View {
     @State private var publishTopic = ""
     @State private var publishPayload = ""
     @State private var publishRetain = false
+
+    /// Whether the detail pane shows the raw payload or the live graph, plus which
+    /// numeric series ("items") are plotted. Both reset when the topic changes.
+    @State private var detailTab: TopicDetailTab = .payload
+    @State private var graphSelection: Set<String> = []
 
     /// Branch node ids the user has expanded in the topic tree.
     @State private var expanded: Set<String> = []
@@ -294,6 +300,10 @@ struct MQTTExplorerView: View {
             publishPanel
         }
         .frame(minWidth: 320)
+        .onChange(of: selectedNodeID) { _ in
+            detailTab = .payload
+            graphSelection = []
+        }
     }
 
     /// Shown when a branch (a topic prefix that carries no message of its own) is
@@ -321,7 +331,8 @@ struct MQTTExplorerView: View {
     }
 
     private func topicDetail(_ topic: String, _ state: MQTTClient.TopicState) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let fields = availableFields(for: topic)
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 Text(topic)
                     .font(.system(.body, design: .monospaced))
@@ -343,16 +354,146 @@ struct MQTTExplorerView: View {
                       systemImage: "clock")
             }
             .font(.caption).foregroundStyle(.secondary)
+            Picker("View", selection: $detailTab) {
+                Text("Payload").tag(TopicDetailTab.payload)
+                Text("Graph").tag(TopicDetailTab.graph)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
             Divider()
-            ScrollView {
-                Text(prettyPayload(state.payload))
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if detailTab == .graph {
+                graphSection(topic: topic, fields: fields)
+            } else {
+                ScrollView {
+                    Text(prettyPayload(state.payload))
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    // MARK: - Graphing
+
+    /// The graph pane: chips to toggle each numeric "item" plus a live line chart
+    /// of the selected series over time.
+    private func graphSection(topic: String, fields: [String]) -> some View {
+        let shown = plottedFields(fields)
+        let points = chartPoints(topic: topic, fields: shown)
+        let showSymbols = points.count <= 60   // dots so 1–2 samples are visible
+        return VStack(alignment: .leading, spacing: 8) {
+            if fields.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "chart.xyaxis.line")
+                        .font(.system(size: 32)).foregroundStyle(.secondary)
+                    Text("Nothing to graph yet")
+                        .font(.callout.weight(.medium))
+                    Text("This topic hasn’t sent a numeric value. A bare number, or numeric fields inside a JSON payload, will appear here as live series as new messages arrive.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 340)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                if fields.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(fields, id: \.self) { field in
+                                Button { toggleField(field, in: fields) } label: {
+                                    fieldChip(field, selected: shown.contains(field))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Show or hide this series")
+                            }
+                        }
+                        .padding(.bottom, 2)
+                    }
+                }
+                Chart {
+                    ForEach(points) { point in
+                        LineMark(x: .value("Time", point.time),
+                                 y: .value("Value", point.value))
+                            .foregroundStyle(by: .value("Series", point.field))
+                            .interpolationMethod(.monotone)
+                        if showSymbols {
+                            PointMark(x: .value("Time", point.time),
+                                      y: .value("Value", point.value))
+                                .symbolSize(26)
+                                .foregroundStyle(by: .value("Series", point.field))
+                        }
+                    }
+                }
+                .chartYScale(domain: .automatic(includesZero: false))
+                .chartLegend(shown.count > 1 ? .visible : .hidden)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Text("\(samplePointCount(topic: topic)) sample\(samplePointCount(topic: topic) == 1 ? "" : "s") · \(shown.count) of \(fields.count) item\(fields.count == 1 ? "" : "s") shown")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Numeric series available to graph for a topic — the sorted union of keys
+    /// seen across its retained history.
+    private func availableFields(for topic: String) -> [String] {
+        guard let series = client.history[topic], !series.isEmpty else { return [] }
+        var keys = Set<String>()
+        for sample in series { keys.formUnion(sample.values.keys) }
+        return keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// The series actually plotted: the user's picks (intersected with what's
+    /// available), or a sensible default before they choose — all of them when
+    /// there are only a few, otherwise just the first.
+    private func plottedFields(_ available: [String]) -> [String] {
+        let chosen = graphSelection.intersection(available)
+        if !chosen.isEmpty { return available.filter { chosen.contains($0) } }
+        return available.count <= 6 ? available : Array(available.prefix(1))
+    }
+
+    private func toggleField(_ field: String, in available: [String]) {
+        var chosen = Set(plottedFields(available))
+        if chosen.contains(field) {
+            guard chosen.count > 1 else { return }   // keep at least one series
+            chosen.remove(field)
+        } else {
+            chosen.insert(field)
+        }
+        graphSelection = chosen
+    }
+
+    private func chartPoints(topic: String, fields: [String]) -> [MQTTChartPoint] {
+        guard let series = client.history[topic] else { return [] }
+        let shown = Set(fields)
+        var points: [MQTTChartPoint] = []
+        points.reserveCapacity(series.count * max(shown.count, 1))
+        for sample in series {
+            for (key, value) in sample.values where shown.contains(key) {
+                points.append(MQTTChartPoint(field: key, time: sample.time, value: value))
+            }
+        }
+        return points
+    }
+
+    private func samplePointCount(topic: String) -> Int {
+        client.history[topic]?.count ?? 0
+    }
+
+    private func fieldChip(_ field: String, selected: Bool) -> some View {
+        Text(field)
+            .font(.caption)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(selected ? Color.accentColor.opacity(0.25)
+                                 : Color.secondary.opacity(0.12),
+                        in: Capsule())
+            .overlay(Capsule().strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 1))
+            .foregroundStyle(selected ? Color.primary : Color.secondary)
     }
 
     private var publishPanel: some View {
@@ -536,4 +677,18 @@ struct MQTTTreeRow: Identifiable {
     let node: MQTTTreeNode
     let depth: Int
     var id: String { node.id }
+}
+
+// MARK: - Graph models
+
+/// Which face of the topic detail pane is showing.
+private enum TopicDetailTab: Hashable { case payload, graph }
+
+/// One plotted point: a single numeric `item` of a topic at a moment in time.
+private struct MQTTChartPoint: Identifiable {
+    let field: String
+    let time: Date
+    let value: Double
+    /// Stable across redraws so Swift Charts animates instead of rebuilding.
+    var id: String { field + "@" + String(time.timeIntervalSince1970) }
 }
