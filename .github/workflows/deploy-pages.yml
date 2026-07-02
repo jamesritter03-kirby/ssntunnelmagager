@@ -1,0 +1,64 @@
+# Deploys the docs/ folder (the Sparkle appcast + landing page) to GitHub Pages.
+#
+# Replaces the built-in "legacy" branch deploy, which re-ran on *every* push to
+# main — including code-only commits that never touch docs/ — and periodically
+# tripped GitHub Pages' transient "Deployment failed, try again later." error,
+# emailing a failure each time. This workflow instead:
+#   • only runs when docs/ (or this file) actually changes, and
+#   • automatically retries once if Pages returns the transient failure.
+#
+# Requires the Pages source to be "GitHub Actions" (build_type=workflow).
+name: Deploy docs to Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+# Least-privilege token; id-token is required by actions/deploy-pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; let an in-progress deploy finish rather than cancel.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url || steps.deploy_retry.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload docs artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      # GitHub Pages occasionally returns "Deployment failed, try again later."
+      # for no real reason. Wait a moment and try one more time before failing.
+      - name: Pause before retry
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy to GitHub Pages (retry)
+        id: deploy_retry
+        if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@v4
