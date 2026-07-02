@@ -13,6 +13,7 @@ struct ContentView: View {
     @ObservedObject private var remoteConnection = RemoteConnectionModel.shared
     @ObservedObject private var zerotier = ZeroTierBrowserModel.shared
     @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
+    @ObservedObject private var editConnection = EditConnectionModel.shared
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebar.columnVisibility) {
@@ -48,6 +49,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $serviceConnection.isPresented) {
             ServiceConnectionView(model: serviceConnection)
+                .environmentObject(sessions)
+        }
+        .sheet(isPresented: $editConnection.isPresented) {
+            EditConnectionView(model: editConnection)
                 .environmentObject(sessions)
         }
         .sheet(isPresented: $vncConnection.isPresented) {

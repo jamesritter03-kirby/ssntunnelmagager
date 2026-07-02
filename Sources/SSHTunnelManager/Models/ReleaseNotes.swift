@@ -45,13 +45,22 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.18", build: 28, date: "Jul 1, 2026",
+            highlights: [
+                "Edit a tab’s connection: right‑click an MQTT, Redis, VNC or SFTP tab and choose Edit Connection… to change its host, port or credentials and reconnect in place — no need to open a new tab to fix a mistyped password or re‑point at another server.",
+                "VNC: fixed screen‑sharing tabs that sometimes didn’t connect — the viewer now retries briefly while the SSH tunnel’s port finishes coming up, instead of failing on the first try.",
+                "Tidied the sidebar’s bottom bar: the local‑terminal button is now just its icon, matching the ZeroTier button next to it.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.17", build: 27, date: "Jul 1, 2026",
             highlights: [
                 "MQTT: graph a topic’s numbers over time — the detail pane has a new Payload / Graph switch that plots a bare numeric payload, or lets you toggle individual numeric fields inside a JSON payload on and off as separate live series.",
                 "Redis: fixed a connection bug where a password-protected server could look “Connected” while every command silently failed — the client now verifies the link and tells you plainly when a password is required (or harmlessly ignores a superfluous one).",
                 "ZeroTier: the IP picker now shows each device’s network name beneath it, so it’s clear which network an address belongs to.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.16", build: 26, date: "Jun 29, 2026",

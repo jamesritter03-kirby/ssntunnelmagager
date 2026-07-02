@@ -210,6 +210,7 @@ enum HelpContent {
                 "**Redis** — a native Redis browser: scan keys, view typed values with TTLs, and run commands.",
             ]),
             .paragraph("You can also open **ad‑hoc** MQTT/Redis connections — not tied to a profile — from the **+** menu or **File ▸ New MQTT/Redis Connection**, pointing them at any host and port (optionally through a tunnel you've already started)."),
+            .paragraph("**Right‑click** an MQTT, Redis, VNC or SFTP tab and choose **Edit Connection…** to change its host, port or credentials and reconnect in place — handy for fixing a mistyped password or re‑pointing at another server without opening a new tab."),
             .tip("A service password for a forward is stored in your Keychain, keyed to that forward — never in the profile file or exports."),
         ])
 

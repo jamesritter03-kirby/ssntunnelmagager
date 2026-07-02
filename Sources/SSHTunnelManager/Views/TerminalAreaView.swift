@@ -1101,6 +1101,13 @@ private struct TerminalTabContextMenu: View {
             }
             .disabled(!session.isRunning)
         }
+        if session.canEditConnection {
+            Button {
+                EditConnectionModel.shared.present(for: session)
+            } label: {
+                Label("Edit Connection…", systemImage: "pencil")
+            }
+        }
         if session.kind == .vnc, let viewer = session.embeddedVNCViewer {
             VNCTabOptionsMenu(viewer: viewer)
         }

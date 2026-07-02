@@ -233,6 +233,10 @@ moment for it to bind), so the client connects to a port that’s already listen
 Redis clients are **native** (built on Apple’s Network framework) — **no command‑line tools or
 Homebrew packages are required** — and the tabs reopen with **Resume last session**.
 
+**Edit a tab’s connection.** Right‑click an **MQTT**, **Redis**, **VNC** or **SFTP** tab and
+choose **Edit Connection…** to change its host, port or credentials and reconnect in place — no
+need to open a new tab to fix a mistyped password or re‑point at another server.
+
 **Service credentials.** Brokers and Redis servers often require a login. For an **MQTT** or
 **Redis** forward the editor shows a **Username** field and a **Password** field. The username
 is saved in the profile; the **password is stored in your macOS Keychain** (keyed to that

@@ -74,6 +74,25 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
     /// Cached for seamless reconnects (e.g. toggling scaling) without re-prompting.
     private var inMemoryCredential: (any VNCCredential)?
 
+    /// Initial‑connect retry. Right after the SSH tunnel's local forward is
+    /// reported ready there's a brief window before it actually accepts
+    /// connections (and the remote VNC server can be slow to answer the very first
+    /// dial). Rather than fail the whole tab on that race, we retry the initial
+    /// connection a few times — mirroring the MQTT/Redis clients. This is the fix
+    /// for VNC tabs that "sometimes" don't connect.
+    private var connectAttempts = 0
+    private let maxConnectAttempts = 12
+    private let retryDelay: TimeInterval = 0.5
+    /// Set once the RFB transport/handshake completes, so a later drop isn't
+    /// mistaken for "port not ready yet" and retried.
+    private var didReachConnectedState = false
+    /// Set once the server asked us for a credential, so an auth‑stage failure
+    /// isn't silently retried (which would loop the password prompt).
+    private var didRequestCredential = false
+    /// Set on a deliberate teardown (user Disconnect, or an option‑change
+    /// reconnect) so the resulting `.disconnected` doesn't trigger the retry.
+    private var intentionalDisconnect = false
+
     init(host: String, port: Int, profileID: UUID?,
          defaultUsername: String, serverLabel: String,
          presetPassword: String? = nil, requireBiometricAuth: Bool = false,
@@ -113,11 +132,14 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
     /// no-ops while a connection already exists.
     func connect() {
         guard connection == nil, port > 0 else { return }
+        connectAttempts = 0
+        intentionalDisconnect = false
         startConnection()
     }
 
     /// Disconnect the VNC view (the SSH tunnel stays up).
     func disconnect() {
+        intentionalDisconnect = true
         connection?.disconnect()
     }
 
@@ -188,6 +210,8 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
         connection = nil
         framebufferView = nil
         status = .connecting
+        connectAttempts = 0
+        intentionalDisconnect = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             self?.startConnection()
         }
@@ -210,6 +234,8 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
         conn.delegate = self
         connection = conn
         didReachFramebuffer = false
+        didReachConnectedState = false
+        didRequestCredential = false
         onMain { self.status = .connecting }
         conn.connect()
     }
@@ -223,8 +249,9 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
             onMain { if self.status != .authenticating { self.status = .connecting } }
         case .connected:
             // The framebuffer view (and `.connected` status) is set in
-            // didCreateFramebuffer once we have something to draw.
-            break
+            // didCreateFramebuffer once we have something to draw. Record that the
+            // RFB handshake completed so a later drop isn't retried as "not ready".
+            didReachConnectedState = true
         case .disconnecting:
             break
         case .disconnected:
@@ -237,6 +264,10 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
     func connection(_ connection: VNCConnection,
                     credentialFor authenticationType: VNCAuthenticationType,
                     completion: @escaping ((any VNCCredential)?) -> Void) {
+        // Reaching the auth stage means the tunnel/port is up — a failure from
+        // here on is a credential problem, not the "not ready yet" race, so stop
+        // the initial-connect retry from kicking in.
+        didRequestCredential = true
         // 1. Reuse an in-memory credential for seamless reconnects.
         if let cached = inMemoryCredential {
             completion(cached)
@@ -336,6 +367,30 @@ final class EmbeddedVNCViewer: NSObject, ObservableObject, VNCConnectionDelegate
     // MARK: - Disconnect handling
 
     private func handleDisconnect(error: Error?) {
+        // Initial-connect race: the SSH tunnel's forwarded port was reported ready
+        // but wasn't actually accepting yet (or the remote VNC server was slow on
+        // the very first dial). We never completed the RFB handshake and were never
+        // asked for a credential, so this is a "not ready" failure — not an auth
+        // rejection, an in-session drop, or a user disconnect. Retry quietly a few
+        // times instead of failing the tab. This is what makes VNC connect
+        // reliably instead of "sometimes".
+        if error != nil, !intentionalDisconnect,
+           !didReachConnectedState, !didRequestCredential,
+           connectAttempts < maxConnectAttempts {
+            connectAttempts += 1
+            onMain {
+                self.connection?.delegate = nil
+                self.connection = nil
+                self.framebufferView = nil
+                self.status = .connecting
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.retryDelay) { [weak self] in
+                    guard let self, self.connection == nil, !self.intentionalDisconnect else { return }
+                    self.startConnection()
+                }
+            }
+            return
+        }
+
         let failedOnSavedCredential = usedSavedCredentialWithoutPrompt && !didReachFramebuffer
         if failedOnSavedCredential, error != nil, let pid = profileID {
             // A remembered password that never produced a frame is probably wrong.

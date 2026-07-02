@@ -893,7 +893,119 @@ final class TerminalSessionManager: ObservableObject {
         addAndStart(session)
     }
 
-    /// Open the tab a categorized forward describes — a **Web Page**, **MQTT**, or
+    /// Re‑point a live **service** tab (`.mqtt` / `.redis`, direct `.vnc`, or
+    /// `.sftp`) at new connection details and reconnect it **in place** — the new
+    /// tab takes the old one's slot and selection. Because a session's connection
+    /// details (and its native client) are immutable, we rebuild the tab rather
+    /// than mutate it. Backs the right‑click **Edit Connection…** action.
+    func reconnectSession(_ id: UUID, host: String, port: Int,
+                          username: String, password: String) {
+        guard let old = sessions.first(where: { $0.id == id }), port > 0 else { return }
+        let cleanHost = host.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "127.0.0.1" : host.trimmingCharacters(in: .whitespaces)
+        let cleanUser = username.trimmingCharacters(in: .whitespaces)
+
+        let new: TerminalSession
+        switch old.kind {
+        case .mqtt, .redis:
+            let category: ForwardCategory = old.kind == .redis ? .redis : .mqtt
+            new = TerminalSession(
+                kind: old.kind,
+                title: "\(category.title) — \(cleanHost):\(port)",
+                executable: "",
+                args: [],
+                commandPreview: "\(category.title) \(cleanHost):\(port)",
+                servicePort: port,
+                serviceHost: cleanHost,
+                serviceUsername: cleanUser,
+                servicePassword: password
+            )
+        case .vnc:
+            // Only a direct (non‑tunnelled) VNC tab is re‑pointable here; a
+            // profile's tunnelled VNC gets its endpoint from the profile.
+            guard old.vncClient == nil else { return }
+            let viewer = old.embeddedVNCViewer
+            new = TerminalSession(
+                kind: .vnc,
+                title: "VNC — \(cleanHost):\(port)",
+                executable: "",
+                args: [],
+                commandPreview: "vnc://\(cleanHost):\(port)",
+                servicePort: port,
+                serviceHost: cleanHost,
+                serviceUsername: cleanUser,
+                servicePassword: password,
+                vncScaling: viewer?.isScalingEnabled ?? true,
+                vncViewOnly: viewer?.isViewOnly ?? false,
+                vncColorDepth: viewer?.colorDepth ?? .trueColor
+            )
+        case .sftp:
+            // Clone the backing profile (so identity files / proxy‑jump survive)
+            // and override host/port/user; fall back to a throwaway profile for an
+            // ad‑hoc tab.
+            var profile: SSHProfile
+            if let pid = old.profileID,
+               let p = ProfileStore.shared.profiles.first(where: { $0.id == pid }) {
+                profile = p
+            } else {
+                profile = adHocProfile(host: cleanHost, port: port, username: cleanUser)
+            }
+            profile.host = cleanHost
+            profile.port = String(port)
+            profile.username = cleanUser
+            let label = cleanUser.isEmpty ? cleanHost : "\(cleanUser)@\(cleanHost)"
+            new = TerminalSession(
+                kind: .sftp,
+                title: "\(label) — SFTP",
+                executable: SFTPCommandBuilder.sftpPath,
+                args: SFTPCommandBuilder.arguments(for: profile),
+                commandPreview: SFTPCommandBuilder.commandPreview(for: profile),
+                servicePort: port,
+                serviceHost: cleanHost,
+                serviceUsername: cleanUser,
+                presetPassword: password.isEmpty ? nil : password
+            )
+        default:
+            return
+        }
+        replaceSession(old, with: new)
+    }
+
+    /// Swap `new` into `old`'s exact place (sessions order, workspace tab slot and
+    /// selection), tear `old` down, and start `new`. Used by `reconnectSession`.
+    private func replaceSession(_ old: TerminalSession, with new: TerminalSession) {
+        let wasDetached = detachedSessionIDs.contains(old.id)
+        // Put the replacement immediately after the old tab in the flat list…
+        if let si = sessions.firstIndex(where: { $0.id == old.id }) {
+            sessions.insert(new, at: si + 1)
+        } else {
+            sessions.append(new)
+        }
+        // …and in the same workspace slot, taking over selection.
+        if let w = workspaces.firstIndex(where: { $0.tabIDs.contains(old.id) }) {
+            if let ti = workspaces[w].tabIDs.firstIndex(of: old.id) {
+                workspaces[w].tabIDs.insert(new.id, at: ti + 1)
+            } else {
+                workspaces[w].tabIDs.append(new.id)
+            }
+            if !wasDetached { workspaces[w].selectedSessionID = new.id }
+        } else if let i = currentIndex {
+            workspaces[i].tabIDs.append(new.id)
+            workspaces[i].selectedSessionID = new.id
+        }
+        // Tear down and remove the old tab (no closed‑tab record — it's replaced,
+        // not closed).
+        old.shutDown()
+        if let w = workspaces.firstIndex(where: { $0.tabIDs.contains(old.id) }) {
+            clearDocks(for: old.id, inWorkspaceAt: w)
+            workspaces[w].tabIDs.removeAll { $0 == old.id }
+        }
+        detachedSessionIDs.remove(old.id)
+        sessions.removeAll { $0.id == old.id }
+        // Start once the view has mounted at a real size.
+        DispatchQueue.main.async { new.start() }
+    }
+
     /// **Redis** tab — pointed at the forward's local port. Brings the profile's
     /// SSH tunnel up first (so the port is listening), pausing briefly for `ssh`
     /// to bind the forward when it had to start fresh.

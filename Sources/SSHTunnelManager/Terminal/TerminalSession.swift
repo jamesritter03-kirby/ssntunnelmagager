@@ -130,6 +130,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         kind == .ssh || kind == .localShell
     }
 
+    /// Whether this tab exposes editable connection details (host / port /
+    /// credentials) that can be changed and reconnected in place via the
+    /// right‑click **Edit Connection…** action. True for the native service tabs
+    /// (mqtt / redis) and sftp; for vnc only when it's a **direct** connection —
+    /// a tunnelled VNC tab gets its endpoint from its profile.
+    var canEditConnection: Bool {
+        switch kind {
+        case .mqtt, .redis, .sftp: return true
+        case .vnc:                 return vncClient == nil
+        default:                   return false
+        }
+    }
+
     private var hasStarted = false
 
     // Command-line reconstruction state (see handleInput).

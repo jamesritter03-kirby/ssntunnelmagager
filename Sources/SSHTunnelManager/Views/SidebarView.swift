@@ -75,7 +75,7 @@ struct SidebarView: View {
                 Button {
                     sessions.openLocalShell()
                 } label: {
-                    Label("Local Terminal", systemImage: "terminal")
+                    Image(systemName: "terminal")
                 }
                 .help("Open a local shell (⌘T)")
 
