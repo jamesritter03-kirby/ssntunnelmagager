@@ -812,6 +812,26 @@ final class TerminalSessionManager: ObservableObject {
         addAndStart(session)
     }
 
+    /// Open a **remote file for editing**: it has already been downloaded to
+    /// `localURL`; this opens it in a text‑editor tab and wires a save‑back link
+    /// so each save uploads it to `remotePath` over the given SFTP `uploader`.
+    /// Backs the SFTP browser's right‑click **Edit** action.
+    func openRemoteEdit(localURL: URL, remoteName: String, remotePath: String,
+                        uploader: RemoteFileUploader, serverLabel: String) {
+        let session = TerminalSession(
+            kind: .editor,
+            title: remoteName,
+            executable: "",
+            args: [],
+            commandPreview: remotePath,
+            startDirectory: localURL.path
+        )
+        session.textEditorModel?.beginRemoteEdit(
+            uploader: uploader, localURL: localURL,
+            remoteName: remoteName, remotePath: remotePath, serverLabel: serverLabel)
+        addAndStart(session)
+    }
+
     /// Open an **ad-hoc** MQTT / Redis tab that connects directly to `host:port`
     /// (no SSH tunnel / profile). Used by the “new connection” setup sheet.
     func openAdHocService(category: ForwardCategory, host: String, port: Int,

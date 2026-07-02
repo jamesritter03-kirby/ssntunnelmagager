@@ -471,6 +471,29 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         }
     }
 
+    /// Upload a single local file to an **absolute** remote path, regardless of
+    /// the browser's current directory. Backs the text editor's **Edit** action:
+    /// a remote file is downloaded, edited locally, and each save pushes it back
+    /// here. Refreshes the listing afterwards so an edited file in the current
+    /// folder shows its new size and date. `completion` runs on the main thread.
+    func uploadFile(at localURL: URL, toRemotePath remotePath: String,
+                    completion: @escaping (Bool) -> Void) {
+        guard isConnected else { completion(false); return }
+        let localQ = SFTPCommandBuilder.quotePath(localURL.path)
+        let remoteQ = SFTPCommandBuilder.quotePath(remotePath)
+        var failed = false
+        runCommand("put \(localQ) \(remoteQ)",
+                   status: "Saving \(localURL.lastPathComponent) to the server…") { [weak self] out in
+            if let problem = SFTPClient.operationError(out) { self?.report(problem); failed = true }
+        }
+        // A trailing no‑op fires once the put above is done, then reports back.
+        runCommand("pwd") { [weak self] _ in
+            self?.statusMessage = self?.defaultStatus() ?? ""
+            completion(!failed)
+        }
+        refresh()
+    }
+
     func makeDirectory(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
@@ -663,4 +686,8 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         return nil
     }
 }
+
+/// `SFTPClient` can push a locally‑edited file back to the server, so it backs
+/// the text editor's remote‑edit save‑without depending on SFTP internals.
+extension SFTPClient: RemoteFileUploader {}
 

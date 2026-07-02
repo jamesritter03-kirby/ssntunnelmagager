@@ -283,6 +283,8 @@ struct TextEditorTabView: View {
                 }
             }
 
+            remoteSyncIndicator
+
             lineEndingMenu
             Text(model.encoding.displayName)
             themeMenu
@@ -293,6 +295,45 @@ struct TextEditorTabView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(.bar)
+    }
+
+    /// Shows the SFTP save‑back state when this tab is editing a remote file:
+    /// a cloud badge that reads Synced / Uploading… / the failure reason. The
+    /// tooltip names the server and the remote path the file writes back to.
+    @ViewBuilder
+    private var remoteSyncIndicator: some View {
+        if let link = model.remoteEdit {
+            HStack(spacing: 3) {
+                Image(systemName: remoteSyncSymbol)
+                    .foregroundStyle(remoteSyncColor)
+                Text(remoteSyncText)
+            }
+            .help("Editing a file on \(link.serverLabel). Saving uploads it back to \(link.remotePath).")
+        }
+    }
+
+    private var remoteSyncSymbol: String {
+        switch model.remoteSyncState {
+        case .idle, .synced: return "checkmark.icloud"
+        case .syncing:       return "arrow.clockwise.icloud"
+        case .failed:        return "exclamationmark.icloud"
+        }
+    }
+
+    private var remoteSyncColor: Color {
+        switch model.remoteSyncState {
+        case .idle, .synced: return .green
+        case .syncing:       return .accentColor
+        case .failed:        return .orange
+        }
+    }
+
+    private var remoteSyncText: String {
+        switch model.remoteSyncState {
+        case .idle, .synced:  return "Synced to server"
+        case .syncing:        return "Uploading…"
+        case .failed(let m):  return m.isEmpty ? "Upload failed" : m
+        }
     }
 
     private var themeMenu: some View {

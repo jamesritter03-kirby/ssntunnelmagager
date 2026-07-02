@@ -35,8 +35,8 @@ final class HistoryTerminalView: LocalProcessTerminalView {
         if window != nil {
             if !didRegisterDragTypes {
                 didRegisterDragTypes = true
-                // Accept file drops so dragging a file in pastes its path, the
-                // way Terminal.app does. Append rather than replace so SwiftTerm's
+                // Accept file drops so dragging a file in offers to paste its
+                // path or its contents. Append rather than replace so SwiftTerm's
                 // own drag handling (text drops) keeps working.
                 registerForDraggedTypes(registeredDraggedTypes + [.fileURL])
             }
@@ -44,7 +44,14 @@ final class HistoryTerminalView: LocalProcessTerminalView {
         }
     }
 
-    // MARK: - File drop → paste path
+    // MARK: - File drop → paste path or contents
+
+    /// The files from the most recent drop, awaiting the user's menu choice.
+    private var pendingDropURLs: [URL] = []
+
+    /// Combined text larger than this prompts a confirmation before pasting, so a
+    /// stray drop of a huge file can't silently flood the terminal.
+    private static let largeContentsPasteThreshold = 100 * 1024
 
     /// File URLs on the drag pasteboard, if any.
     private func droppedFileURLs(_ sender: NSDraggingInfo) -> [URL] {
@@ -65,14 +72,139 @@ final class HistoryTerminalView: LocalProcessTerminalView {
         droppedFileURLs(sender).isEmpty ? super.prepareForDragOperation(sender) : true
     }
 
-    /// Drop one or more files to insert their shell-quoted paths at the prompt,
-    /// space-separated and with a trailing space — exactly like Terminal.app.
+    /// Drop one or more files to insert either their shell-quoted **paths** or
+    /// their **text contents** at the prompt — a small menu pops up at the drop
+    /// point so the user picks. (A plain text drag still falls through to
+    /// SwiftTerm's own handling.)
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = droppedFileURLs(sender)
         guard !urls.isEmpty else { return super.performDragOperation(sender) }
-        let text = urls.map { SSHCommandBuilder.shellQuote($0.path) }.joined(separator: " ") + " "
-        send(txt: text)
+        // Convert the drop location into this view's coordinates, then present the
+        // choice on the next runloop tick so the drag session fully concludes
+        // before the (modal) popup menu tracks the mouse.
+        let dropPoint = convert(sender.draggingLocation, from: nil)
+        DispatchQueue.main.async { [weak self] in
+            self?.presentDropChoice(for: urls, at: dropPoint)
+        }
         return true
+    }
+
+    /// Pop up a Paste Path / Paste Contents / Cancel menu at the drop point.
+    private func presentDropChoice(for urls: [URL], at point: NSPoint) {
+        pendingDropURLs = urls
+        let fileCount = regularFiles(in: urls).count
+
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let pathItem = menu.addItem(
+            withTitle: urls.count > 1 ? "Paste \(urls.count) Paths" : "Paste Path",
+            action: #selector(dropPastePath), keyEquivalent: "")
+        pathItem.target = self
+
+        let contentsItem = menu.addItem(
+            withTitle: fileCount > 1 ? "Paste Contents of \(fileCount) Files" : "Paste Contents",
+            action: #selector(dropPasteContents), keyEquivalent: "")
+        contentsItem.target = self
+        contentsItem.isEnabled = fileCount > 0     // directories have no “contents”
+
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Cancel", action: nil, keyEquivalent: "")
+
+        menu.popUp(positioning: pathItem, at: point, in: self)
+    }
+
+    /// The regular (non-directory) files among a set of dropped URLs.
+    private func regularFiles(in urls: [URL]) -> [URL] {
+        urls.filter { url in
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+                && !isDir.boolValue
+        }
+    }
+
+    /// Insert the dropped files' shell-quoted paths, space-separated with a
+    /// trailing space — the classic Terminal.app behaviour.
+    @objc private func dropPastePath() {
+        let urls = pendingDropURLs
+        pendingDropURLs = []
+        guard !urls.isEmpty else { return }
+        send(txt: urls.map { SSHCommandBuilder.shellQuote($0.path) }.joined(separator: " ") + " ")
+    }
+
+    /// Insert the dropped files' text contents at the prompt. Binary files are
+    /// skipped (with a fallback to pasting their path); a very large paste is
+    /// confirmed first.
+    @objc private func dropPasteContents() {
+        let urls = pendingDropURLs
+        pendingDropURLs = []
+        let files = regularFiles(in: urls)
+        guard !files.isEmpty else { return }
+
+        var pieces: [String] = []
+        var skipped: [URL] = []
+        for url in files {
+            if let text = HistoryTerminalView.readTextContents(of: url) { pieces.append(text) }
+            else { skipped.append(url) }
+        }
+
+        // Nothing decoded as text — offer to paste the path(s) instead.
+        guard !pieces.isEmpty else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = skipped.count == 1
+                ? "“\(skipped[0].lastPathComponent)” doesn’t look like a text file"
+                : "Those files don’t look like text"
+            alert.informativeText = "Their contents can’t be pasted as text. Paste the file path instead?"
+            alert.addButton(withTitle: "Paste Path")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                send(txt: files.map { SSHCommandBuilder.shellQuote($0.path) }.joined(separator: " ") + " ")
+            }
+            return
+        }
+
+        let combined = pieces.joined(separator: "\n")
+
+        // Guard against accidentally flooding the terminal with a huge file.
+        if combined.utf8.count > HistoryTerminalView.largeContentsPasteThreshold {
+            let size = ByteCountFormatter.string(fromByteCount: Int64(combined.utf8.count),
+                                                 countStyle: .file)
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Paste \(size) into the terminal?"
+            alert.informativeText = "The file contents will be sent as if typed — any line breaks may run as commands."
+            alert.addButton(withTitle: "Paste")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        send(txt: combined)
+
+        // Note any files that were skipped because they weren't text.
+        if !skipped.isEmpty {
+            let names = skipped.map(\.lastPathComponent).joined(separator: ", ")
+            let note = NSAlert()
+            note.messageText = "Skipped \(skipped.count) non-text file\(skipped.count == 1 ? "" : "s")"
+            note.informativeText = "Only text files were pasted. Skipped: \(names)"
+            note.addButton(withTitle: "OK")
+            note.runModal()
+        }
+    }
+
+    /// Read a file as text, trying common encodings; nil if it looks binary.
+    private static func readTextContents(of url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        if data.isEmpty { return "" }
+        // A NUL byte near the start is a strong signal the file is binary.
+        if data.prefix(4096).contains(0) { return nil }
+        for enc: String.Encoding in [.utf8, .isoLatin1, .windowsCP1252, .macOSRoman] {
+            if var s = String(data: data, encoding: enc) {
+                if s.first == "\u{FEFF}" { s.removeFirst() }   // strip a leading BOM
+                return s
+            }
+        }
+        return nil
     }
 
     override func layout() {

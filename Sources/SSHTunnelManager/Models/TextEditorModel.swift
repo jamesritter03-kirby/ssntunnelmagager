@@ -238,6 +238,43 @@ final class EditorEngine {
     }
 }
 
+/// Something that can push a locally‑edited file back to its remote origin —
+/// implemented by `SFTPClient`, so the editor can save a remote file without
+/// depending on any SFTP details.
+protocol RemoteFileUploader: AnyObject {
+    var isConnected: Bool { get }
+    func uploadFile(at localURL: URL, toRemotePath remotePath: String,
+                    completion: @escaping (Bool) -> Void)
+}
+
+/// A live link back to an SFTP server for a remote file being edited locally.
+/// Set when the editor tab was opened via an SFTP tab's **Edit** action: each
+/// save writes the downloaded temp file, then uploads it to `remotePath`.
+final class RemoteEditLink {
+    weak var uploader: RemoteFileUploader?
+    let localURL: URL        // the downloaded temp file we save into
+    let remoteName: String   // filename, for titles / messages
+    let remotePath: String   // absolute remote path (upload target)
+    let serverLabel: String  // e.g. the SFTP tab's title, for messages
+
+    init(uploader: RemoteFileUploader, localURL: URL,
+         remoteName: String, remotePath: String, serverLabel: String) {
+        self.uploader = uploader
+        self.localURL = localURL
+        self.remoteName = remoteName
+        self.remotePath = remotePath
+        self.serverLabel = serverLabel
+    }
+}
+
+/// The state of the most recent upload of a remote‑edited file back to its server.
+enum RemoteSyncState: Equatable {
+    case idle
+    case syncing
+    case synced
+    case failed(String)
+}
+
 /// The document model behind one text‑editor tab: the file identity, editing
 /// preferences (language, wrap, line numbers, font size, encoding, line ending),
 /// status‑bar readouts, and the find/replace state. The live text lives in the
@@ -292,6 +329,12 @@ final class TextEditorModel: ObservableObject {
     /// sync; the other cases drive the "reload?" banner and popup.
     enum ExternalChange: Equatable { case modified, deleted }
     @Published var externalChange: ExternalChange?
+
+    /// When set, this document is a remote file (opened from an SFTP tab) that
+    /// is uploaded back to its server on every save.
+    @Published var remoteEdit: RemoteEditLink?
+    /// The status of the most recent upload back to the server.
+    @Published var remoteSyncState: RemoteSyncState = .idle
 
     /// Watches the document file for changes made by other programs.
     private let monitor = FileChangeMonitor()
@@ -452,7 +495,13 @@ final class TextEditorModel: ObservableObject {
         if let dir = fileURL?.deletingLastPathComponent() { panel.directoryURL = dir }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         adoptLanguageIfNeeded(for: url)
-        _ = write(to: url)
+        if write(to: url) {
+            // A "Save As" writes a local copy at a new path, so this tab no longer
+            // represents the remote file — detach the server link.
+            remoteEdit = nil
+            remoteSyncState = .idle
+            updateTitle()
+        }
     }
 
     /// Synchronous save used by the close/replace confirmation flow. Returns
@@ -496,6 +545,11 @@ final class TextEditorModel: ObservableObject {
             startWatching()
             syncBackup()             // clean now → removes the backup
             updateTitle()
+            // If this is a remote (SFTP) edit and we just saved the tracked local
+            // file, push the new contents back to the server.
+            if let link = remoteEdit, url == link.localURL {
+                pushToRemote(link)
+            }
             return true
         } catch {
             presentError("Couldn't Save", error.localizedDescription)
@@ -516,6 +570,60 @@ final class TextEditorModel: ObservableObject {
         if let dir = fileURL?.deletingLastPathComponent() { panel.directoryURL = dir }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         loadFromDisk(url)
+    }
+
+    /// Open a file that was **dragged onto** the editor, after a confirmation —
+    /// mirroring Notepad++, where dropping a file opens it. Its contents replace
+    /// this tab's (guarding any unsaved changes first).
+    func openDroppedFile(_ url: URL) {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
+              !isDir.boolValue else { return }
+        // Guard unsaved changes (Save / Don't Save / Cancel), then confirm the open.
+        guard confirmDiscardIfNeeded() else { return }
+        let alert = NSAlert()
+        alert.messageText = "Open “\(url.lastPathComponent)” here?"
+        alert.informativeText = (fileURL == nil && !isDirty)
+            ? "Its contents will load into this editor tab."
+            : "Its contents will replace what’s currently in this tab."
+        alert.addButton(withTitle: "Open")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        // A dropped local file detaches any remote‑edit link (it's a local file now).
+        remoteEdit = nil
+        remoteSyncState = .idle
+        loadFromDisk(url)
+    }
+
+    // MARK: - Remote (SFTP) editing
+
+    /// Turn this document into a remote (SFTP) edit: it already has `localURL`
+    /// loaded (a downloaded temp copy), and each save uploads it back to
+    /// `remotePath` through `uploader`. Backs the SFTP browser's **Edit** action.
+    func beginRemoteEdit(uploader: RemoteFileUploader, localURL: URL,
+                         remoteName: String, remotePath: String, serverLabel: String) {
+        remoteEdit = RemoteEditLink(uploader: uploader, localURL: localURL,
+                                    remoteName: remoteName, remotePath: remotePath,
+                                    serverLabel: serverLabel)
+        remoteSyncState = .synced   // freshly downloaded == in sync with the server
+    }
+
+    /// Upload the just‑saved local file back to its remote origin over SFTP.
+    private func pushToRemote(_ link: RemoteEditLink) {
+        guard let uploader = link.uploader, uploader.isConnected else {
+            remoteSyncState = .failed("SFTP connection closed")
+            presentError("Couldn’t Upload to Server",
+                         "The SFTP connection for “\(link.remoteName)” is no longer open. "
+                         + "Your changes were saved locally to:\n\n\(link.localURL.path)\n\n"
+                         + "Reopen the file from the server, or use “Save As…” to keep a copy elsewhere.")
+            return
+        }
+        remoteSyncState = .syncing
+        uploader.uploadFile(at: link.localURL, toRemotePath: link.remotePath) { [weak self] ok in
+            DispatchQueue.main.async {
+                self?.remoteSyncState = ok ? .synced : .failed("Upload failed — see the SFTP tab’s log")
+            }
+        }
     }
 
     /// Reload the current file from disk, discarding unsaved changes (after

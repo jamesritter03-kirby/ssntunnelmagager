@@ -311,6 +311,7 @@ final class LocalFileBrowser: ObservableObject {
 struct FinderBrowserView: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var browser: LocalFileBrowser
+    @EnvironmentObject var sessions: TerminalSessionManager
 
     @State private var selection: Set<String> = []
     @State private var selectionAnchor: String?
@@ -567,14 +568,27 @@ struct FinderBrowserView: View {
     private func rowMenu(_ entry: LocalFileEntry) -> some View {
         let targets = (selection.contains(entry.id) && selectedEntries.count > 1)
             ? selectedEntries : [entry]
+        let editableFiles = targets.filter { $0.kind == .file }
         if targets.count == 1 {
             Button(entry.isDirectory ? "Open" : "Open with Default App") { browser.open(entry) }
+        }
+        if !editableFiles.isEmpty {
+            Button(editableFiles.count > 1
+                   ? "Open \(editableFiles.count) Files in Text Editor"
+                   : "Open in Text Editor") { openInTextEditor(editableFiles) }
         }
         Button("Reveal in Finder") { browser.revealInFinder(targets) }
         Button("Copy Path") { copyPaths(targets) }
         Divider()
         Button(targets.count > 1 ? "Move \(targets.count) Items to Trash" : "Move to Trash",
                role: .destructive) { confirmTrash(targets) }
+    }
+
+    /// Open each of the given local files in its own built-in text-editor tab.
+    private func openInTextEditor(_ files: [LocalFileEntry]) {
+        for entry in files where entry.kind == .file {
+            sessions.openTextEditor(path: entry.url.path)
+        }
     }
 
     // MARK: - Status bar

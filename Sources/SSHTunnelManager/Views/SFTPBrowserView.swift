@@ -240,6 +240,9 @@ struct SFTPBrowserView: View {
         if targets.count == 1, entry.isDirectory || entry.kind == .symlink {
             Button("Open") { client.open(entry) }
         }
+        if targets.count == 1, entry.kind == .file {
+            Button("Edit with Text Editor") { editRemoteFile(entry) }
+        }
         Button(targets.count > 1 ? "Download \(targets.count) Items" : "Download") {
             client.download(targets)
         }
@@ -482,6 +485,33 @@ struct SFTPBrowserView: View {
         panel.prompt = "Download"
         if panel.runModal() == .OK, let url = panel.urls.first {
             client.download(entries, to: url, reveal: true)
+        }
+    }
+
+    /// The absolute remote path of `name` in the current directory (so a save
+    /// back works even after the browser navigates elsewhere).
+    private func absoluteRemotePath(for name: String) -> String {
+        let base = client.currentPath
+        if base.isEmpty { return name }
+        if base == "/" { return "/" + name }
+        return base.hasSuffix("/") ? base + name : base + "/" + name
+    }
+
+    /// Download a remote file to a private temp folder and open it in a text
+    /// editor tab wired to upload it back to the server on every save.
+    private func editRemoteFile(_ entry: SFTPEntry) {
+        guard client.isConnected, entry.kind == .file else { return }
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SSHTM-Edit-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let remotePath = absoluteRemotePath(for: entry.name)
+        let label = session.title
+        client.download([entry], to: tempDir, reveal: false) { urls in
+            guard let localURL = urls.first,
+                  FileManager.default.fileExists(atPath: localURL.path) else { return }
+            sessions.openRemoteEdit(localURL: localURL, remoteName: entry.name,
+                                    remotePath: remotePath, uploader: client,
+                                    serverLabel: label)
         }
     }
 

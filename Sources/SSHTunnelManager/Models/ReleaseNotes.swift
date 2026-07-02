@@ -45,6 +45,15 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.20", build: 30, date: "Jul 1, 2026",
+            highlights: [
+                "Drag a file onto a terminal and choose what to paste: a small menu now offers Paste Path (shell‑quoted, as before) or Paste Contents (the file’s text). Binary files are detected and skipped, and a very large paste asks first.",
+                "Edit remote files in place: right‑click a file in an SFTP tab and choose Edit with Text Editor — it downloads, opens in the built‑in editor, and every save automatically uploads it back to the server.",
+                "Open local files fast: right‑click a file in a Finder tab and choose Open in Text Editor, or drag a file onto an untitled editor tab to load its contents.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.19", build: 29, date: "Jul 1, 2026",
             highlights: [
                 "New Text Editor tab — a built‑in, Notepad++‑style editor with syntax highlighting for 20+ languages, line numbers, word wrap, find & replace (with regex and whole‑word), adjustable font size, and 11 colour themes. Open it from the welcome screen or the New menu.",
@@ -53,7 +62,7 @@ enum ReleaseCatalog {
                 "ZeroTier devices: connect straight to any device with one‑click buttons for a browser tab, SSH terminal, SFTP, VNC, MQTT and Redis — plus a “Connect as” username and password you can save to your Keychain for quick reconnects.",
                 "Change a terminal tab’s colour theme on the fly: right‑click the tab and pick a theme. For a profile’s tab it’s remembered on the profile, exactly like the profile editor.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.18", build: 28, date: "Jul 1, 2026",

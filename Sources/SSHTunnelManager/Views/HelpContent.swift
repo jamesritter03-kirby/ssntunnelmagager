@@ -84,7 +84,7 @@ enum HelpContent {
                 "**Right‑click** behavior is configurable in Settings: copy‑then‑paste (Windows/Linux style), paste, or a context menu.",
                 "**Command history** — the tab remembers commands you type. Open the history menu to re‑run one, or **import/export** history (including `.zsh_history`/`.bash_history`).",
                 "**Disconnect / Stop** ends the connection without closing the tab; **Reconnect** brings it back.",
-                "Drag a file from Finder (or a **Finder tab**) onto the terminal to paste its path.",
+                "Drag a file from Finder (or a **Finder tab**) onto the terminal and choose **Paste Path** or **Paste Contents**.",
             ]),
             .shortcuts([
                 ("⌘ +  /  ⌘ −", "Increase / decrease terminal text"),
@@ -144,6 +144,7 @@ enum HelpContent {
                 "**Drag a file or folder out to Finder** (or the Desktop) to download it right where you drop it — the bytes are fetched on demand.",
                 "**Double‑click a folder** to open it; use **↑ Up** and the **path menu** to navigate.",
                 "**Double‑click a file** (or **Download**) to save it to your default folder (set with **Save to:**), or pick **Download To…** to choose a destination that one time.",
+                "**Edit a file in place**: right‑click a file ▸ **Edit with Text Editor**. It downloads a temporary copy and opens it in a text‑editor tab; each **Save** (⌘S) uploads it straight back to the server. The editor's status bar shows a cloud badge — *Synced*, *Uploading…* or the failure reason.",
                 "**New Folder**, **Rename** and **Delete** are on the toolbar and the right‑click menu.",
                 "**Refresh** from the toolbar, the right‑click menu, or the **F5** key.",
             ]),
@@ -157,7 +158,8 @@ enum HelpContent {
         blocks: [
             .paragraph("A **Finder tab** browses files on **this Mac** — open one from the **+** menu, **File ▸ New Finder Tab**, or the command palette."),
             .bullets([
-                "**Drag a file onto a terminal** to paste its full (shell‑quoted) path.",
+                "**Drag a file onto a terminal** and choose **Paste Path** (shell‑quoted) or **Paste Contents** (the file’s text).",
+                "**Right‑click a file ▸ Open in Text Editor** to edit it in a built‑in editor tab.",
                 "**Drag a file onto an SFTP tab** to upload it to the server.",
                 "Double‑click to open files/folders, toggle hidden files, make a new folder, reveal in Finder, copy a path, or move items to the Trash.",
             ]),
@@ -175,6 +177,8 @@ enum HelpContent {
                 "**Find & Replace** (⌘F, or ⌥⌘F to reveal replace) with **match case**, **whole word** and **regular‑expression** options, plus **Replace All**.",
                 "The status bar shows the **line & column**, selection length, line/character counts, **encoding** and **line endings** (LF / CRLF / CR — switchable).",
                 "An **Open** dialog reads any text file; **Save** / **Save As** write it back. Unsaved tabs show a **•** and prompt to save before closing.",
+                "**Drag a file onto the editor** to open it — you'll get a quick confirmation, then its contents load into the tab.",
+                "**Edit remote files over SFTP**: in an SFTP tab, right‑click a file ▸ **Edit with Text Editor**. Saving uploads it back to the server automatically (watch the status‑bar cloud badge).",
             ]),
             .tip("Reopened automatically on the next launch if the document was saved to a file — like every other tab."),
             .shortcuts([
