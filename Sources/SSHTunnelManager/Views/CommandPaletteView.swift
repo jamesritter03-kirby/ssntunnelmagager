@@ -151,7 +151,7 @@ struct CommandPaletteView: View {
                                          systemImage: "display") {
                     sessions.connectVNC(profile: profile)
                 })
-                items.append(PaletteItem(title: "Set Up Key Login: \(profile.name)",
+                items.append(PaletteItem(title: "Set Up Passwordless Login: \(profile.name)",
                                          subtitle: "Copy your SSH key (passwordless login) · \(profile.subtitle)",
                                          systemImage: "key") {
                     sessions.setUpKeyLogin(profile: profile)

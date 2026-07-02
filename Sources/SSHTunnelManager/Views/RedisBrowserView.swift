@@ -111,12 +111,11 @@ struct RedisBrowserView: View {
             .padding(8)
             Divider()
             if keys.isEmpty {
-                VStack(spacing: 8) {
+                Group {
                     if scanning {
                         ProgressView().controlSize(.small)
                     } else {
-                        Image(systemName: "key").font(.system(size: 28)).foregroundStyle(.secondary)
-                        Text("No keys").font(.caption).foregroundStyle(.secondary)
+                        EmptyStateView(icon: "key", title: "No keys")
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

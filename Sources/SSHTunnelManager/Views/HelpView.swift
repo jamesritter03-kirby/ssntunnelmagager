@@ -77,7 +77,11 @@ struct HelpView: View {
                         .tag(HelpSelection.olderVersions)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 300)
+            // `navigationSplitViewColumnWidth` alone is ignored here (a SwiftUI
+            // quirk when the sidebar also hosts a `.searchable`), so pin the List's
+            // own width to actually widen the column enough for the topic titles.
+            .frame(minWidth: 260, idealWidth: 300, maxWidth: 380)
+            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 380)
             .searchable(text: $search, placement: .sidebar, prompt: "Search help")
         } detail: {
             ScrollView {
@@ -87,7 +91,7 @@ struct HelpView: View {
                     .padding(28)
             }
         }
-        .frame(minWidth: 760, minHeight: 520)
+        .frame(minWidth: 820, minHeight: 520)
     }
 
     @ViewBuilder

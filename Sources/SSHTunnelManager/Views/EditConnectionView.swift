@@ -98,20 +98,9 @@ struct EditConnectionView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: model.symbol)
-                .font(.system(size: 26))
-                .foregroundStyle(.tint)
-                .frame(width: 34)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Edit \(model.title) Connection")
-                    .font(.title3.weight(.semibold))
-                Text("Change where this tab connects, then reconnect.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
+        DialogHeader(icon: model.symbol,
+                     title: "Edit \(model.title) Connection",
+                     subtitle: "Change where this tab connects, then reconnect.")
     }
 
     private var form: some View {

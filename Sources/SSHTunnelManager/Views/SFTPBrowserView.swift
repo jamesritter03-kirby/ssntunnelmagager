@@ -159,11 +159,9 @@ struct SFTPBrowserView: View {
             .contextMenu { listBackgroundMenu }
 
             if client.entries.isEmpty && !client.isBusy {
-                VStack(spacing: 8) {
-                    Image(systemName: "tray").font(.system(size: 34)).foregroundStyle(.tertiary)
-                    Text("This folder is empty").foregroundStyle(.secondary)
-                    Text("Drag files here to upload").font(.caption).foregroundStyle(.tertiary)
-                }
+                EmptyStateView(icon: "folder",
+                               title: "This folder is empty",
+                               message: "Drag files here to upload")
             }
 
             if isDropTargeted {
@@ -238,23 +236,34 @@ struct SFTPBrowserView: View {
         let targets = (selection.contains(entry.id) && selectedEntries.count > 1)
             ? selectedEntries : [entry]
         if targets.count == 1, entry.isDirectory || entry.kind == .symlink {
-            Button("Open") { client.open(entry) }
+            Button { client.open(entry) } label: { Label("Open", systemImage: "folder") }
         }
         if targets.count == 1, entry.kind == .file {
-            Button("Edit with Text Editor") { editRemoteFile(entry) }
+            Button { editRemoteFile(entry) } label: { Label("Open in Text Editor", systemImage: "doc.text") }
         }
-        Button(targets.count > 1 ? "Download \(targets.count) Items" : "Download") {
+        Button {
             client.download(targets)
+        } label: {
+            Label(targets.count > 1 ? "Download \(targets.count) Items" : "Download",
+                  systemImage: "arrow.down.circle")
         }
-        Button(targets.count > 1 ? "Download \(targets.count) Items To…" : "Download To…") {
+        Button {
             chooseFolderAndDownload(targets)
+        } label: {
+            Label(targets.count > 1 ? "Download \(targets.count) Items To…" : "Download To…",
+                  systemImage: "arrow.down.to.line")
         }
         if targets.count == 1 {
-            Button("Rename…") { renameText = entry.name; renameTarget = entry }
+            Button { renameText = entry.name; renameTarget = entry } label: {
+                Label("Rename…", systemImage: "pencil")
+            }
         }
         Divider()
-        Button(targets.count > 1 ? "Delete \(targets.count) Items" : "Delete",
-               role: .destructive) { confirmDelete(targets) }
+        Button(role: .destructive) {
+            confirmDelete(targets)
+        } label: {
+            Label(targets.count > 1 ? "Delete \(targets.count) Items" : "Delete", systemImage: "trash")
+        }
         Divider()
         Button { client.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
     }

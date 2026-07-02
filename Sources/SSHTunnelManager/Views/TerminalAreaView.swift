@@ -555,9 +555,11 @@ private struct WorkspaceBar: View {
                     isCurrent: ws.id == sessions.currentWorkspaceID,
                     tabCount: sessions.tabCount(in: ws.id),
                     canClose: sessions.workspaces.count > 1,
+                    isSaved: sessions.isWorkspaceSaved(ws.id),
                     onSelect: { sessions.switchWorkspace(to: ws.id) },
                     onClose: { sessions.closeWorkspace(ws.id) },
                     onRename: { beginRename(ws) },
+                    onQuickSave: { sessions.saveWorkspaceInPlace(ws.id) },
                     onSave: { beginSave(ws) }
                 )
             }
@@ -653,9 +655,11 @@ private struct WorkspacePill: View {
     let isCurrent: Bool
     let tabCount: Int
     let canClose: Bool
+    var isSaved: Bool = false
     var onSelect: () -> Void
     var onClose: () -> Void
     var onRename: () -> Void
+    var onQuickSave: () -> Void = {}
     var onSave: () -> Void
 
     var body: some View {
@@ -689,11 +693,17 @@ private struct WorkspacePill: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .contextMenu {
-            Button("Rename…", action: onRename)
-            Button("Save as Workspace…", action: onSave)
+            Button { onRename() } label: { Label("Rename…", systemImage: "pencil") }
+            Button { onQuickSave() } label: {
+                Label(isSaved ? "Update Saved Workspace" : "Save Workspace",
+                      systemImage: isSaved ? "arrow.triangle.2.circlepath" : "square.and.arrow.down")
+            }
+            Button { onSave() } label: { Label("Save as Workspace…", systemImage: "square.and.arrow.down.on.square") }
             if canClose {
                 Divider()
-                Button("Close Workspace", role: .destructive, action: onClose)
+                Button(role: .destructive) { onClose() } label: {
+                    Label("Close Workspace", systemImage: "xmark")
+                }
             }
         }
     }
@@ -1044,6 +1054,9 @@ private struct TerminalTabContextMenu: View {
     /// "Open Redis (:6379)" style label for a categorized forward.
     private func serviceMenuLabel(_ forward: PortForward) -> String {
         let suffix = forward.localEndpoint.map { " (:\($0.port))" } ?? ""
+        if !forward.trimmedName.isEmpty {
+            return "\(forward.trimmedName)\(suffix)"
+        }
         return "Open \(forward.category.title)\(suffix)"
     }
 
@@ -1177,7 +1190,7 @@ private struct TerminalTabContextMenu: View {
             Button {
                 sessions.setUpKeyLogin(profile: profile)
             } label: {
-                Label("Set Up Key Login…", systemImage: "key")
+                Label("Set Up Passwordless Login…", systemImage: "key")
             }
         }
         if session.kind == .localShell {
@@ -2073,7 +2086,7 @@ private struct ProfileLaunchButton: View {
                 Button {
                     sessions.setUpKeyLogin(profile: profile)
                 } label: {
-                    Label("Set Up Key Login…", systemImage: "key")
+                    Label("Set Up Passwordless Login…", systemImage: "key")
                 }
             }
         }

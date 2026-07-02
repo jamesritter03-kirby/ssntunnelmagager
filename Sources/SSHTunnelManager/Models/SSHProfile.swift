@@ -111,6 +111,9 @@ enum ForwardCategory: String, Codable, CaseIterable, Identifiable {
 /// A single port-forwarding rule.
 struct PortForward: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
+    /// Optional user-facing name so several forwards (e.g. multiple web UIs) can
+    /// be told apart in the “Open …” menus and in the tab they launch.
+    var name: String = ""
     var type: ForwardType = .local
     /// What the forwarded local port exposes (drives the "Open …" launchers).
     /// Only meaningful for `.local` forwards. `.none` = a plain forward.
@@ -127,6 +130,9 @@ struct PortForward: Codable, Identifiable, Hashable {
     var targetHost: String = "localhost"
     /// The destination port (used by -L and -R, ignored by -D).
     var targetPort: String = ""
+
+    /// The custom name, trimmed (empty when the user hasn't set one).
+    var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
 
     /// Short one-line description for list rows.
     var summary: String {
@@ -158,12 +164,13 @@ struct PortForward: Codable, Identifiable, Hashable {
 // app's `try?` load, silently drop every saved profile).
 extension PortForward {
     enum CodingKeys: String, CodingKey {
-        case id, type, category, serviceUsername, bindAddress, listenPort, targetHost, targetPort
+        case id, name, type, category, serviceUsername, bindAddress, listenPort, targetHost, targetPort
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         type = try c.decodeIfPresent(ForwardType.self, forKey: .type) ?? .local
         category = try c.decodeIfPresent(ForwardCategory.self, forKey: .category) ?? .none
         serviceUsername = try c.decodeIfPresent(String.self, forKey: .serviceUsername) ?? ""
@@ -250,10 +257,31 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     var links: [ProfileLink] = []
     /// Require Touch ID / login password before using the Keychain-stored password.
     var requireAuthForSavedPassword: Bool = true
-    /// Optional name of the workspace this profile's tabs should open in.
-    /// Connecting switches to (or creates) that workspace. Empty = use whatever
-    /// workspace is current.
+    /// When set, connecting this profile opens a **dedicated workspace named after
+    /// the profile** and keeps its tabs together (instead of using whatever
+    /// workspace is current).
+    var opensInOwnWorkspace: Bool = false
+    /// When set, connecting this profile builds its dedicated workspace from a
+    /// **saved workspace** (a template): its tabs and layout are recreated fresh,
+    /// then the profile connects. `nil` = no template.
+    var workspaceTemplateID: UUID? = nil
+    /// The custom name for this profile's dedicated workspace. Empty = fall back
+    /// to the profile's own name. (Also the migration target for the pre-1.9.21
+    /// free-text “open in workspace” field.)
     var workspace: String = ""
+
+    /// Whether connecting this profile should open (or reuse) a workspace
+    /// dedicated to it, rather than using the current one.
+    var launchesInDedicatedWorkspace: Bool {
+        opensInOwnWorkspace || workspaceTemplateID != nil
+    }
+
+    /// The name of this profile's dedicated workspace: the custom name if one was
+    /// set, otherwise the profile's own name.
+    var dedicatedWorkspaceName: String {
+        let custom = workspace.trimmingCharacters(in: .whitespaces)
+        return custom.isEmpty ? name : custom
+    }
 
     /// `user@host` style subtitle for list rows.
     var subtitle: String {
@@ -310,6 +338,7 @@ extension SSHProfile {
         case isLocal, startPath, icon
         case links
         case workspace
+        case opensInOwnWorkspace, workspaceTemplateID
     }
 
     init(from decoder: Decoder) throws {
@@ -336,6 +365,14 @@ extension SSHProfile {
         requireAuthForSavedPassword = try c.decodeIfPresent(Bool.self, forKey: .requireAuthForSavedPassword) ?? true
         fontSize = TerminalFontMetrics.clamp(try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? TerminalFontMetrics.default)
         workspace = try c.decodeIfPresent(String.self, forKey: .workspace) ?? ""
+        opensInOwnWorkspace = try c.decodeIfPresent(Bool.self, forKey: .opensInOwnWorkspace) ?? false
+        workspaceTemplateID = try c.decodeIfPresent(UUID.self, forKey: .workspaceTemplateID)
+        // Migrate the pre-1.9.21 free-text “open in workspace”: a profile that only
+        // had a name string now launches into its own (custom-named) workspace.
+        if !workspace.trimmingCharacters(in: .whitespaces).isEmpty
+            && !opensInOwnWorkspace && workspaceTemplateID == nil {
+            opensInOwnWorkspace = true
+        }
     }
 }
 

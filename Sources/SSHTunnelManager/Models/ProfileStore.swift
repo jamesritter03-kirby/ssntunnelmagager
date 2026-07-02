@@ -86,7 +86,8 @@ final class ProfileStore: ObservableObject {
         }
     }
 
-    func duplicate(_ profile: SSHProfile) {
+    @discardableResult
+    func duplicate(_ profile: SSHProfile) -> SSHProfile {
         var copy = profile
         copy.id = UUID()
         // Give the copy's forwards fresh ids too, so it doesn't share (or, on
@@ -99,6 +100,7 @@ final class ProfileStore: ObservableObject {
         } else {
             profiles.append(copy)
         }
+        return copy
     }
 
     /// Append imported profiles, giving each a unique display name so they don't

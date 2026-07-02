@@ -66,20 +66,10 @@ struct VNCConnectionView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "display")
-                .font(.system(size: 26))
-                .foregroundStyle(.tint)
-                .frame(width: 34)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("New VNC Connection")
-                    .font(.title3.weight(.semibold))
-                Text("View a computer’s screen over VNC.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
+        DialogHeader(icon: "display",
+                     title: "New VNC Connection",
+                     subtitle: "View a computer’s screen over VNC.",
+                     helpArticleID: "vnc")
     }
 
     private var form: some View {

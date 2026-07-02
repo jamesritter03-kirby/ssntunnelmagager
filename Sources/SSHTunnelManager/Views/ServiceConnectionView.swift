@@ -59,20 +59,10 @@ struct ServiceConnectionView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: model.category.symbol)
-                .font(.system(size: 26))
-                .foregroundStyle(.tint)
-                .frame(width: 34)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("New \(model.category.title) Connection")
-                    .font(.title3.weight(.semibold))
-                Text("Connect directly to a \(model.category.title) server.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
+        DialogHeader(icon: model.category.symbol,
+                     title: "New \(model.category.title) Connection",
+                     subtitle: "Connect directly to a \(model.category.title) server.",
+                     helpArticleID: "services")
     }
 
     private var servicePicker: some View {

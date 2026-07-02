@@ -27,8 +27,8 @@ final class HelpWindowController: NSObject, NSWindowDelegate {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        window.setContentSize(NSSize(width: 860, height: 600))
-        window.minSize = NSSize(width: 760, height: 520)
+        window.setContentSize(NSSize(width: 900, height: 600))
+        window.minSize = NSSize(width: 820, height: 520)
         window.center()
         window.delegate = self
         self.window = window

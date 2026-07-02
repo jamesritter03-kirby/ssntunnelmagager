@@ -78,6 +78,15 @@ struct Workspace: Identifiable, Equatable {
     /// A drawer pinned to the bottom edge of the center area, if any.
     var bottomDock: DockColumn?
 
+    /// When this workspace was opened as a profile's **dedicated workspace**, the
+    /// id of that profile — so reconnecting the profile reuses this workspace
+    /// instead of spawning a duplicate. In-memory only (not persisted).
+    var sourceProfileID: UUID?
+    /// Whether this profile-dedicated workspace has already had its launch
+    /// template built, so we don't recreate the template's tabs twice. In-memory
+    /// only (not persisted).
+    var templateInstantiated: Bool = false
+
     init(id: UUID = UUID(), name: String, tabIDs: [UUID] = [],
          selectedSessionID: UUID? = nil, isTiled: Bool = false,
          tileLayout: TileLayout = TileLayout(),

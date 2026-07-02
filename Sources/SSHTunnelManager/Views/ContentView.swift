@@ -7,6 +7,9 @@ struct ContentView: View {
 
     @State private var selectedProfileID: UUID?
     @State private var editingProfile: SSHProfile?
+    /// When the editor was opened by **Duplicate**, the source profile's name, so
+    /// the editor can show a short “finish setting up this copy” wizard.
+    @State private var duplicatedFromName: String?
     @ObservedObject private var sidebar = SidebarModel.shared
     @ObservedObject private var serviceConnection = ServiceConnectionModel.shared
     @ObservedObject private var vncConnection = VNCConnectionModel.shared
@@ -20,8 +23,13 @@ struct ContentView: View {
             SidebarView(
                 selectedProfileID: $selectedProfileID,
                 onConnect: { sessions.connect(profile: $0) },
-                onEdit: { editingProfile = $0 },
-                onNew: { editingProfile = SSHProfile() }
+                onEdit: { duplicatedFromName = nil; editingProfile = $0 },
+                onNew: { duplicatedFromName = nil; editingProfile = SSHProfile() },
+                onDuplicate: { original in
+                    let copy = store.duplicate(original)
+                    duplicatedFromName = original.name
+                    editingProfile = copy
+                }
             )
             .navigationSplitViewColumnWidth(min: 250, ideal: 290, max: 420)
         } detail: {
@@ -32,15 +40,17 @@ struct ContentView: View {
         .sheet(item: $editingProfile) { profile in
             ProfileEditorView(
                 profile: profile,
+                duplicatedFromName: duplicatedFromName,
                 onSave: { saved in
                     store.update(saved)
                     sessions.applyTheme(TerminalTheme.theme(id: saved.theme), toProfileID: saved.id)
                     selectedProfileID = saved.id
                     editingProfile = nil
+                    duplicatedFromName = nil
                 },
-                onCancel: { editingProfile = nil }
+                onCancel: { editingProfile = nil; duplicatedFromName = nil }
             )
-            .frame(minWidth: 560, minHeight: 520)
+            .frame(minWidth: 680, idealWidth: 720, minHeight: 540)
         }
         .sheet(isPresented: $palette.isPresented) {
             CommandPaletteView(palette: palette)

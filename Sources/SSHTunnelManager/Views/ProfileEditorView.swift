@@ -16,18 +16,29 @@ struct ProfileEditorView: View {
     @State private var serviceRemovePasswords: Set<UUID> = []
     private let isNew: Bool
 
+    /// When this editor was opened by **Duplicate**, the name of the profile the
+    /// copy was made from — drives the "finish setting up this copy" wizard. `nil`
+    /// for a normal new/edit.
+    private let duplicatedFromName: String?
+    /// Set once the user hides the duplication wizard.
+    @State private var wizardDismissed = false
+    /// Steps the user has manually acknowledged in the duplication wizard.
+    @State private var wizardAcks: Set<WizardStep> = []
+
     /// The profile as it was loaded, to detect unsaved edits (for the save-on-quit
     /// prompt).
     @State private var originalProfile: SSHProfile
     @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
 
     init(profile: SSHProfile,
+         duplicatedFromName: String? = nil,
          onSave: @escaping (SSHProfile) -> Void,
          onCancel: @escaping () -> Void) {
         _profile = State(initialValue: profile)
         _originalProfile = State(initialValue: profile)
         _hasSavedPassword = State(initialValue: KeychainStore.shared.hasPassword(for: profile.id))
         isNew = !ProfileStore.shared.profiles.contains { $0.id == profile.id }
+        self.duplicatedFromName = duplicatedFromName
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -56,6 +67,9 @@ struct ProfileEditorView: View {
             Divider()
 
             Form {
+                if showWizard {
+                    duplicationWizardSection
+                }
                 if profile.isLocal {
                     localSection
                     terminalSection
@@ -137,26 +151,12 @@ struct ProfileEditorView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: profile.displayIcon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.tint)
-                .frame(width: 32, height: 32)
-                .background(Color.accentColor.opacity(0.12),
-                            in: RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(isNew ? "New Profile" : "Edit Profile")
-                    .font(.headline)
-                Text(headerSubtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        DialogHeader(icon: profile.displayIcon,
+                     title: isNew ? "New Profile" : "Edit Profile",
+                     subtitle: headerSubtitle,
+                     helpArticleID: "profiles")
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
     }
 
     /// Segmented SSH / Local switch.
@@ -482,55 +482,269 @@ struct ProfileEditorView: View {
         }
     }
 
-    /// Existing open + saved workspace names, offered as quick-pick suggestions.
-    private var workspaceSuggestions: [String] {
-        let mgr = TerminalSessionManager.shared
-        let names = mgr.workspaces.map(\.name) + mgr.savedWorkspaces.map(\.name)
-        return Array(Set(names))
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    /// How connecting this profile places its tabs, for the workspace picker.
+    private enum WorkspaceLaunchChoice: Hashable {
+        case current
+        case own
+        case template(UUID)
+    }
+
+    /// Saved workspaces offered as launch templates, sorted by name.
+    private var savedWorkspaceTemplates: [SavedWorkspace] {
+        TerminalSessionManager.shared.savedWorkspaces
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// The name the dedicated workspace will take: the custom name if the user
+    /// typed one, otherwise the profile's own name.
+    private var effectiveWorkspaceName: String {
+        let custom = profile.workspace.trimmingCharacters(in: .whitespaces)
+        if !custom.isEmpty { return custom }
+        let n = profile.name.trimmingCharacters(in: .whitespaces)
+        return n.isEmpty ? "this profile" : n
+    }
+
+    /// Placeholder for the workspace-name field: the profile's own name, used as
+    /// the default when the field is left blank.
+    private var workspaceNamePlaceholder: String {
+        let n = profile.name.trimmingCharacters(in: .whitespaces)
+        return n.isEmpty ? "Workspace name" : n
+    }
+
+    /// The current launch choice, derived from — and written back to — the profile.
+    /// The custom workspace name (`profile.workspace`) is preserved across mode
+    /// changes so switching Own ⇄ Template doesn't lose what the user typed.
+    private var workspaceChoice: Binding<WorkspaceLaunchChoice> {
+        Binding(
+            get: {
+                if let tid = profile.workspaceTemplateID,
+                   savedWorkspaceTemplates.contains(where: { $0.id == tid }) {
+                    return .template(tid)
+                }
+                if profile.opensInOwnWorkspace { return .own }
+                return .current
+            },
+            set: { choice in
+                switch choice {
+                case .current:
+                    profile.opensInOwnWorkspace = false
+                    profile.workspaceTemplateID = nil
+                case .own:
+                    profile.opensInOwnWorkspace = true
+                    profile.workspaceTemplateID = nil
+                case .template(let id):
+                    profile.opensInOwnWorkspace = false
+                    profile.workspaceTemplateID = id
+                }
+            }
+        )
+    }
+
+    /// One-line explanation of what the selected launch choice does.
+    private var workspaceHint: String {
+        switch workspaceChoice.wrappedValue {
+        case .current:
+            return "Connecting opens this profile's tabs in whatever workspace is active."
+        case .own:
+            return "Connecting opens a workspace named “\(effectiveWorkspaceName)” and keeps this profile's tabs (connection, SFTP, VNC…) together. Reconnecting reuses it."
+        case .template(let id):
+            let name = savedWorkspaceTemplates.first { $0.id == id }?.name ?? "the saved workspace"
+            return "Connecting builds a workspace named “\(effectiveWorkspaceName)” from “\(name)” — recreating its tabs and layout — then connects. Reconnecting reuses that workspace."
+        }
     }
 
     private var workspaceSection: some View {
         Section {
-            LabeledContent {
-                HStack(spacing: 6) {
-                    TextField("Current workspace", text: $profile.workspace)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 240)
-                    if !workspaceSuggestions.isEmpty {
-                        Menu {
-                            ForEach(workspaceSuggestions, id: \.self) { name in
-                                Button(name) { profile.workspace = name }
-                            }
-                        } label: {
-                            Image(systemName: "chevron.down")
+            Picker(selection: workspaceChoice) {
+                Text("Current workspace").tag(WorkspaceLaunchChoice.current)
+                Text("New workspace for this profile").tag(WorkspaceLaunchChoice.own)
+                if !savedWorkspaceTemplates.isEmpty {
+                    Section("Recreate a saved workspace") {
+                        ForEach(savedWorkspaceTemplates) { ws in
+                            Text(ws.name).tag(WorkspaceLaunchChoice.template(ws.id))
                         }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                        .help("Pick an existing workspace")
-                    }
-                    if !profile.workspace.trimmingCharacters(in: .whitespaces).isEmpty {
-                        Button {
-                            profile.workspace = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Use the current workspace")
                     }
                 }
             } label: {
-                Label("Open in workspace", systemImage: "rectangle.split.3x1")
+                Label("Launch in", systemImage: "rectangle.split.3x1")
             }
-            Text("Connecting this profile (including its SFTP and VNC tabs) switches to this workspace, creating it if it doesn’t exist, and keeps the connection there. Leave blank to use whatever workspace is current.")
+            if workspaceChoice.wrappedValue != .current {
+                LabeledContent {
+                    TextField(workspaceNamePlaceholder, text: $profile.workspace)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 260)
+                } label: {
+                    Label("Workspace name", systemImage: "character.cursor.ibeam")
+                }
+            }
+            Text(workspaceHint)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if savedWorkspaceTemplates.isEmpty {
+                Text("Tip: arrange some tabs, then choose **Save Workspace…** from the workspace menu to reuse that layout here as a template.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } header: {
             Label("Workspace", systemImage: "square.grid.2x2")
         }
+    }
+
+    // MARK: - Duplication wizard
+
+    /// The guided steps shown after a profile is duplicated. Kept intentionally
+    /// small — this is guidance, not validation (the copy already exists in the
+    /// store the moment it is created).
+    private enum WizardStep: Hashable {
+        case rename
+        case connection
+        case authentication
+        case review
+    }
+
+    /// Show the "finish setting up this copy" wizard only when the editor was
+    /// opened via Duplicate and the user hasn't dismissed it yet.
+    private var showWizard: Bool {
+        duplicatedFromName != nil && !wizardDismissed
+    }
+
+    /// A single row in the duplication wizard.
+    private struct WizardItem: Identifiable {
+        let step: WizardStep
+        let title: String
+        let detail: String
+        let isDone: Bool
+        /// `true` when completion is detected from the profile itself (no button
+        /// to tap); `false` when the user ticks it off manually.
+        let auto: Bool
+        var id: WizardStep { step }
+    }
+
+    /// The steps to show, tailored to local vs SSH profiles and driven by live
+    /// profile state wherever completion can be detected automatically.
+    private var wizardItems: [WizardItem] {
+        var items: [WizardItem] = []
+        let trimmedName = profile.name.trimmingCharacters(in: .whitespaces)
+
+        // 1. Rename — auto-completes once the name no longer matches the "… copy"
+        //    default that `duplicate(_:)` generated.
+        let autoCopyName = ((duplicatedFromName ?? "") + " copy")
+            .trimmingCharacters(in: .whitespaces)
+        let renamed = !trimmedName.isEmpty
+            && trimmedName.caseInsensitiveCompare(autoCopyName) != .orderedSame
+        items.append(WizardItem(
+            step: .rename,
+            title: "Give the copy its own name",
+            detail: renamed
+                ? "Named “\(trimmedName)”."
+                : "Still called “\(trimmedName)”. Rename it up top so you can tell it apart.",
+            isDone: renamed,
+            auto: true))
+
+        if !profile.isLocal {
+            // 2. Connection — manual: host/port/user were copied from the original,
+            //    so ask the user to confirm they point at the right server.
+            items.append(WizardItem(
+                step: .connection,
+                title: "Point it at the right server",
+                detail: "Check the host, port and username under Connection.",
+                isDone: wizardAcks.contains(.connection),
+                auto: false))
+
+            // 3. Authentication — auto: the saved password is intentionally NOT
+            //    copied, so this is done only once a key or password is in place.
+            let hasAuth = hasSavedPassword
+                || !newPassword.isEmpty
+                || !profile.identityFile.trimmingCharacters(in: .whitespaces).isEmpty
+            items.append(WizardItem(
+                step: .authentication,
+                title: "Set up sign-in",
+                detail: hasAuth
+                    ? "A key or password is set."
+                    : "Passwords aren’t copied. Add an SSH key or password under Authentication.",
+                isDone: hasAuth,
+                auto: true))
+        }
+
+        // Final review — manual.
+        items.append(WizardItem(
+            step: .review,
+            title: "Review the details",
+            detail: profile.isLocal
+                ? "Confirm the start path, terminal options and the “Launch in” workspace."
+                : "Review your port forwards, links and the “Launch in” workspace.",
+            isDone: wizardAcks.contains(.review),
+            auto: false))
+
+        return items
+    }
+
+    private var wizardDoneCount: Int { wizardItems.filter(\.isDone).count }
+
+    /// The banner-style checklist shown at the very top of a duplicated profile.
+    private var duplicationWizardSection: some View {
+        Section {
+            ForEach(wizardItems) { item in
+                HStack(alignment: .top, spacing: 10) {
+                    if item.auto {
+                        wizardMark(done: item.isDone)
+                            .frame(width: 22)
+                    } else {
+                        Button {
+                            if item.isDone { wizardAcks.remove(item.step) }
+                            else { wizardAcks.insert(item.step) }
+                        } label: {
+                            wizardMark(done: item.isDone)
+                                .frame(width: 22)
+                        }
+                        .buttonStyle(.plain)
+                        .help(item.isDone ? "Mark as not done" : "Mark as done")
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(item.isDone ? .secondary : .primary)
+                        Text(item.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 2)
+            }
+        } header: {
+            HStack {
+                Label("Finish setting up this copy", systemImage: "wand.and.stars")
+                Spacer()
+                Text("\(wizardDoneCount) of \(wizardItems.count)")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        } footer: {
+            HStack(alignment: .firstTextBaseline) {
+                if let from = duplicatedFromName {
+                    Text("Copied from “\(from)”. Steps you tick off are just reminders.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Button(wizardDoneCount == wizardItems.count ? "Done" : "Dismiss") {
+                    withAnimation { wizardDismissed = true }
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func wizardMark(done: Bool) -> some View {
+        Image(systemName: done ? "checkmark.circle.fill" : "circle")
+            .font(.title3)
+            .foregroundStyle(done ? Color.green : Color.orange)
     }
 
     private var snippetsSection: some View {
@@ -654,9 +868,9 @@ struct ProfileEditorView: View {
 
     private var actionBar: some View {
         HStack {
+            Spacer()
             Button("Cancel", role: .cancel, action: onCancel)
                 .keyboardShortcut(.cancelAction)
-            Spacer()
             Button(isNew ? "Add Profile" : "Save") {
                 applyPasswordChanges()
                 onSave(normalized())
@@ -912,16 +1126,19 @@ struct ForwardEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 8) {
                 Picker("Type", selection: $forward.type) {
                     ForEach(ForwardType.allCases) { type in
                         Text(type.title).tag(type)
                     }
                 }
                 .labelsHidden()
-                .frame(maxWidth: 220)
+                .frame(width: 130)
 
-                Spacer()
+                TextField("Name (optional)", text: $forward.name)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: .infinity)
+                    .help("A label for this forward, shown in the “Open …” menus and on the tab it launches — handy for telling several web pages apart.")
 
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")

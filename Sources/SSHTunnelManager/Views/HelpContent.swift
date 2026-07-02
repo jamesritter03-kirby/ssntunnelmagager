@@ -7,7 +7,7 @@ enum HelpContent {
     static let articles: [HelpArticle] = [
         gettingStarted, profiles, tunnels, passwordless, terminal, snippets,
         workspaces, tilingDetaching, sftp, finder, textEditor, vnc, zerotier, services, links,
-        paletteAndMenuBar, updates, shortcuts,
+        paletteAndMenuBar, updates, settings, shortcuts,
     ]
 
     // MARK: Getting started
@@ -38,7 +38,7 @@ enum HelpContent {
                 "**Authentication** — choose an SSH key, or save a password to your macOS Keychain (typed automatically at the prompt). Passwords are never included when you export.",
                 "**Local Shell profiles** open a shell on this Mac in a chosen folder instead of connecting out.",
             ]),
-            .paragraph("Right‑click a profile in the sidebar to **Connect**, open **SFTP/VNC**, **Set Up Key Login**, **Edit**, **Duplicate**, **Export** or **Delete**. The **Command Preview** at the bottom of the editor shows the exact `ssh` command, which you can copy."),
+            .paragraph("Right‑click a profile in the sidebar to **Connect**, open **SFTP/VNC**, **Set Up Passwordless Login**, **Edit**, **Duplicate**, **Export** or **Delete**. The **Command Preview** at the bottom of the editor shows the exact `ssh` command, which you can copy."),
             .tip("Give each profile an **icon** and a **theme** so its tabs are instantly recognizable."),
             .tip("If you try to quit while a profile editor is still open with unsaved changes, the app **asks whether to save** first — so edits are never lost by accident."),
         ])
@@ -65,7 +65,7 @@ enum HelpContent {
         blocks: [
             .paragraph("**Set Up Passwordless Login** copies your SSH **public key** to a server with `ssh-copy-id`, so future connections sign in with the key — no password needed."),
             .steps([
-                "Right‑click a profile (or use the 🔑 button, the tab menu, the command palette, or the profile editor) and choose **Set Up Key Login**.",
+                "Right‑click a profile (or use the 🔑 button, the tab menu, the command palette, or the profile editor) and choose **Set Up Passwordless Login**.",
                 "If you don't have a key yet, the app offers to **generate** a new ed25519 key or **choose** an existing one.",
                 "A terminal tab runs `ssh-copy-id`. Enter the account password once when asked (a saved Keychain password fills in automatically).",
                 "Done — the profile adopts the key, so the next connection is passwordless.",
@@ -112,11 +112,11 @@ enum HelpContent {
             .paragraph("**Workspaces** are the big top‑level tabs — each holds its own set of terminal/browser/SFTP tabs. Use them to separate projects or environments."),
             .bullets([
                 "Create one with **Workspace ▸ New Workspace** (⇧⌘N) and switch with **⇧⌘[** / **⇧⌘]**.",
-                "**Save** a workspace's tab set to reopen the whole group later.",
+                "**Save** a workspace's tab set (with its tiling and drawers) to reopen the whole group later — and to use it as a profile's launch template.",
                 "**Closed one by accident?** The welcome screen's **Recently Closed** list reopens a closed tab or a whole workspace — even if it was never saved.",
-                "Assign a profile to a workspace with **“Open in workspace”** in the editor — connecting that profile (and opening its SFTP/VNC tabs) switches to that workspace, creating it if needed.",
+                "In a profile's editor, set **Launch in** to give the profile its own workspace: **New workspace** opens a fresh one (named after the profile, or a name you choose), or pick a **saved workspace** to recreate its tabs and layout each time you connect.",
             ]),
-            .tip("Leave **Open in workspace** blank to open the profile wherever you currently are."),
+            .tip("Assigning a saved workspace to a profile makes connecting spin up a fresh, profile‑named workspace with all those tabs — reconnecting reuses it rather than duplicating. Leave **Launch in** on **Current workspace** to just open where you are."),
         ])
 
     // MARK: Tiling & detaching
@@ -144,7 +144,7 @@ enum HelpContent {
                 "**Drag a file or folder out to Finder** (or the Desktop) to download it right where you drop it — the bytes are fetched on demand.",
                 "**Double‑click a folder** to open it; use **↑ Up** and the **path menu** to navigate.",
                 "**Double‑click a file** (or **Download**) to save it to your default folder (set with **Save to:**), or pick **Download To…** to choose a destination that one time.",
-                "**Edit a file in place**: right‑click a file ▸ **Edit with Text Editor**. It downloads a temporary copy and opens it in a text‑editor tab; each **Save** (⌘S) uploads it straight back to the server. The editor's status bar shows a cloud badge — *Synced*, *Uploading…* or the failure reason.",
+                "**Edit a file in place**: right‑click a file ▸ **Open in Text Editor**. It downloads a temporary copy and opens it in a text‑editor tab; each **Save** (⌘S) uploads it straight back to the server. The editor's status bar shows a cloud badge — *Synced*, *Uploading…* or the failure reason.",
                 "**New Folder**, **Rename** and **Delete** are on the toolbar and the right‑click menu.",
                 "**Refresh** from the toolbar, the right‑click menu, or the **F5** key.",
             ]),
@@ -178,7 +178,7 @@ enum HelpContent {
                 "The status bar shows the **line & column**, selection length, line/character counts, **encoding** and **line endings** (LF / CRLF / CR — switchable).",
                 "An **Open** dialog reads any text file; **Save** / **Save As** write it back. Unsaved tabs show a **•** and prompt to save before closing.",
                 "**Drag a file onto the editor** to open it — you'll get a quick confirmation, then its contents load into the tab.",
-                "**Edit remote files over SFTP**: in an SFTP tab, right‑click a file ▸ **Edit with Text Editor**. Saving uploads it back to the server automatically (watch the status‑bar cloud badge).",
+                "**Edit remote files over SFTP**: in an SFTP tab, right‑click a file ▸ **Open in Text Editor**. Saving uploads it back to the server automatically (watch the status‑bar cloud badge).",
             ]),
             .tip("Reopened automatically on the next launch if the document was saved to a file — like every other tab."),
             .shortcuts([
@@ -235,6 +235,7 @@ enum HelpContent {
                 "**MQTT** — a native MQTT explorer with a **topic tree** (right‑click to Expand/Collapse), publishing, and a **Graph** view that plots a topic's numeric values (or individual JSON fields) live over time.",
                 "**Redis** — a native Redis browser: scan keys, view typed values with TTLs, and run commands.",
             ]),
+            .paragraph("Give a forward a **Name** in the profile editor and it shows up in the **Open …** menus and on the tab it launches — so several web forwards (or MQTT/Redis services) are easy to tell apart."),
             .paragraph("You can also open **ad‑hoc** MQTT/Redis connections — not tied to a profile — from the **+** menu or **File ▸ New MQTT/Redis Connection**, pointing them at any host and port (optionally through a tunnel you've already started)."),
             .paragraph("**Right‑click** an MQTT, Redis, VNC or SFTP tab and choose **Edit Connection…** to change its host, port or credentials and reconnect in place — handy for fixing a mistyped password or re‑pointing at another server without opening a new tab."),
             .tip("A service password for a forward is stored in your Keychain, keyed to that forward — never in the profile file or exports."),
@@ -258,7 +259,7 @@ enum HelpContent {
     static let paletteAndMenuBar = HelpArticle(
         id: "palette", title: "Command Palette & Menu Bar", icon: "command",
         blocks: [
-            .paragraph("Press **⌘K** for the **Command Palette** — a fast, searchable list of everything: connect to a profile, open SFTP/VNC, set up key login, run a saved command, re‑run history, and more."),
+            .paragraph("Press **⌘K** for the **Command Palette** — a fast, searchable list of everything: connect to a profile, open SFTP/VNC, set up passwordless login, run a saved command, re‑run history, and more."),
             .paragraph("The app also lives in the **menu bar**. From there you can show the main window, open a local terminal, connect profiles, and disconnect tunnels — even when the window is closed. In Settings you can launch **into the menu bar only** (no Dock icon or window at startup)."),
         ])
 
@@ -275,6 +276,33 @@ enum HelpContent {
             ]),
         ])
 
+    // MARK: Settings
+
+    static let settings = HelpArticle(
+        id: "settings", title: "Settings", icon: "gearshape",
+        blocks: [
+            .paragraph("Open **Settings** with **⌘,** or the app menu. Changes take effect right away; the **Startup** options apply the next time the app launches."),
+            .paragraph("**Startup**"),
+            .bullets([
+                "**Start at login** — launch the app automatically when you sign in.",
+                "**Launch into the menu bar** — start as a menu‑bar item with no window or Dock icon; use the menu bar ▸ **Show Main Window** to open it.",
+                "**Resume last session** — reopen the tabs that were open when you last quit.",
+            ]),
+            .paragraph("**Terminal**"),
+            .bullets([
+                "**Default theme** and **text size** for plain local terminals — each profile carries its own.",
+                "**Right‑click** behaviour: paste, smart copy/paste, or always show a menu. Smart copy/paste copies a selection and otherwise pastes, and can clear the selection after copying so the next right‑click pastes.",
+            ]),
+            .paragraph("**Editor**"),
+            .bullets([
+                "**Default theme** for new text‑editor tabs — each tab can still switch its own theme from the editor toolbar.",
+            ]),
+            .paragraph("**Updates**"),
+            .bullets([
+                "Toggle **automatic update checks**, or **Check Now** to look immediately. Updates are downloaded from the release feed and verified with a cryptographic signature before installing.",
+            ]),
+        ])
+
     // MARK: Shortcuts
 
     static let shortcuts = HelpArticle(
@@ -283,17 +311,21 @@ enum HelpContent {
             .shortcuts([
                 ("⌘ T", "New local terminal"),
                 ("⇧⌘ T", "New browser tab"),
+                ("⌘ N", "New text editor"),
                 ("⌘ K", "Command palette"),
                 ("⌘ W", "Close tab"),
                 ("⇧⌘ N", "New workspace"),
                 ("⇧⌘ [  /  ⇧⌘ ]", "Previous / next workspace"),
                 ("⌃⌘ D", "Detach tab into a window"),
                 ("⌃⌘ T", "Tile tabs"),
+                ("⌃⌘ [  /  ⌃⌘ ]", "Dock tab left / right"),
+                ("⌃⌘ ↑  /  ⌃⌘ ↓", "Dock tab top / bottom"),
                 ("⇧⌘ D", "Disconnect all tunnels"),
                 ("⌘ +  /  ⌘ −  /  ⌘ 0", "Terminal text bigger / smaller / actual size"),
                 ("⌃⌘ S", "Show/Hide sidebar"),
                 ("F5", "Refresh an SFTP tab"),
                 ("F12  /  ⌥⌘ I", "Web Inspector in a browser tab"),
+                ("⌘ ?", "Open Help"),
             ]),
         ])
 }

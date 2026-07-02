@@ -543,14 +543,10 @@ struct FinderBrowserView: View {
             .onDeleteCommand { confirmTrash(selectedEntries) }
 
             if browser.entries.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: browser.hasActiveFilter
-                          ? "line.3.horizontal.decrease.circle"
-                          : "folder")
-                        .font(.system(size: 34)).foregroundStyle(.tertiary)
-                    Text(emptyMessage)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                EmptyStateView(icon: browser.hasActiveFilter
+                               ? "line.3.horizontal.decrease.circle"
+                               : "folder",
+                               title: emptyMessage) {
                     if browser.hasActiveFilter {
                         Button("Clear Filter") { browser.clearFilter() }
                             .buttonStyle(.link)
@@ -570,18 +566,33 @@ struct FinderBrowserView: View {
             ? selectedEntries : [entry]
         let editableFiles = targets.filter { $0.kind == .file }
         if targets.count == 1 {
-            Button(entry.isDirectory ? "Open" : "Open with Default App") { browser.open(entry) }
+            Button {
+                browser.open(entry)
+            } label: {
+                Label(entry.isDirectory ? "Open" : "Open with Default App",
+                      systemImage: entry.isDirectory ? "folder" : "arrow.up.forward.app")
+            }
         }
         if !editableFiles.isEmpty {
-            Button(editableFiles.count > 1
-                   ? "Open \(editableFiles.count) Files in Text Editor"
-                   : "Open in Text Editor") { openInTextEditor(editableFiles) }
+            Button {
+                openInTextEditor(editableFiles)
+            } label: {
+                Label(editableFiles.count > 1
+                      ? "Open \(editableFiles.count) Files in Text Editor"
+                      : "Open in Text Editor", systemImage: "doc.text")
+            }
         }
-        Button("Reveal in Finder") { browser.revealInFinder(targets) }
-        Button("Copy Path") { copyPaths(targets) }
+        Button { browser.revealInFinder(targets) } label: {
+            Label("Reveal in Finder", systemImage: "magnifyingglass")
+        }
+        Button { copyPaths(targets) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
         Divider()
-        Button(targets.count > 1 ? "Move \(targets.count) Items to Trash" : "Move to Trash",
-               role: .destructive) { confirmTrash(targets) }
+        Button(role: .destructive) {
+            confirmTrash(targets)
+        } label: {
+            Label(targets.count > 1 ? "Move \(targets.count) Items to Trash" : "Move to Trash",
+                  systemImage: "trash")
+        }
     }
 
     /// Open each of the given local files in its own built-in text-editor tab.

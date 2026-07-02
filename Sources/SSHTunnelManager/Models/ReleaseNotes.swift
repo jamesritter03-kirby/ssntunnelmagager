@@ -45,13 +45,26 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.21", build: 31, date: "Jul 2, 2026",
+            highlights: [
+                "See what’s connected at a glance: the sidebar now shows a green dot on profiles with a live tunnel, and each row’s button switches between Connect and a red Disconnect. Right‑click a profile for a Disconnect command too.",
+                "Name your port forwards: give each forward a friendly name in the profile editor and it appears wherever you open that service (web, MQTT, Redis) — so multiple web forwards are finally easy to tell apart. The profile dialog is also wider and easier to fill in.",
+                "Launch whole workspaces from a profile: open a profile in its own dedicated workspace with an editable name, or pick a saved workspace as a launch template so connecting rebuilds a whole set of tabs at once.",
+                "Duplicating a profile now guides you: the editor shows a short checklist to finish the copy correctly — rename it, point it at the right server, set up sign‑in (passwords aren’t copied) and review your forwards.",
+                "Save a workspace in one step: right‑click a workspace and choose Save Workspace to store or update it under its own name, alongside the existing Save as Workspace… And MQTT / Redis tabs opened without a profile are now remembered in saved workspaces, resumed sessions and Recently Closed.",
+                "A more consistent app throughout: unified dialog headers each with a “?” help button, matching empty‑state screens, icons on every right‑click menu, and clearer wording (for example “Set Up Passwordless Login” everywhere).",
+                "Polish: Settings gains an Editor section for the default text‑editor theme plus its own help topic, the Keyboard Shortcuts guide is up to date, the Help window’s topic list is wider, and the ZeroTier browser is now resizable and remembers your “Connect as” username.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.20", build: 30, date: "Jul 1, 2026",
             highlights: [
                 "Drag a file onto a terminal and choose what to paste: a small menu now offers Paste Path (shell‑quoted, as before) or Paste Contents (the file’s text). Binary files are detected and skipped, and a very large paste asks first.",
                 "Edit remote files in place: right‑click a file in an SFTP tab and choose Edit with Text Editor — it downloads, opens in the built‑in editor, and every save automatically uploads it back to the server.",
                 "Open local files fast: right‑click a file in a Finder tab and choose Open in Text Editor, or drag a file onto an untitled editor tab to load its contents.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.19", build: 29, date: "Jul 1, 2026",

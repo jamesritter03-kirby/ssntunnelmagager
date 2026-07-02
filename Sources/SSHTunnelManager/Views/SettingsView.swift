@@ -13,7 +13,11 @@ struct SettingsView: View {
                        isOn: $settings.startInMenuBarOnly)
                 Toggle("Resume last session at startup", isOn: $settings.resumeLastSession)
             } header: {
-                Text("Startup")
+                HStack {
+                    Text("Startup")
+                    Spacer()
+                    HelpButton(articleID: "settings")
+                }
             } footer: {
                 Text("With “Launch into the menu bar”, the app starts as a menu bar item with no window or Dock icon. Use the menu bar → Show Main Window to open it. “Resume last session” reopens the tabs that were open when you last quit. Both apply the next time the app launches.")
                     .font(.caption)
@@ -45,6 +49,20 @@ struct SettingsView: View {
                 Text("Terminal")
             } footer: {
                 Text("“Copy selection, otherwise paste” copies highlighted text on right-click, pastes the clipboard when nothing is selected, and shows a Copy/Paste menu when there's neither — so a right-click is never wasted. While an app has mouse reporting on (vim, htop, tmux…), the right-click is passed through to it instead.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Default theme for new text editors", selection: $settings.defaultEditorThemeID) {
+                    ForEach(EditorTheme.all) { theme in
+                        Text(theme.name).tag(theme.id)
+                    }
+                }
+            } header: {
+                Text("Editor")
+            } footer: {
+                Text("The colour theme for new text‑editor tabs. Each tab can still switch its own theme from the editor toolbar.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

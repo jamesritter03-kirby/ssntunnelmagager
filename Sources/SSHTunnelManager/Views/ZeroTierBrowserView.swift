@@ -24,7 +24,9 @@ struct ZeroTierBrowserView: View {
     @State private var selectedNetworkID: String?
     @State private var search = ""
     @State private var onlineOnly = false
-    @State private var username = NSUserName()
+    /// The "Connect as" username, remembered across launches. Defaults to the
+    /// macOS login name until the user changes it.
+    @AppStorage("zeroTierConnectAsUsername") private var username = NSUserName()
     @State private var password = ""
     @State private var showPassword = false
     @State private var managingAccounts = false
@@ -47,7 +49,10 @@ struct ZeroTierBrowserView: View {
                 accountsManager
             }
         }
-        .frame(minWidth: 780, idealWidth: 900, minHeight: 540, idealHeight: 660)
+        // A flexible max lets the macOS sheet be dragged larger (and smaller,
+        // down to the mins) instead of locking at the ideal size.
+        .frame(minWidth: 780, idealWidth: 900, maxWidth: .infinity,
+               minHeight: 540, idealHeight: 660, maxHeight: .infinity)
         .task { await store.loadIfNeeded() }
     }
 
@@ -68,18 +73,10 @@ struct ZeroTierBrowserView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "globe.americas.fill")
-                .font(.system(size: 22))
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("ZeroTier Devices")
-                    .font(.headline)
-                Text("Connect to members across your ZeroTier networks")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
+        DialogHeader(icon: "globe.americas.fill",
+                     title: "ZeroTier Devices",
+                     subtitle: "Connect to members across your ZeroTier networks",
+                     helpArticleID: "zerotier") {
             if store.isLoadingNetworks || !store.loadingMembers.isEmpty {
                 ProgressView().controlSize(.small)
             }
@@ -189,6 +186,7 @@ struct ZeroTierBrowserView: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 150)
                     .onChange(of: username) { _ in loadSavedPassword() }
+                    .help("The username used for SSH / SFTP connections. It's remembered for next time.")
                 Group {
                     if showPassword {
                         TextField("password (optional)", text: $password)
@@ -340,19 +338,11 @@ struct ZeroTierBrowserView: View {
 
     private var accountsManager: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "globe.americas.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(.tint)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("ZeroTier Accounts")
-                        .font(.title3.weight(.semibold))
-                    Text("Add one or more ZeroTier API tokens to browse their devices.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding(20)
+            DialogHeader(icon: "globe.americas.fill",
+                         title: "ZeroTier Accounts",
+                         subtitle: "Add one or more ZeroTier API tokens to browse their devices.",
+                         helpArticleID: "zerotier")
+                .padding(20)
             Divider()
 
             ScrollView {
@@ -396,7 +386,7 @@ struct ZeroTierBrowserView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(width: 540, height: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func accountRow(_ account: ZeroTierAccount) -> some View {
@@ -646,17 +636,10 @@ struct ZeroTierBrowserView: View {
     }
 
     private func emptyState(_ title: String, _ message: String) -> some View {
-        VStack(spacing: 6) {
-            Image(systemName: "antenna.radiowaves.left.and.right.slash")
-                .font(.system(size: 30))
-                .foregroundStyle(.secondary)
-            Text(title).font(.headline)
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(40)
+        EmptyStateView(icon: "antenna.radiowaves.left.and.right.slash",
+                       title: title,
+                       message: message)
+            .padding(24)
     }
 
     private func errorBanner(_ error: String) -> some View {

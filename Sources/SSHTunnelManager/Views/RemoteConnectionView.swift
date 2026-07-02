@@ -88,20 +88,10 @@ struct RemoteConnectionView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: model.kind.symbol)
-                .font(.system(size: 26))
-                .foregroundStyle(.tint)
-                .frame(width: 34)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.kind.title)
-                    .font(.title3.weight(.semibold))
-                Text(model.kind.blurb)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
+        DialogHeader(icon: model.kind.symbol,
+                     title: model.kind.title,
+                     subtitle: model.kind.blurb,
+                     helpArticleID: model.kind == .sftp ? "sftp" : "tunnels")
     }
 
     private var form: some View {

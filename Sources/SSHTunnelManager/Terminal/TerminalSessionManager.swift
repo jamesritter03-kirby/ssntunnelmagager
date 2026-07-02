@@ -26,6 +26,28 @@ final class TerminalSessionManager: ObservableObject {
         currentWorkspaceID = first.id
         loadSavedWorkspaces()
         loadRecentlyClosed()
+        observeRunningState()
+    }
+
+    /// Forwards each open session's `isRunning` changes to this manager's own
+    /// `objectWillChange`, so views that show per-profile connection state — the
+    /// sidebar's status dots — refresh live when a tunnel comes up or drops. The
+    /// `sessions` array itself doesn't change when a child process merely stops,
+    /// so without this relay those observers would go stale.
+    private var runningStateCancellables: [AnyCancellable] = []
+    private var stateRelayCancellable: AnyCancellable?
+
+    private func observeRunningState() {
+        stateRelayCancellable = $sessions
+            .sink { [weak self] list in
+                guard let self else { return }
+                self.runningStateCancellables = list.map { session in
+                    session.$isRunning
+                        .dropFirst()
+                        .receive(on: RunLoop.main)
+                        .sink { [weak self] _ in self?.objectWillChange.send() }
+                }
+            }
     }
 
     // MARK: - Current workspace
@@ -338,9 +360,10 @@ final class TerminalSessionManager: ObservableObject {
     /// Open a new tab running `ssh` with the profile's tunnel configuration —
     /// or, for a **local** profile, a login shell starting in its folder.
     func connect(profile: SSHProfile) {
-        // Honor the profile's “Open in workspace” assignment up front, so the tab
-        // — whether newly opened or an existing one we reuse — ends up there.
-        let assigned = routeToAssignedWorkspace(for: profile.id)
+        // Honor the profile's workspace assignment up front: switch to (or build)
+        // its dedicated workspace — recreating an assigned launch template the
+        // first time — so the connection tab lands there.
+        let assigned = ensureDedicatedWorkspace(for: profile.id, instantiateTemplate: true)
         if profile.isLocal { connectLocalProfile(profile); return }
         // A profile's tunnel binds fixed forwarded ports, so a second tunnel for
         // the same profile can't bind them (ssh runs with ExitOnForwardFailure=yes)
@@ -686,31 +709,133 @@ final class TerminalSessionManager: ObservableObject {
         }
     }
 
-    /// If a profile is assigned to a named workspace (the editor's “Open in
-    /// workspace” field), make that workspace current — switching to the open one
-    /// of that name, or creating it if none is open. Returns whether the profile
-    /// has an assignment, so callers can also pull an existing tab into it.
-    /// No-op (returns false) for ad-hoc tabs, unassigned profiles, or while
-    /// restoring saved tabs. Only the profile's primary tabs (connect / SFTP /
-    /// VNC) call this; utility tabs (key setup, links, services) stay put.
+    /// Light routing for a profile's secondary tabs (SFTP / VNC): make the
+    /// profile's dedicated workspace current, creating an empty one if needed, but
+    /// **without** building its launch template — a full `connect` does that.
+    /// Returns whether the profile launches into a dedicated workspace. No-op
+    /// (returns false) for ad-hoc tabs, unassigned profiles, or while restoring.
     @discardableResult
     private func routeToAssignedWorkspace(for profileID: UUID?) -> Bool {
+        ensureDedicatedWorkspace(for: profileID, instantiateTemplate: false)
+    }
+
+    /// Make the profile's **dedicated workspace** current — reusing the one
+    /// already open for this profile, adopting a matching one restored from a
+    /// previous run, or creating a fresh workspace named after the profile. When
+    /// `instantiateTemplate` is true and the profile has an assigned **saved
+    /// workspace** template, that template's tabs and layout are recreated the
+    /// first time the workspace is built (the profile's own primary connection is
+    /// left for the caller to start, so it isn't opened twice).
+    ///
+    /// Returns whether the profile launches into a dedicated workspace. No-op
+    /// (returns false) for ad-hoc tabs, unassigned profiles, or while restoring
+    /// saved tabs (`suppressWorkspaceRouting`).
+    @discardableResult
+    private func ensureDedicatedWorkspace(for profileID: UUID?, instantiateTemplate: Bool) -> Bool {
         guard !suppressWorkspaceRouting, let profileID,
-              let profile = ProfileStore.shared.profiles.first(where: { $0.id == profileID })
+              let profile = ProfileStore.shared.profiles.first(where: { $0.id == profileID }),
+              profile.launchesInDedicatedWorkspace
         else { return false }
-        let name = profile.workspace.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return false }
-        // Already in the right workspace — assignment satisfied, nothing to switch.
-        if currentWorkspace?.name == name { return true }
-        if let existing = workspaces.first(where: { $0.name == name }) {
-            currentWorkspaceID = existing.id
+
+        let name = profile.dedicatedWorkspaceName
+        let template = profile.workspaceTemplateID.flatMap { tid in
+            savedWorkspaces.first { $0.id == tid }
+        }
+
+        // Reuse the workspace already dedicated to this profile; otherwise adopt a
+        // matching one restored from a previous run (matched by name). A restored
+        // workspace that already holds tabs is treated as fully built so we don't
+        // duplicate them.
+        let index: Int
+        if let i = workspaces.firstIndex(where: { $0.sourceProfileID == profileID }) {
+            index = i
+        } else if let i = workspaces.firstIndex(where: {
+            $0.sourceProfileID == nil && $0.name == name
+        }) {
+            workspaces[i].sourceProfileID = profileID
+            if !workspaces[i].tabIDs.isEmpty { workspaces[i].templateInstantiated = true }
+            index = i
         } else {
-            let tiled = UserDefaults.standard.bool(forKey: "tileTerminals")
-            let ws = Workspace(name: name, isTiled: tiled)
+            let tiled = template?.isTiled ?? UserDefaults.standard.bool(forKey: "tileTerminals")
+            var ws = Workspace(name: name, isTiled: tiled,
+                               tileLayout: template?.tileLayout ?? TileLayout())
+            ws.sourceProfileID = profileID
             workspaces.append(ws)
-            currentWorkspaceID = ws.id
+            index = workspaces.count - 1
+        }
+        currentWorkspaceID = workspaces[index].id
+
+        // Build the template once, on the first full launch of this workspace.
+        if instantiateTemplate, let template, !workspaces[index].templateInstantiated {
+            workspaces[index].templateInstantiated = true
+            recreateTemplate(template, forProfile: profileID, intoWorkspaceAt: index)
         }
         return true
+    }
+
+    /// Recreate a saved workspace's tabs and drawers into an existing workspace as
+    /// the profile's launch template. The profile's **own** primary connection
+    /// (its ssh / local‑shell tab) is skipped — the caller starts exactly one of
+    /// those — and dock indices are remapped to the rebuilt tab order.
+    ///
+    /// A template is built from *some* profile's workspace; that profile's tabs
+    /// carry its id and name. When a **different** profile launches the template
+    /// (most often after duplicating a profile, which inherits its template),
+    /// those tabs are re‑pointed at the launching profile so they connect as — and
+    /// are named after — the profile you're actually launching.
+    private func recreateTemplate(_ template: SavedWorkspace,
+                                  forProfile profileID: UUID,
+                                  intoWorkspaceAt index: Int) {
+        // Recreation calls back into connect*/openService, which would otherwise
+        // try to re-route each tab into its own workspace; suppress that so every
+        // template tab lands here, in order.
+        suppressWorkspaceRouting = true
+        defer { suppressWorkspaceRouting = false }
+
+        // The template's "main" connection profile — the one it was built around
+        // (its first ssh / local‑shell tab, else its first profile tab). Its tabs
+        // are the ones re‑pointed at the launching profile below.
+        let originProfileID =
+            template.tabs.first(where: {
+                ($0.kind == .ssh || $0.kind == .localShell) && $0.profileID != nil
+            })?.profileID
+            ?? template.tabs.first(where: { $0.profileID != nil })?.profileID
+
+        var keptTemplateIndices: [Int] = []
+        for (i, tab) in template.tabs.enumerated() {
+            var tab = tab
+            let isMainProfileTab = tab.profileID == profileID
+                || (originProfileID != nil && tab.profileID == originProfileID)
+            // The launching profile's own primary tab is started by the caller
+            // (with the single-tunnel de-dupe); building it here too would open a
+            // second one (local shells especially aren't de-duped).
+            if isMainProfileTab && (tab.kind == .ssh || tab.kind == .localShell) {
+                continue
+            }
+            // Re‑point the origin profile's other tabs (SFTP / VNC / service / web)
+            // at the launching profile so a duplicated or reused template connects
+            // as this profile and shows its name, not the one it was saved from.
+            if let origin = originProfileID, origin != profileID, tab.profileID == origin {
+                tab.profileID = profileID
+                tab.title = nil     // let the launching profile's name drive the title
+            }
+            keptTemplateIndices.append(i)
+            recreate(tab)
+        }
+
+        // Remap the template's dock panes (indexed into its full tab list) onto the
+        // rebuilt order, dropping any that referenced the skipped primary tab.
+        let remap = Dictionary(uniqueKeysWithValues:
+            keptTemplateIndices.enumerated().map { ($1, $0) })
+        let docks = template.docks?.compactMap { dock -> DockSnapshot? in
+            let panes = dock.panes.compactMap { pane -> DockPaneSnapshot? in
+                remap[pane.tabIndex].map { DockPaneSnapshot(tabIndex: $0, heightWeight: pane.heightWeight) }
+            }
+            guard !panes.isEmpty else { return nil }
+            return DockSnapshot(side: dock.side, width: dock.width,
+                                collapsed: dock.collapsed, panes: panes)
+        }
+        applyDockSnapshots(docks, toWorkspaceAt: index)
     }
 
     /// Move a session into the current workspace if it lives elsewhere, then
@@ -1078,7 +1203,8 @@ final class TerminalSessionManager: ObservableObject {
         switch category {
         case .webpage:
             guard let url = URL(string: "http://\(endpoint.host):\(endpoint.port)") else { return }
-            openWeb(url: url, title: "\(profile.name) — Web", profileID: profile.id)
+            let title = forward.trimmedName.isEmpty ? "\(profile.name) — Web" : forward.trimmedName
+            openWeb(url: url, title: title, profileID: profile.id)
         case .mqtt, .redis:
             let username = forward.serviceUsername.trimmingCharacters(in: .whitespaces)
             // The service password (if any) lives in the Keychain keyed by the
@@ -1094,11 +1220,13 @@ final class TerminalSessionManager: ObservableObject {
                     guard case .success(let password) = result else { return }
                     DispatchQueue.main.async {
                         self?.spawnServiceTab(category, endpoint: endpoint, profile: profile,
+                                              forward: forward,
                                               username: username, password: password)
                     }
                 }
             } else {
                 spawnServiceTab(category, endpoint: endpoint, profile: profile,
+                                forward: forward,
                                 username: username, password: "")
             }
         case .none:
@@ -1111,11 +1239,15 @@ final class TerminalSessionManager: ObservableObject {
     /// directly, so nothing extra needs to be installed.
     private func spawnServiceTab(_ category: ForwardCategory,
                                  endpoint: (host: String, port: Int), profile: SSHProfile,
+                                 forward: PortForward,
                                  username: String, password: String) {
         guard let kind = category.terminalKind else { return }
+        let title = forward.trimmedName.isEmpty
+            ? "\(profile.name) — \(category.title)"
+            : forward.trimmedName
         let session = TerminalSession(
             kind: kind,
-            title: "\(profile.name) — \(category.title)",
+            title: title,
             executable: "",
             args: [],
             commandPreview: "\(category.title) \(endpoint.host):\(endpoint.port)",
@@ -1205,6 +1337,24 @@ final class TerminalSessionManager: ObservableObject {
         // Iterate a snapshot since close(_:) mutates `sessions`.
         for session in sessions.filter({ $0.kind == .ssh && $0.isRunning }) {
             close(session)
+        }
+    }
+
+    /// Disconnect a profile's primary connection tab — its SSH tunnel, or the
+    /// login shell for a local profile — **without** removing the tab, so it shows
+    /// the Reconnect banner and can be brought back with `connect(profile:)`. The
+    /// mirror of the sidebar's Connect command. No-op if it isn't connected.
+    func disconnect(profile: SSHProfile) {
+        let kind: TerminalSession.Kind = profile.isLocal ? .localShell : .ssh
+        sessions.first { $0.profileID == profile.id && $0.kind == kind }?.disconnect()
+    }
+
+    /// Whether `profile` has a running primary connection tab that Disconnect could
+    /// act on. Read when the sidebar context menu opens to enable/disable it.
+    func isConnected(profile: SSHProfile) -> Bool {
+        let kind: TerminalSession.Kind = profile.isLocal ? .localShell : .ssh
+        return sessions.contains {
+            $0.profileID == profile.id && $0.kind == kind && $0.isRunning
         }
     }
 
@@ -1310,15 +1460,35 @@ final class TerminalSessionManager: ObservableObject {
         guard let ws = currentWorkspace else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = trimmed.isEmpty ? ws.name : trimmed
+        upsertSavedWorkspace(from: ws, name: finalName)
+    }
+
+    /// Save (or update) a specific workspace under its **own name**, without
+    /// prompting — the "Save" counterpart to "Save as Workspace…". Updates an
+    /// existing saved workspace of the same name in place, else creates one.
+    func saveWorkspaceInPlace(_ id: UUID) {
+        guard let ws = workspaces.first(where: { $0.id == id }) else { return }
+        upsertSavedWorkspace(from: ws, name: ws.name)
+    }
+
+    /// Whether a saved workspace already exists matching this workspace's name —
+    /// so the menu can offer "Update Saved Workspace" instead of "Save Workspace".
+    func isWorkspaceSaved(_ id: UUID) -> Bool {
+        guard let ws = workspaces.first(where: { $0.id == id }) else { return false }
+        return savedWorkspaces.contains { $0.name == ws.name }
+    }
+
+    /// Snapshot `ws` into `savedWorkspaces`, replacing any entry of the same name.
+    private func upsertSavedWorkspace(from ws: Workspace, name: String) {
         let tabs = snapshotTabs(for: ws)
         let docks = dockSnapshots(for: ws)
-        if let idx = savedWorkspaces.firstIndex(where: { $0.name == finalName }) {
+        if let idx = savedWorkspaces.firstIndex(where: { $0.name == name }) {
             savedWorkspaces[idx].tabs = tabs
             savedWorkspaces[idx].isTiled = ws.isTiled
             savedWorkspaces[idx].tileLayout = ws.tileLayout
             savedWorkspaces[idx].docks = docks
         } else {
-            savedWorkspaces.append(SavedWorkspace(name: finalName, tabs: tabs,
+            savedWorkspaces.append(SavedWorkspace(name: name, tabs: tabs,
                                                   isTiled: ws.isTiled,
                                                   tileLayout: ws.tileLayout,
                                                   docks: docks))
@@ -1474,7 +1644,9 @@ final class TerminalSessionManager: ObservableObject {
     private func snapshot(of s: TerminalSession) -> SessionSnapshot {
         var host: String? = nil
         var user: String? = nil
-        if s.profileID == nil, s.kind == .ssh || s.kind == .sftp || s.kind == .vnc {
+        if s.profileID == nil,
+           s.kind == .ssh || s.kind == .sftp || s.kind == .vnc
+            || s.kind == .mqtt || s.kind == .redis {
             let h = s.serviceHost.trimmingCharacters(in: .whitespaces)
             if !h.isEmpty { host = h }
             let u = s.serviceUsername.trimmingCharacters(in: .whitespaces)
@@ -1625,9 +1797,13 @@ final class TerminalSessionManager: ObservableObject {
                 openBlankWeb()
             }
         case .mqtt, .redis:
+            let category: ForwardCategory = snap.kind == .redis ? .redis : .mqtt
             if let profile, let port = snap.servicePort,
                let fwd = profile.forwards.first(where: { $0.localEndpoint?.port == port }) {
-                openService(snap.kind == .redis ? .redis : .mqtt, forward: fwd, profile: profile)
+                openService(category, forward: fwd, profile: profile)
+            } else if snap.profileID == nil, let host = snap.serviceHost, let port = snap.servicePort {
+                openAdHocService(category: category, host: host, port: port,
+                                 username: snap.serviceUsername ?? "", password: "")
             }
         case .finder:
             openFinder(path: snap.webURL)

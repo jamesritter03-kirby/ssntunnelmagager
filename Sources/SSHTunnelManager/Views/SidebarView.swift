@@ -8,61 +8,105 @@ struct SidebarView: View {
     var onConnect: (SSHProfile) -> Void
     var onEdit: (SSHProfile) -> Void
     var onNew: () -> Void
+    var onDuplicate: (SSHProfile) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             List(selection: $selectedProfileID) {
                 Section("Profiles") {
                     if store.profiles.isEmpty {
-                        Text("No profiles yet.\nClick + to add one.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 6)
+                        EmptyStateView(icon: "person.crop.rectangle.stack",
+                                       title: "No profiles yet",
+                                       message: "Click + to add one.")
                     }
                     ForEach(store.profiles) { profile in
                         ProfileRow(
                             profile: profile,
-                            onConnect: { onConnect(profile) }
+                            isConnected: sessions.isConnected(profile: profile),
+                            onConnect: { onConnect(profile) },
+                            onDisconnect: { sessions.disconnect(profile: profile) }
                         )
                         .tag(profile.id)
                         .contextMenu {
-                            Button("Connect") { onConnect(profile) }
+                            Button {
+                                onConnect(profile)
+                            } label: {
+                                Label("Connect", systemImage: "play.fill")
+                            }
+                            Button {
+                                sessions.disconnect(profile: profile)
+                            } label: {
+                                Label("Disconnect", systemImage: "stop.fill")
+                            }
+                            .disabled(!sessions.isConnected(profile: profile))
                             if !profile.isLocal {
-                                Button("Open SFTP") { sessions.connectSFTP(profile: profile) }
-                                Button("Open VNC") { sessions.connectVNC(profile: profile) }
-                                Button("Set Up Key Login…") { sessions.setUpKeyLogin(profile: profile) }
+                                Button {
+                                    sessions.connectSFTP(profile: profile)
+                                } label: {
+                                    Label("Open SFTP", systemImage: "arrow.up.arrow.down")
+                                }
+                                Button {
+                                    sessions.connectVNC(profile: profile)
+                                } label: {
+                                    Label("Open VNC", systemImage: "display")
+                                }
+                                Button {
+                                    sessions.setUpKeyLogin(profile: profile)
+                                } label: {
+                                    Label("Set Up Passwordless Login…", systemImage: "key")
+                                }
                             }
                             if !profile.links.isEmpty {
-                                Menu("Open Link") {
+                                Menu {
                                     ForEach(profile.links) { link in
                                         Button(link.displayLabel) {
                                             sessions.openLink(link, profile: profile)
                                         }
                                         .disabled(link.normalizedURL == nil)
                                     }
+                                } label: {
+                                    Label("Open Link", systemImage: "link")
                                 }
                             }
                             if !profile.categorizedForwards.isEmpty {
-                                Menu("Open Service") {
+                                Menu {
                                     ForEach(profile.categorizedForwards) { forward in
                                         Button {
                                             sessions.openService(forward.category,
                                                                  forward: forward, profile: profile)
                                         } label: {
-                                            Label("Open \(forward.category.title) (:\(forward.listenPort))",
+                                            Label(forward.trimmedName.isEmpty
+                                                  ? "Open \(forward.category.title) (:\(forward.listenPort))"
+                                                  : "\(forward.trimmedName) (:\(forward.listenPort))",
                                                   systemImage: forward.category.symbol)
                                         }
                                     }
+                                } label: {
+                                    Label("Open Service", systemImage: "bolt.horizontal")
                                 }
                             }
-                            Button("Edit…") { onEdit(profile) }
-                            Button("Duplicate") { store.duplicate(profile) }
-                            Button("Export…") {
+                            Button {
+                                onEdit(profile)
+                            } label: {
+                                Label("Edit…", systemImage: "pencil")
+                            }
+                            Button {
+                                onDuplicate(profile)
+                            } label: {
+                                Label("Duplicate…", systemImage: "plus.square.on.square")
+                            }
+                            Button {
                                 ProfileTransfer.exportFlow([profile],
                                                            suggestedName: ProfileTransfer.fileName(for: profile))
+                            } label: {
+                                Label("Export…", systemImage: "square.and.arrow.up")
                             }
                             Divider()
-                            Button("Delete", role: .destructive) { store.delete(profile) }
+                            Button(role: .destructive) {
+                                store.delete(profile)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
                 }
@@ -173,12 +217,24 @@ struct SidebarView: View {
 
 struct ProfileRow: View {
     let profile: SSHProfile
+    var isConnected: Bool = false
     var onConnect: () -> Void
+    var onDisconnect: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: profile.displayIcon)
                 .foregroundStyle(.tint)
+                .overlay(alignment: .bottomTrailing) {
+                    if isConnected {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor),
+                                                           lineWidth: 1.5))
+                            .offset(x: 3, y: 2)
+                    }
+                }
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.name)
                     .fontWeight(.medium)
@@ -195,12 +251,13 @@ struct ProfileRow: View {
                 }
             }
             Spacer(minLength: 4)
-            Button(action: onConnect) {
-                Image(systemName: "play.circle.fill")
+            Button(action: isConnected ? onDisconnect : onConnect) {
+                Image(systemName: isConnected ? "stop.circle.fill" : "play.circle.fill")
                     .font(.title3)
+                    .foregroundStyle(isConnected ? Color.red : Color.accentColor)
             }
             .buttonStyle(.borderless)
-            .help("Connect")
+            .help(isConnected ? "Disconnect" : "Connect")
         }
         .padding(.vertical, 3)
         .contentShape(Rectangle())
