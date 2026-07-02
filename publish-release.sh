@@ -5,7 +5,9 @@
 #      rolling GitHub Release tagged "updates" — a stable home for every version.
 #   2. Commits & pushes docs/appcast.xml so GitHub Pages serves the new feed.
 #
-#   ./publish-release.sh
+#   ./publish-release.sh                # commit + push the appcast now
+#   DEFER_PUSH=1 ./publish-release.sh   # stage the appcast only; ship it with the
+#                                       # release commit so Pages deploys just once
 #
 # Requires the GitHub CLI:   brew install gh   &&   gh auth login
 # (If you don't have gh, the script prints the manual steps instead.)
@@ -81,9 +83,19 @@ gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$REPO" --clobber
 [[ -f "$DMG_ASSET" ]] && rm -f "$DMG_ASSET"
 
 # --- 3. Publish the appcast via Pages ----------------------------------------
+# GitHub Pages allows only one concurrent deployment, so pushing the appcast and
+# the source seconds apart (as a full release does) makes the first Pages build
+# fail with "Deployment failed, try again later." To avoid that spurious failure,
+# a release can set DEFER_PUSH=1: we then only *stage* docs/appcast.xml and let
+# the caller's single source commit & push ship it — so Pages deploys exactly
+# once per release.
 git add "${DOCS_DIR}/appcast.xml"
 if git diff --cached --quiet; then
     echo "▶︎  ${DOCS_DIR}/appcast.xml unchanged — nothing to commit."
+elif [[ "${DEFER_PUSH:-0}" == "1" ]]; then
+    echo "✓  Staged ${DOCS_DIR}/appcast.xml (DEFER_PUSH=1 — not pushed)."
+    echo "    Ship it with your release commit so Pages deploys once, e.g.:"
+    echo "      git add -A && git commit -m \"…\" && git push"
 else
     git commit -m "Publish appcast ($(date +%Y-%m-%d))" >/dev/null
     git push

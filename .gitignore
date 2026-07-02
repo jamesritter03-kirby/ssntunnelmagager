@@ -27,7 +27,42 @@ sparkle-updates/
 # Python (the appcast verifier in scripts/)
 __pycache__/
 *.pyc
-.venv/
+.venv*/
 
 # Editor
 .vscode/
+
+# Secrets & credentials — never commit these. API tokens (e.g. ZeroTier/ZTNET)
+# live in the macOS Keychain, and the Sparkle EdDSA signing key stays in the
+# Keychain too; these patterns just stop an accidental export/paste from landing
+# in a public commit.
+.env
+.env.*
+*.env
+secrets.*
+*.secret
+*.secrets
+.secrets/
+credentials.*
+*.credentials
+.credentials/
+*.token
+gh_token*
+.gh_token
+
+# Private keys & certificates (SSH keys, Sparkle key exports, PKCS#12, etc.)
+*.pem
+*.key
+*.p12
+*.pfx
+*.der
+*.keychain
+*.keychain-db
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.ppk
+sparkle_priv*
+dsa_priv*
+*private_key*
