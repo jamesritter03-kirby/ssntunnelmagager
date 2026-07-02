@@ -749,6 +749,11 @@ private struct TabBar: View {
                         } label: {
                             Label("New Finder Tab", systemImage: "folder")
                         }
+                        Button {
+                            sessions.openTextEditor()
+                        } label: {
+                            Label("New Text Editor", systemImage: "doc.text")
+                        }
                         Divider()
                         Button {
                             RemoteConnectionModel.shared.present(.ssh)
@@ -1042,6 +1047,49 @@ private struct TerminalTabContextMenu: View {
         return "Open \(forward.category.title)\(suffix)"
     }
 
+    /// The per-tab "Theme" submenu, mirroring the profile editor's theme picker
+    /// (grouped into Dark / Light, with a checkmark on the active theme).
+    private var themeMenu: some View {
+        Menu {
+            Section("Dark") {
+                ForEach(TerminalTheme.dark) { themeButton($0) }
+            }
+            Section("Light") {
+                ForEach(TerminalTheme.light) { themeButton($0) }
+            }
+        } label: {
+            Label("Theme", systemImage: "paintpalette")
+        }
+    }
+
+    @ViewBuilder
+    private func themeButton(_ theme: TerminalTheme) -> some View {
+        Button {
+            applyTheme(theme)
+        } label: {
+            if theme.id == session.theme.id {
+                Label(theme.name, systemImage: "checkmark")
+            } else {
+                Text(theme.name)
+            }
+        }
+    }
+
+    /// Apply a chosen theme. For a profile-backed tab this saves the theme to the
+    /// profile and recolors every open tab from it — exactly like changing the
+    /// theme in the profile editor and saving. A plain local shell (no profile)
+    /// just recolors its own live terminal.
+    private func applyTheme(_ theme: TerminalTheme) {
+        if let profile {
+            var updated = profile
+            updated.theme = theme.id
+            store.update(updated)
+            sessions.applyTheme(theme, toProfileID: profile.id)
+        } else {
+            session.applyTheme(theme)
+        }
+    }
+
     var body: some View {
         // Snippets submenu (terminal tabs only)
         if let profile, !profile.snippets.isEmpty,
@@ -1092,7 +1140,7 @@ private struct TerminalTabContextMenu: View {
            || !profile.links.isEmpty || !profile.categorizedForwards.isEmpty {
             Divider()
         }
-        if session.kind != .web && session.kind != .finder {
+        if session.kind != .web && session.kind != .finder && session.kind != .editor {
             Button {
                 session.disconnect()
             } label: {
@@ -1138,6 +1186,9 @@ private struct TerminalTabContextMenu: View {
             } label: {
                 Label("Set Up Passwordless Login…", systemImage: "key")
             }
+        }
+        if session.kind == .ssh || session.kind == .localShell {
+            themeMenu
         }
         Divider()
         Menu {
@@ -1674,6 +1725,8 @@ struct TerminalContainer: View {
             RedisBrowserView(session: session)
         } else if session.kind == .finder {
             FinderBrowserView(session: session)
+        } else if session.kind == .editor {
+            TextEditorTabView(session: session)
         } else {
             terminal
         }
@@ -1763,7 +1816,6 @@ private struct WelcomeView: View {
                               systemImage: "arrow.clockwise.circle.fill")
                     }
                     .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
                     .help("Reopen the tabs that were open when you last quit")
                 }
                 Button {
@@ -1786,6 +1838,13 @@ private struct WelcomeView: View {
                     Label("New Finder Tab", systemImage: "folder")
                 }
                 .controlSize(.large)
+
+                Button {
+                    sessions.openTextEditor()
+                } label: {
+                    Label("New Text Editor", systemImage: "doc.text")
+                }
+                .controlSize(.large)
             }
 
             // Quick, profile-free connections to a server (the blank-workspace
@@ -1801,7 +1860,6 @@ private struct WelcomeView: View {
                         Label("Remote Terminal", systemImage: "network")
                     }
                     .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
                     .help("Open an SSH terminal on a server")
 
                     Button {

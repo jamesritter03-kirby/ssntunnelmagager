@@ -116,4 +116,47 @@ final class KeychainStore {
             read()
         }
     }
+
+    // MARK: - Ad-hoc ZeroTier passwords (keyed by username)
+
+    /// ZeroTier "Connect as" credentials aren't tied to a saved profile, so they
+    /// live under their own service and are keyed by the username. Reads are
+    /// synchronous and never prompt for Touch ID — these are lightweight
+    /// convenience passwords for one-off connections, stored "this device only".
+    private let zeroTierService = "com.local.sshtunnelmanager.zerotier"
+
+    private func zeroTierQuery(for account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: zeroTierService,
+            kSecAttrAccount as String: account,
+        ]
+    }
+
+    /// Store (or replace) the password for a ZeroTier "Connect as" username.
+    @discardableResult
+    func setZeroTierPassword(_ password: String, for account: String) -> Bool {
+        guard let data = password.data(using: .utf8) else { return false }
+        SecItemDelete(zeroTierQuery(for: account) as CFDictionary)   // replace any existing
+        var query = zeroTierQuery(for: account)
+        query[kSecValueData as String] = data
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    /// Remove the saved password for a ZeroTier "Connect as" username.
+    func deleteZeroTierPassword(for account: String) {
+        SecItemDelete(zeroTierQuery(for: account) as CFDictionary)
+    }
+
+    /// Fetch the saved password for a ZeroTier "Connect as" username, or nil.
+    func zeroTierPassword(for account: String) -> String? {
+        var query = zeroTierQuery(for: account)
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecReturnData as String] = true
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
 }

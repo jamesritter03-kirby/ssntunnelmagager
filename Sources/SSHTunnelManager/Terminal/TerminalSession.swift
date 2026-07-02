@@ -23,6 +23,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case mqtt
         case redis
         case finder
+        case editor
     }
 
     let kind: Kind
@@ -80,6 +81,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// For `.finder` sessions: the local file browser behind `FinderBrowserView`.
     let finderModel: LocalFileBrowser?
 
+    /// For `.editor` sessions: the text document behind `TextEditorTabView`.
+    let textEditorModel: TextEditorModel?
+
     /// For `.mqtt` / `.redis` sessions: the local (forwarded) port the native
     /// client connects to, kept so the tab can be recreated on the next launch.
     let servicePort: Int?
@@ -115,6 +119,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case .mqtt:       return "antenna.radiowaves.left.and.right"
         case .redis:      return "cylinder.split.1x2"
         case .finder:     return "folder"
+        case .editor:     return "doc.text"
         }
     }
 
@@ -157,7 +162,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// pending start runs once `startIfPending()` sees the view attached.
     private var pendingStart = false
 
-    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", presetPassword: String? = nil, extraEnvironment: [String: String] = [:], vncScaling: Bool = true, vncViewOnly: Bool = false, vncColorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor) {
+    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil, editorBackupID: UUID? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", presetPassword: String? = nil, extraEnvironment: [String: String] = [:], vncScaling: Bool = true, vncViewOnly: Bool = false, vncColorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor) {
         self.kind = kind
         self.title = title
         self.executable = executable
@@ -250,6 +255,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         } else {
             self.finderModel = nil
         }
+        if kind == .editor {
+            self.textEditorModel = TextEditorModel(path: startDirectory, backupID: editorBackupID)
+        } else {
+            self.textEditorModel = nil
+        }
         super.init()
         terminalView.processDelegate = self
         terminalView.onUserInput = { [weak self] data in self?.handleInput(data) }
@@ -281,6 +291,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             let name = url.lastPathComponent
             self?.title = name.isEmpty ? "/" : name
         }
+        textEditorModel?.onTitleChange = { [weak self] newTitle in
+            let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
+            self?.title = trimmed.isEmpty ? "Untitled" : trimmed
+        }
+        textEditorModel?.refreshTitle()
         applyAppearance()
     }
 
@@ -336,6 +351,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         }
 
         if kind == .finder {
+            hasStarted = true
+            isRunning = true
+            exitCode = nil
+            return
+        }
+
+        if kind == .editor {
             hasStarted = true
             isRunning = true
             exitCode = nil
@@ -437,7 +459,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// exactly as if the session had ended on its own. Use `close` on the manager
     /// to remove the tab entirely.
     func disconnect() {
-        if kind == .web || kind == .finder {
+        if kind == .web || kind == .finder || kind == .editor {
             return
         }
         if kind == .sftp {
@@ -474,6 +496,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case .web:
             return
         case .finder:
+            return
+        case .editor:
             return
         case .sftp:
             sftpClient?.disconnect()

@@ -6,7 +6,7 @@ import Foundation
 enum HelpContent {
     static let articles: [HelpArticle] = [
         gettingStarted, profiles, tunnels, passwordless, terminal, snippets,
-        workspaces, tilingDetaching, sftp, finder, vnc, zerotier, services, links,
+        workspaces, tilingDetaching, sftp, finder, textEditor, vnc, zerotier, services, links,
         paletteAndMenuBar, updates, shortcuts,
     ]
 
@@ -160,6 +160,28 @@ enum HelpContent {
                 "**Drag a file onto a terminal** to paste its full (shell‑quoted) path.",
                 "**Drag a file onto an SFTP tab** to upload it to the server.",
                 "Double‑click to open files/folders, toggle hidden files, make a new folder, reveal in Finder, copy a path, or move items to the Trash.",
+            ]),
+        ])
+
+    // MARK: Text editor
+
+    static let textEditor = HelpArticle(
+        id: "text-editor", title: "Text Editor", icon: "doc.text",
+        blocks: [
+            .paragraph("A built‑in **text editor tab** works like a lightweight Notepad++: open, edit and save text or code files with syntax highlighting, line numbers and find & replace. Open one from the **+** menu, **File ▸ New Text Editor** (⌘N), the welcome screen, or the command palette."),
+            .bullets([
+                "**Syntax highlighting** for 20+ languages (Swift, Python, JavaScript/TypeScript, JSON, HTML/XML, CSS, Markdown, shell, C/C++, Java, Go, Rust, Ruby, PHP, SQL, YAML, TOML/INI and more) — auto‑detected from the file extension, or pick it from the status‑bar menu.",
+                "**Line numbers** in a gutter, **soft‑wrap** toggle, and **live font zoom** (⌘ + / ⌘ − / ⌘ 0).",
+                "**Find & Replace** (⌘F, or ⌥⌘F to reveal replace) with **match case**, **whole word** and **regular‑expression** options, plus **Replace All**.",
+                "The status bar shows the **line & column**, selection length, line/character counts, **encoding** and **line endings** (LF / CRLF / CR — switchable).",
+                "An **Open** dialog reads any text file; **Save** / **Save As** write it back. Unsaved tabs show a **•** and prompt to save before closing.",
+            ]),
+            .tip("Reopened automatically on the next launch if the document was saved to a file — like every other tab."),
+            .shortcuts([
+                ("⌘ N", "New text editor"),
+                ("⌘ O  /  ⌘ S", "Open / Save"),
+                ("⇧⌘ S", "Save As"),
+                ("⌘ F  /  ⌥⌘ F", "Find / Find & Replace"),
             ]),
         ])
 

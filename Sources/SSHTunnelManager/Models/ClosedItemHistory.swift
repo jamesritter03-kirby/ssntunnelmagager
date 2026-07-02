@@ -67,6 +67,7 @@ struct ClosedItem: Identifiable, Codable {
         case .mqtt:       return "MQTT"
         case .redis:      return "Redis"
         case .finder:     return "Finder"
+        case .editor:     return "Text Editor"
         case .none:       return "Tab"
         }
     }

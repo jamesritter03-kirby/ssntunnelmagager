@@ -208,10 +208,15 @@ struct SessionSnapshot: Codable {
     /// password is *never* stored here — the user is re-prompted on relaunch.
     var serviceHost: String? = nil
     var serviceUsername: String? = nil
+    /// For `.editor` tabs: the id keying this document's crash‑safe backup, so a
+    /// tab with unsaved text (or a never‑saved untitled buffer) is restored from
+    /// that backup on the next launch. Optional so older snapshots still decode.
+    var editorBackupID: UUID? = nil
 
     init(kind: TerminalSession.Kind, profileID: UUID? = nil, webURL: String? = nil,
          title: String? = nil, servicePort: Int? = nil,
-         serviceHost: String? = nil, serviceUsername: String? = nil) {
+         serviceHost: String? = nil, serviceUsername: String? = nil,
+         editorBackupID: UUID? = nil) {
         self.kind = kind
         self.profileID = profileID
         self.webURL = webURL
@@ -219,6 +224,7 @@ struct SessionSnapshot: Codable {
         self.servicePort = servicePort
         self.serviceHost = serviceHost
         self.serviceUsername = serviceUsername
+        self.editorBackupID = editorBackupID
     }
 }
 
@@ -226,7 +232,7 @@ struct SessionSnapshot: Codable {
 // (the synthesized one would throw on the missing key and drop the resume state).
 extension SessionSnapshot {
     enum CodingKeys: String, CodingKey {
-        case kind, profileID, webURL, title, servicePort, serviceHost, serviceUsername
+        case kind, profileID, webURL, title, servicePort, serviceHost, serviceUsername, editorBackupID
     }
 
     init(from decoder: Decoder) throws {
@@ -238,6 +244,7 @@ extension SessionSnapshot {
         servicePort = try c.decodeIfPresent(Int.self, forKey: .servicePort)
         serviceHost = try c.decodeIfPresent(String.self, forKey: .serviceHost)
         serviceUsername = try c.decodeIfPresent(String.self, forKey: .serviceUsername)
+        editorBackupID = try c.decodeIfPresent(UUID.self, forKey: .editorBackupID)
     }
 }
 

@@ -45,13 +45,24 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.19", build: 29, date: "Jul 1, 2026",
+            highlights: [
+                "New Text Editor tab — a built‑in, Notepad++‑style editor with syntax highlighting for 20+ languages, line numbers, word wrap, find & replace (with regex and whole‑word), adjustable font size, and 11 colour themes. Open it from the welcome screen or the New menu.",
+                "The editor never loses your work: unsaved text — even in a never‑saved, untitled tab — is backed up automatically and restored the next time you launch, just like Notepad++.",
+                "The editor watches your open files: if another program changes one on disk, it offers to reload it (or lets you keep your version), so you're never editing a stale copy.",
+                "ZeroTier devices: connect straight to any device with one‑click buttons for a browser tab, SSH terminal, SFTP, VNC, MQTT and Redis — plus a “Connect as” username and password you can save to your Keychain for quick reconnects.",
+                "Change a terminal tab’s colour theme on the fly: right‑click the tab and pick a theme. For a profile’s tab it’s remembered on the profile, exactly like the profile editor.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.18", build: 28, date: "Jul 1, 2026",
             highlights: [
                 "Edit a tab’s connection: right‑click an MQTT, Redis, VNC or SFTP tab and choose Edit Connection… to change its host, port or credentials and reconnect in place — no need to open a new tab to fix a mistyped password or re‑point at another server.",
                 "VNC: fixed screen‑sharing tabs that sometimes didn’t connect — the viewer now retries briefly while the SSH tunnel’s port finishes coming up, instead of failing on the first try.",
                 "Tidied the sidebar’s bottom bar: the local‑terminal button is now just its icon, matching the ZeroTier button next to it.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.17", build: 27, date: "Jul 1, 2026",

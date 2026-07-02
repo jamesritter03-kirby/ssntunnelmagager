@@ -790,6 +790,28 @@ final class TerminalSessionManager: ObservableObject {
         addAndStart(session)
     }
 
+    /// Open a Notepad++‑style text‑editor tab. Pass a file path to open it, or
+    /// nil for a new blank document.
+    func openTextEditor(path: String? = nil, backupID: UUID? = nil) {
+        let title: String
+        if let path, !path.isEmpty {
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            title = name.isEmpty ? "Untitled" : name
+        } else {
+            title = "Untitled"
+        }
+        let session = TerminalSession(
+            kind: .editor,
+            title: title,
+            executable: "",
+            args: [],
+            commandPreview: path ?? "",
+            startDirectory: path,
+            editorBackupID: backupID
+        )
+        addAndStart(session)
+    }
+
     /// Open an **ad-hoc** MQTT / Redis tab that connects directly to `host:port`
     /// (no SSH tunnel / profile). Used by the “new connection” setup sheet.
     func openAdHocService(category: ForwardCategory, host: String, port: Int,
@@ -1101,6 +1123,12 @@ final class TerminalSessionManager: ObservableObject {
 
     func close(_ session: TerminalSession) {
         guard sessions.contains(where: { $0.id == session.id }) else { return }
+        // A text editor with unsaved changes gets a Save / Don’t Save / Cancel
+        // prompt; “Cancel” aborts the close and keeps the tab.
+        if session.kind == .editor, let editor = session.textEditorModel,
+           !editor.confirmCloseIfNeeded() {
+            return
+        }
         // Remember this tab so it can be reopened from the welcome screen if the
         // close was accidental (skips tabs we couldn't recreate, e.g. profile-free
         // tabs whose profile is gone).
@@ -1217,9 +1245,24 @@ final class TerminalSessionManager: ObservableObject {
         return selectedSession
     }
 
-    func increaseFontSize() { focusedTerminalSession?.zoom(.increase) }
-    func decreaseFontSize() { focusedTerminalSession?.zoom(.decrease) }
-    func resetFontSize()    { focusedTerminalSession?.zoom(.reset) }
+    func increaseFontSize() {
+        if let editor = selectedEditorModel { editor.increaseFont(); return }
+        focusedTerminalSession?.zoom(.increase)
+    }
+    func decreaseFontSize() {
+        if let editor = selectedEditorModel { editor.decreaseFont(); return }
+        focusedTerminalSession?.zoom(.decrease)
+    }
+    func resetFontSize() {
+        if let editor = selectedEditorModel { editor.resetFont(); return }
+        focusedTerminalSession?.zoom(.reset)
+    }
+
+    /// The text‑editor model of the selected tab, if the selection is an editor.
+    private var selectedEditorModel: TextEditorModel? {
+        guard let s = selectedSession, s.kind == .editor else { return nil }
+        return s.textEditorModel
+    }
 
     // MARK: - Tab reordering
 
@@ -1336,7 +1379,7 @@ final class TerminalSessionManager: ObservableObject {
             ProfileStore.shared.profiles.contains { $0.id == id }
         } ?? false
         switch snap.kind {
-        case .localShell, .web, .finder:
+        case .localShell, .web, .finder, .editor:
             return true
         case .ssh, .sftp, .vnc:
             return hasProfile || (snap.serviceHost?.isEmpty == false)
@@ -1418,10 +1461,11 @@ final class TerminalSessionManager: ObservableObject {
             if !u.isEmpty { user = u }
         }
         return SessionSnapshot(kind: s.kind, profileID: s.profileID,
-                               webURL: s.webModel?.currentURLString ?? s.finderModel?.currentPath,
+                               webURL: s.webModel?.currentURLString ?? s.finderModel?.currentPath ?? s.textEditorModel?.fileURL?.path,
                                title: s.title,
                                servicePort: s.servicePort,
-                               serviceHost: host, serviceUsername: user)
+                               serviceHost: host, serviceUsername: user,
+                               editorBackupID: s.textEditorModel?.id)
     }
 
     /// Snapshot a workspace's side drawers by tab index (matching `snapshotTabs`
@@ -1479,6 +1523,9 @@ final class TerminalSessionManager: ObservableObject {
     func persistOpenSessions() { writeOpenState() }
 
     private func writeOpenState() {
+        // Flush every editor's unsaved text so the snapshots we take reference an
+        // up‑to‑date backup, letting the next launch restore exactly what's open.
+        for s in sessions { s.textEditorModel?.flushBackup() }
         let snaps = workspaces.map { ws -> WorkspaceSnapshot in
             let liveTabIDs = ws.tabIDs.filter { id in sessions.contains { $0.id == id } }
             let selIndex = ws.selectedSessionID.flatMap { liveTabIDs.firstIndex(of: $0) }
@@ -1492,6 +1539,10 @@ final class TerminalSessionManager: ObservableObject {
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: openStateKey)
         }
+        // Drop backups for editor tabs that are no longer open (closed since the
+        // last save), so the backup folder stays in sync with the resume state.
+        let liveEditorIDs = Set(sessions.compactMap { $0.textEditorModel?.id })
+        EditorBackupStore.shared.prune(keeping: liveEditorIDs)
     }
 
     /// The saved open-state, migrating a legacy flat session list if needed.
@@ -1560,6 +1611,8 @@ final class TerminalSessionManager: ObservableObject {
             }
         case .finder:
             openFinder(path: snap.webURL)
+        case .editor:
+            openTextEditor(path: snap.webURL, backupID: snap.editorBackupID)
         }
     }
 

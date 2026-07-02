@@ -25,6 +25,8 @@ struct ZeroTierBrowserView: View {
     @State private var search = ""
     @State private var onlineOnly = false
     @State private var username = NSUserName()
+    @State private var password = ""
+    @State private var showPassword = false
     @State private var managingAccounts = false
     @State private var lastAction: String?
 
@@ -185,13 +187,39 @@ struct ZeroTierBrowserView: View {
                 Text("Connect as").font(.caption).foregroundStyle(.secondary)
                 TextField("username", text: $username)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 160)
+                    .frame(width: 150)
+                    .onChange(of: username) { _ in loadSavedPassword() }
+                Group {
+                    if showPassword {
+                        TextField("password (optional)", text: $password)
+                    } else {
+                        SecureField("password (optional)", text: $password)
+                    }
+                }
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 150)
+                Button {
+                    showPassword.toggle()
+                } label: {
+                    Image(systemName: showPassword ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.borderless)
+                .help(showPassword ? "Hide password" : "Show password")
+                Button {
+                    saveOrClearPassword()
+                } label: {
+                    Image(systemName: "key.fill")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Save this password to your Keychain (or clear it when empty)")
                 Text("for SSH / SFTP").font(.caption).foregroundStyle(.secondary)
                 Spacer()
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .onAppear { loadSavedPassword() }
     }
 
     @ViewBuilder
@@ -275,9 +303,12 @@ struct ZeroTierBrowserView: View {
                 .font(.system(.callout, design: .monospaced))
                 .textSelection(.enabled)
             Spacer()
-            connectButton("Open SSH terminal", "network") { connect(.ssh, ip: ip) }
+            connectButton("Open in browser", "globe") { connect(.web, ip: ip) }
+            connectButton("Open SSH terminal", "terminal") { connect(.ssh, ip: ip) }
             connectButton("Open SFTP file browser", "arrow.up.arrow.down") { connect(.sftp, ip: ip) }
             connectButton("Open VNC screen", "display") { connect(.vnc, ip: ip) }
+            connectButton("Open MQTT explorer", "antenna.radiowaves.left.and.right") { connect(.mqtt, ip: ip) }
+            connectButton("Open Redis browser", "cylinder.split.1x2") { connect(.redis, ip: ip) }
         }
     }
 
@@ -467,20 +498,59 @@ struct ZeroTierBrowserView: View {
 
     // MARK: - Helpers
 
-    private enum ConnectKind { case ssh, sftp, vnc }
+    private enum ConnectKind { case web, ssh, sftp, vnc, mqtt, redis }
 
     private func connect(_ kind: ConnectKind, ip: String) {
         let user = username.trimmingCharacters(in: .whitespaces)
+        let pass = password
         switch kind {
+        case .web:
+            let url = URL(string: "http://\(ip)") ?? URL(string: "http://\(ip)/")!
+            sessions.openWeb(url: url, title: ip)
+            lastAction = "Opened \(ip) in a browser tab."
         case .ssh:
-            sessions.openAdHocSSH(host: ip, port: 22, username: user, password: "")
+            sessions.openAdHocSSH(host: ip, port: 22, username: user, password: pass)
             lastAction = "Opened an SSH terminal to \(ip)."
         case .sftp:
-            sessions.openAdHocSFTP(host: ip, port: 22, username: user, password: "")
+            sessions.openAdHocSFTP(host: ip, port: 22, username: user, password: pass)
             lastAction = "Opened an SFTP browser to \(ip)."
         case .vnc:
-            sessions.openAdHocVNC(host: ip, port: 5900, username: user, password: "")
+            sessions.openAdHocVNC(host: ip, port: 5900, username: user, password: pass)
             lastAction = "Opened a VNC screen to \(ip)."
+        case .mqtt:
+            sessions.openAdHocService(category: .mqtt, host: ip, port: ForwardCategory.mqtt.defaultPort,
+                                      username: user, password: pass)
+            lastAction = "Opened an MQTT explorer to \(ip)."
+        case .redis:
+            sessions.openAdHocService(category: .redis, host: ip, port: ForwardCategory.redis.defaultPort,
+                                      username: user, password: pass)
+            lastAction = "Opened a Redis browser to \(ip)."
+        }
+    }
+
+    /// Pull a previously saved password for the current "Connect as" username
+    /// out of the Keychain (or clear the field when there's nothing stored).
+    private func loadSavedPassword() {
+        let user = username.trimmingCharacters(in: .whitespaces)
+        guard !user.isEmpty else { password = ""; return }
+        password = KeychainStore.shared.zeroTierPassword(for: user) ?? ""
+    }
+
+    /// Save the typed password to the Keychain for the current username, or
+    /// remove any saved password when the field is empty.
+    private func saveOrClearPassword() {
+        let user = username.trimmingCharacters(in: .whitespaces)
+        guard !user.isEmpty else {
+            lastAction = "Enter a username before saving a password."
+            return
+        }
+        if password.isEmpty {
+            KeychainStore.shared.deleteZeroTierPassword(for: user)
+            lastAction = "Removed the saved password for “\(user).”"
+        } else if KeychainStore.shared.setZeroTierPassword(password, for: user) {
+            lastAction = "Saved the password for “\(user)” to your Keychain."
+        } else {
+            lastAction = "Couldn’t save the password to your Keychain."
         }
     }
 

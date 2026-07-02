@@ -44,7 +44,12 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
   saved password as a normal connection. macOS **Screen Sharing** stays one click away as a
   fallback. You can also open an **ad‑hoc** VNC tab to any host from the **+** menu
   (*New VNC Connection…*) — no profile required.
-- 📚 **Example profiles on first launch** — a fresh install starts with four ready‑to‑read
+- � **Built‑in text editor** — a Notepad++‑style **text editor tab** (**+** menu, **File ▸ New
+  Text Editor** ⌘N, or the command palette) with **syntax highlighting** for 20+ languages,
+  **line numbers**, **soft‑wrap**, live **font zoom**, and **Find & Replace** (⌘F) with match‑case,
+  whole‑word and **regex** options. Open/Save any text file; encoding and **line endings**
+  (LF/CRLF/CR) are shown in the status bar. Saved documents reopen on the next launch.
+- �📚 **Example profiles on first launch** — a fresh install starts with four ready‑to‑read
   examples (local `-L`, dynamic `-D`, remote `-R`, and a jump‑host `-J` with a shell) so the
   options are easy to learn. Edit or delete them freely — they're only ever added once.
 - 🧵 **Tunnels stay alive in the background** while you switch between tabs.

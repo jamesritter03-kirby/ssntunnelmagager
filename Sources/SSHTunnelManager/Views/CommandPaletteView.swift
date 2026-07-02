@@ -122,6 +122,11 @@ struct CommandPaletteView: View {
                                  systemImage: "folder") {
             sessions.openFinder()
         })
+        items.append(PaletteItem(title: "New Text Editor",
+                                 subtitle: "Edit a text or code file",
+                                 systemImage: "doc.text") {
+            sessions.openTextEditor()
+        })
         items.append(PaletteItem(title: "Set Up Passwordless Login…",
                                  subtitle: "Copy your SSH key to any server (ssh-copy-id)",
                                  systemImage: "key") {

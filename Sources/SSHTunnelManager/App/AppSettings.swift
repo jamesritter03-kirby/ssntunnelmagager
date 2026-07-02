@@ -34,6 +34,7 @@ final class AppSettings: ObservableObject {
     private let defaults = UserDefaults.standard
     private let menuBarOnlyKey = "startInMenuBarOnly"
     private let defaultThemeKey = "defaultThemeID"
+    private let defaultEditorThemeKey = "defaultEditorThemeID"
     private let defaultFontSizeKey = "defaultFontSize"
     private let resumeLastSessionKey = "resumeLastSession"
     private let terminalRightClickKey = "terminalRightClickBehavior"
@@ -68,6 +69,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(defaultThemeID, forKey: defaultThemeKey) }
     }
 
+    /// The colour theme used for new text-editor tabs (each tab can override it).
+    @Published var defaultEditorThemeID: String {
+        didSet { defaults.set(defaultEditorThemeID, forKey: defaultEditorThemeKey) }
+    }
+
     /// The text size (points) for plain local terminals (profiles carry their own).
     @Published var defaultFontSize: Double {
         didSet {
@@ -93,6 +99,7 @@ final class AppSettings: ObservableObject {
             .flatMap(TerminalRightClickBehavior.init(rawValue:)) ?? .smartCopyPaste
         deselectTerminalAfterCopy = defaults.object(forKey: deselectAfterCopyKey) as? Bool ?? true
         defaultThemeID = defaults.string(forKey: defaultThemeKey) ?? TerminalTheme.defaultID
+        defaultEditorThemeID = defaults.string(forKey: defaultEditorThemeKey) ?? EditorTheme.defaultID
         let storedFont = defaults.object(forKey: defaultFontSizeKey) as? Double ?? TerminalFontMetrics.default
         defaultFontSize = TerminalFontMetrics.clamp(storedFont)
         // Reflect the real system state (property observers don't fire in init).
