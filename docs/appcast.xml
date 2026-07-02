@@ -3,6 +3,22 @@
     <channel>
         <title>SSH Tunnel Manager</title>
         <item>
+            <title>1.9.18</title>
+            <pubDate>Wed, 01 Jul 2026 19:41:21 -0500</pubDate>
+            <sparkle:version>28</sparkle:version>
+            <sparkle:shortVersionString>1.9.18</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH-Tunnel-Manager-1.9.18-28.zip" length="5082238" type="application/octet-stream" sparkle:edSignature="uy0w1itp3DkmJ76VbUkKDrAXrVkOJ1VELsVBHL2eTp4BKdY3Kkln0EuhdhFBKrNaMaNQwA3fy2nKi5lNFjCwDg=="/>
+            <sparkle:deltas>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager28-27.delta" sparkle:deltaFrom="27" length="414882" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="YZBS/RoAiwPtHNrBPplcboj9WMZhRjZDzwNRdBqEGPmGLQmYSxLXZJsHkccsPA4Oe2URCqg4RUtFDEzvxH5oBA=="/>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager28-26.delta" sparkle:deltaFrom="26" length="546614" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="dS0Ds+FhERyHCoaK+rxJ+voGpe6JR+sIjCfYjURPHZP+AiIb2q1M61yHvNr3HLmfx7N6Oe79zHqzrHBDU0ToBQ=="/>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager28-25.delta" sparkle:deltaFrom="25" length="784554" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="G10o96zMasCtebIDJKZHp9oZyB0IJ1shSurfDHYzmaO8M7/PK2gc7UKF+xJ0vnBnLt8ZKyoTab+5AyDF145yCw=="/>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager28-24.delta" sparkle:deltaFrom="24" length="938510" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="d3WmPw7pXXe/QWXXulVd9FVVwFIq7rHWY5pD8JX+8RTuIZfkyRFjGQc13BQkLzAg/+nowCBXvc4j8UcEQ9QeDA=="/>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager28-23.delta" sparkle:deltaFrom="23" length="1573058" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="XIw3VHsXUX1P+lt2b7gmqlqnzm87wgJdWxPGkRQOOlnV/egoCCfUpwQ3dw1PXGzaeg+6WeLcx6cfYiQK11EkAA=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>1.9.17</title>
             <pubDate>Wed, 01 Jul 2026 18:58:34 -0500</pubDate>
             <sparkle:version>27</sparkle:version>
@@ -32,22 +48,6 @@
                 <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager26-23.delta" sparkle:deltaFrom="23" length="1490438" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="lIw2VmkOehJvVQyneJQSzoUlNjyGROSDrXGXYFeDzaIFvONzOm9Q0d27N0RfdbqKICszYcyhTHBUqK8nM0S4Bw=="/>
                 <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager26-22.delta" sparkle:deltaFrom="22" length="1523450" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="A2aTYeSyBhfVWq8bLz8OFE8Y5I7dmXIImym3E4jxxK2x/OGd35f414NtXd12fnsmIr21z8EC6exCSGGACpJVCQ=="/>
                 <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager26-21.delta" sparkle:deltaFrom="21" length="1533122" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="aWe51m/9sSCXC7vWDRUZi5KrQZfNef/CYZuuBKWlPogIW1F4W1P0IHXYkh2o4sWFSP1EwRGg9igrq1mz3Xp6Dw=="/>
-            </sparkle:deltas>
-        </item>
-        <item>
-            <title>1.9.15</title>
-            <pubDate>Mon, 29 Jun 2026 20:26:52 -0500</pubDate>
-            <sparkle:version>25</sparkle:version>
-            <sparkle:shortVersionString>1.9.15</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH-Tunnel-Manager-1.9.15-25.zip" length="4737929" type="application/octet-stream" sparkle:edSignature="0lUoHctn5M7RcQV+p072rhRabMcT/AcY8PLpu8+sWwm2PxbvfKAQVzSEw6+hqwJ7EQEsYrAYtAbcV/T+CU8NBw=="/>
-            <sparkle:deltas>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager25-24.delta" sparkle:deltaFrom="24" length="565458" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="PJrDnlBmvuWYCeEZ5Ud02QANd3txcyLaKfOTP4gT5mdMNHtHcEtgmjShd6t1OIKgcAcu7GjMNJz0IRVyoh9xDA=="/>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager25-23.delta" sparkle:deltaFrom="23" length="1219582" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="TV44aO+aMGcIS60AjZPKPoD2k4Ve8BAi/mAvk/lFTNlurhzymV3sNUqAG190FvNqfBPBexVIg2oYq+i2803UDQ=="/>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager25-22.delta" sparkle:deltaFrom="22" length="1264826" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="sOhVykW2An4G6UZH+eR5rksmE8WRd2dMuaGVC3qpWlE0RwVsf1h3Ud2UCyqeR4Rd+7zFjyRl8pou+YfiNJFHBg=="/>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager25-21.delta" sparkle:deltaFrom="21" length="1266618" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="j6av4MliKFo2MDVX3yLlDMjKM1X6MJKH248g5q8Rt1DZofoWQCg1Fq31qHggkOuOXByuig08giVzOESF30URCA=="/>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH%20Tunnel%20Manager25-20.delta" sparkle:deltaFrom="20" length="1346982" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="QWRs9OYmpdZh56Os1/GKGiWw4aOyTEmTDyweTO9uhAvMRs4Qw5XcVI7/GZTPMdMiVOoHyHGy9Z2zMjQPzKf+BA=="/>
             </sparkle:deltas>
         </item>
     </channel>
