@@ -51,10 +51,30 @@ extension String.Encoding {
     }
 }
 
+/// The find / replace operations the editor tab drives, independent of which
+/// engine renders the text. Both the classic `EditorEngine` (over `NSTextView`)
+/// and the Scintilla coordinator implement this, so the tab's Find bar works the
+/// same regardless of the active editor.
+protocol EditorFindProvider: AnyObject {
+    func find(_ query: String, caseSensitive: Bool, regex: Bool, wholeWord: Bool,
+              forward: Bool) -> (found: Bool, index: Int, total: Int)
+    func count(_ query: String, caseSensitive: Bool, regex: Bool, wholeWord: Bool) -> Int
+    func replaceCurrent(_ query: String, with replacement: String, caseSensitive: Bool,
+                        regex: Bool, wholeWord: Bool) -> Bool
+    func replaceAll(_ query: String, with replacement: String, caseSensitive: Bool,
+                    regex: Bool, wholeWord: Bool) -> Int
+}
+
+/// Drives Scintilla compare-mode navigation from the toolbar. The Scintilla
+/// coordinator implements this while a comparison is on screen.
+protocol EditorCompareControl: AnyObject {
+    func compareGoToChange(_ direction: Int)
+}
+
 /// Bridges the SwiftUI/model world to the live `NSTextView`. The view layer sets
 /// `textView`; the model calls these methods to read text and drive find/replace
 /// and navigation without importing any AppKit view code itself.
-final class EditorEngine {
+final class EditorEngine: EditorFindProvider {
     weak var textView: NSTextView?
 
     /// The full current buffer (`\n`‑delimited).
@@ -284,6 +304,55 @@ final class TextEditorModel: ObservableObject {
     let id: UUID
     let engine = EditorEngine()
 
+    /// When the Scintilla engine is on screen it registers here so the tab's
+    /// Find / Replace bar drives its native search instead of the classic
+    /// `NSTextView`. Weak: the coordinator owns its own lifetime.
+    weak var scintillaFindProvider: EditorFindProvider?
+
+    /// A pending / active side-by-side comparison against another open file.
+    /// A fresh `token` tells the Scintilla view to (re)build the diff; `nil`
+    /// means "not comparing".
+    struct CompareRequest: Equatable {
+        let token: UUID
+        let otherText: String
+        let otherName: String
+    }
+    @Published private(set) var compareRequest: CompareRequest?
+    /// True while compare mode is on screen (drives the toolbar state).
+    @Published private(set) var compareActive = false
+    /// The name of the file being compared against (for the toolbar label).
+    private(set) var compareOtherName = ""
+
+    /// The Scintilla coordinator registers here while compare mode is visible so
+    /// the toolbar's next / previous-change buttons can drive it.
+    weak var scintillaCompareControl: EditorCompareControl?
+
+    /// Begin (or refresh) a side-by-side comparison of this document against the
+    /// given text. Only meaningful while the Scintilla engine is active.
+    func beginCompare(withText text: String, name: String) {
+        compareOtherName = name
+        compareRequest = CompareRequest(token: UUID(), otherText: text, otherName: name)
+        compareActive = true
+    }
+
+    /// Leave compare mode and restore the normal editor.
+    func endCompare() {
+        compareRequest = nil
+        compareActive = false
+        compareOtherName = ""
+    }
+
+    /// Jump to the next (`+1`) or previous (`-1`) change block in compare mode.
+    func compareGoToChange(_ direction: Int) {
+        scintillaCompareControl?.compareGoToChange(direction)
+    }
+
+    /// The find / replace target for the editor currently on screen.
+    private var findProvider: EditorFindProvider {
+        if useScintillaEngine, let provider = scintillaFindProvider { return provider }
+        return engine
+    }
+
     @Published var fileURL: URL?
     @Published var language: CodeLanguage {
         didSet { if language != oldValue { languageManuallySet = true } }
@@ -294,6 +363,26 @@ final class TextEditorModel: ObservableObject {
     @Published var fontSize: Double
     @Published var lineEnding: LineEnding = .lf
     @Published var encoding: String.Encoding = .utf8
+
+    /// Beta: render this tab with the embedded Scintilla + Lexilla engine
+    /// instead of the built‑in `CodeEditorView`. Enables real code folding
+    /// (collapse / expand) for JSON, XML, and every other Lexilla language.
+    /// Persisted app‑wide so the choice sticks across tabs and launches.
+    @Published var useScintillaEngine: Bool = UserDefaults.standard.bool(forKey: "editor.useScintillaEngine") {
+        didSet {
+            UserDefaults.standard.set(useScintillaEngine, forKey: "editor.useScintillaEngine")
+        }
+    }
+
+    /// Beta: show a Notepad++‑style document map (minimap) alongside the
+    /// Scintilla editor — a zoomed‑out overview of the whole file with a
+    /// draggable viewport slider. Only meaningful while `useScintillaEngine`
+    /// is on. Persisted app‑wide so the choice sticks across tabs and launches.
+    @Published var showDocumentMap: Bool = UserDefaults.standard.bool(forKey: "editor.showDocumentMap") {
+        didSet {
+            UserDefaults.standard.set(showDocumentMap, forKey: "editor.showDocumentMap")
+        }
+    }
 
     /// The colour theme for this tab. Changing it also updates the app-wide
     /// default so the next new editor tab opens with the same theme.
@@ -572,29 +661,6 @@ final class TextEditorModel: ObservableObject {
         loadFromDisk(url)
     }
 
-    /// Open a file that was **dragged onto** the editor, after a confirmation —
-    /// mirroring Notepad++, where dropping a file opens it. Its contents replace
-    /// this tab's (guarding any unsaved changes first).
-    func openDroppedFile(_ url: URL) {
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
-              !isDir.boolValue else { return }
-        // Guard unsaved changes (Save / Don't Save / Cancel), then confirm the open.
-        guard confirmDiscardIfNeeded() else { return }
-        let alert = NSAlert()
-        alert.messageText = "Open “\(url.lastPathComponent)” here?"
-        alert.informativeText = (fileURL == nil && !isDirty)
-            ? "Its contents will load into this editor tab."
-            : "Its contents will replace what’s currently in this tab."
-        alert.addButton(withTitle: "Open")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        // A dropped local file detaches any remote‑edit link (it's a local file now).
-        remoteEdit = nil
-        remoteSyncState = .idle
-        loadFromDisk(url)
-    }
-
     // MARK: - Remote (SFTP) editing
 
     /// Turn this document into a remote (SFTP) edit: it already has `localURL`
@@ -678,31 +744,31 @@ final class TextEditorModel: ObservableObject {
 
     private func runFind(forward: Bool) {
         guard !findText.isEmpty else { findStatus = ""; return }
-        let r = engine.find(findText, caseSensitive: findCaseSensitive, regex: findUsesRegex,
-                            wholeWord: findWholeWord, forward: forward)
+        let r = findProvider.find(findText, caseSensitive: findCaseSensitive, regex: findUsesRegex,
+                                  wholeWord: findWholeWord, forward: forward)
         findStatus = r.found ? "\(r.index) of \(r.total)" : "Not found"
     }
 
     /// Update just the "N found" readout as the query/options change.
     func refreshFindCount() {
         guard !findText.isEmpty else { findStatus = ""; return }
-        let n = engine.count(findText, caseSensitive: findCaseSensitive, regex: findUsesRegex,
-                            wholeWord: findWholeWord)
+        let n = findProvider.count(findText, caseSensitive: findCaseSensitive, regex: findUsesRegex,
+                                   wholeWord: findWholeWord)
         findStatus = n == 0 ? "Not found" : "\(n) found"
     }
 
     func replaceCurrent() {
         guard !findText.isEmpty else { return }
-        _ = engine.replaceCurrent(findText, with: replaceText, caseSensitive: findCaseSensitive,
-                                  regex: findUsesRegex, wholeWord: findWholeWord)
+        _ = findProvider.replaceCurrent(findText, with: replaceText, caseSensitive: findCaseSensitive,
+                                        regex: findUsesRegex, wholeWord: findWholeWord)
         markDirty()
         refreshFindCount()
     }
 
     func replaceAll() {
         guard !findText.isEmpty else { return }
-        let n = engine.replaceAll(findText, with: replaceText, caseSensitive: findCaseSensitive,
-                                  regex: findUsesRegex, wholeWord: findWholeWord)
+        let n = findProvider.replaceAll(findText, with: replaceText, caseSensitive: findCaseSensitive,
+                                        regex: findUsesRegex, wholeWord: findWholeWord)
         if n > 0 { markDirty() }
         findStatus = "Replaced \(n)"
     }
@@ -730,7 +796,8 @@ final class TextEditorModel: ObservableObject {
     /// The authoritative current buffer: the live text view when mounted, else
     /// the last text mirrored from it (a backgrounded tab has no live view).
     private var currentText: String {
-        engine.textView != nil ? engine.string : pendingContent
+        if useScintillaEngine { return pendingContent }
+        return engine.textView != nil ? engine.string : pendingContent
     }
 
     /// Restore a document from its saved backup (unsaved edits or an untitled

@@ -27,24 +27,38 @@ final class HistoryTerminalView: LocalProcessTerminalView {
     /// can mount the view in its window a beat before layout gives it real bounds.
     var onLayout: (() -> Void)?
 
-    /// Whether we've registered for file drops yet (done once, lazily).
-    private var didRegisterDragTypes = false
+    /// Whether this terminal is the one currently on screen and should accept
+    /// file drops. Driven by `TerminalViewRepresentable` from the tab's
+    /// visibility. Every tab stays mounted (to keep tunnels alive), so if all of
+    /// them registered as drag destinations, a hidden tab stacked on top of the
+    /// visible one would intercept the drop — registering only the visible
+    /// terminal is what makes the path/contents popup reliably appear.
+    var acceptsFileDrops = false {
+        didSet {
+            guard acceptsFileDrops != oldValue else { return }
+            if acceptsFileDrops {
+                // Append rather than replace so any of SwiftTerm's own drag
+                // handling keeps working.
+                registerForDraggedTypes(registeredDraggedTypes + [.fileURL])
+            } else {
+                unregisterDraggedTypes()
+            }
+        }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
-            if !didRegisterDragTypes {
-                didRegisterDragTypes = true
-                // Accept file drops so dragging a file in offers to paste its
-                // path or its contents. Append rather than replace so SwiftTerm's
-                // own drag handling (text drops) keeps working.
-                registerForDraggedTypes(registeredDraggedTypes + [.fileURL])
-            }
             onAttachedToWindow?()
         }
     }
 
     // MARK: - File drop → paste path or contents
+    //
+    // Handled here in AppKit (a SwiftUI `.onDrop` never receives the drop — the
+    // terminal's NSView sits on top and AppKit resolves the drag to it first).
+    // Only the visible terminal is a registered destination (see
+    // `acceptsFileDrops`), so the drop always lands on the tab on screen.
 
     /// The files from the most recent drop, awaiting the user's menu choice.
     private var pendingDropURLs: [URL] = []
@@ -53,11 +67,22 @@ final class HistoryTerminalView: LocalProcessTerminalView {
     /// stray drop of a huge file can't silently flood the terminal.
     private static let largeContentsPasteThreshold = 100 * 1024
 
-    /// File URLs on the drag pasteboard, if any.
+    /// File URLs on the drag pasteboard, if any. Tries file-URL-only first, then
+    /// falls back to reading any URLs and keeping the file ones — some drag
+    /// sources (e.g. the in-app Finder tab) don't advertise the file-URL-only
+    /// flag the stricter read requires.
     private func droppedFileURLs(_ sender: NSDraggingInfo) -> [URL] {
-        sender.draggingPasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let pb = sender.draggingPasteboard
+        if let urls = pb.readObjects(forClasses: [NSURL.self],
+                                     options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           !urls.isEmpty {
+            return urls
+        }
+        if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
+            let files = urls.filter(\.isFileURL)
+            if !files.isEmpty { return files }
+        }
+        return []
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {

@@ -20,10 +20,6 @@ final class CodeTextView: NSTextView {
     /// resize the companion `GutterView`).
     var onGutterWidthChange: (() -> Void)?
 
-    /// Called with a file dropped onto the editor, so the model can offer to open
-    /// it (Notepad++‑style). Set by the coordinator; see the drag overrides below.
-    var onFileDropped: ((URL) -> Void)?
-
     let gutterSidePadding: CGFloat = 7
 
     /// The width reserved for the gutter (0 when line numbers are hidden).
@@ -44,42 +40,6 @@ final class CodeTextView: NSTextView {
         invalidateTextContainerOrigin()
         needsDisplay = true
         onGutterWidthChange?()
-    }
-
-    // MARK: Drag‑to‑open
-
-    /// The regular (non‑directory) file URLs currently being dragged, if any.
-    private static func droppableFileURLs(_ sender: NSDraggingInfo) -> [URL] {
-        let opts: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                                         options: opts) as? [URL] ?? []
-        return urls.filter { url in
-            var isDir: ObjCBool = false
-            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && !isDir.boolValue
-        }
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        Self.droppableFileURLs(sender).isEmpty ? super.draggingEntered(sender) : .copy
-    }
-
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        Self.droppableFileURLs(sender).isEmpty ? super.draggingUpdated(sender) : .copy
-    }
-
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        Self.droppableFileURLs(sender).isEmpty ? super.prepareForDragOperation(sender) : true
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        // Intercept a dropped file to *open* it, rather than let the text view
-        // insert its path as text. Defer so the drag session finishes first.
-        guard let first = Self.droppableFileURLs(sender).first else {
-            return super.performDragOperation(sender)
-        }
-        let handler = onFileDropped
-        DispatchQueue.main.async { handler?(first) }
-        return true
     }
 }
 
@@ -227,13 +187,6 @@ struct CodeEditorView: NSViewRepresentable {
         textView.insertionPointColor = .controlAccentColor
         textView.usesFindBar = false
         textView.showsLineNumbers = model.showLineNumbers
-
-        // Accept a dragged file so it can be opened (in addition to the text
-        // view's own drag types), routed to the model's confirm‑and‑open flow.
-        textView.registerForDraggedTypes(textView.registeredDraggedTypes + [.fileURL])
-        textView.onFileDropped = { [weak model = self.model] url in
-            model?.openDroppedFile(url)
-        }
 
         textView.delegate = context.coordinator
         textStorage.delegate = context.coordinator

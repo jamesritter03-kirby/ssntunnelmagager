@@ -32,9 +32,11 @@ struct ContentView: View {
                 }
             )
             .navigationSplitViewColumnWidth(min: 250, ideal: 290, max: 420)
+            .modifier(RemoveDefaultSidebarToggle())
         } detail: {
             TerminalAreaView()
                 .navigationTitle("SSH Tunnel Manager")
+                .modifier(ReliableSidebarToggleToolbar())
         }
         .background(WindowAccessor())
         .sheet(item: $editingProfile) { profile in
@@ -85,6 +87,49 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { editCoordinator.cancelQuit() }
         } message: {
             Text("If you don't save, the changes you made to this profile will be lost.")
+        }
+    }
+}
+
+// MARK: - Reliable sidebar toggle
+//
+// `NavigationSplitView` auto-injects a show/hide-sidebar button into the toolbar,
+// but AppKit sometimes drops it (e.g. after the sidebar is collapsed by dragging
+// or a sheet is dismissed) — leaving the View-menu item (⌃⌘S) as the only way
+// back. On macOS 14.5+ we remove that unreliable system button and supply our
+// own, driven by the same `SidebarModel` state as the menu item, so it's always
+// present and never duplicated. Older systems keep the system button unchanged.
+
+/// Removes the automatically-generated sidebar toggle from the sidebar column
+/// (macOS 14.5+), so it can't be shown alongside our custom one below.
+private struct RemoveDefaultSidebarToggle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14.5, *) {
+            content.toolbar(removing: .sidebarToggle)
+        } else {
+            content
+        }
+    }
+}
+
+/// Adds an always-present sidebar toggle to the detail column's leading toolbar
+/// area (macOS 14.5+). Living in the detail toolbar — which never collapses —
+/// means it can't disappear the way the sidebar-owned system button does.
+private struct ReliableSidebarToggleToolbar: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14.5, *) {
+            content.toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Button {
+                        SidebarModel.shared.toggle()
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                    }
+                    .help("Show or hide the sidebar (⌃⌘S)")
+                }
+            }
+        } else {
+            content
         }
     }
 }

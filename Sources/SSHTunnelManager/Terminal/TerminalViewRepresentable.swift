@@ -7,12 +7,16 @@ import SwiftTerm
 /// the running process — important for keeping tunnels alive while switching tabs.
 struct TerminalViewRepresentable: NSViewRepresentable {
     let session: TerminalSession
+    /// Whether this terminal is the one currently on screen. Only the visible
+    /// terminal registers as a file-drop destination, so drops don't get
+    /// intercepted by a mounted-but-hidden tab stacked on top of it.
+    var isActive: Bool = true
 
     func makeNSView(context: Context) -> HistoryTerminalView {
         session.terminalView
     }
 
     func updateNSView(_ nsView: HistoryTerminalView, context: Context) {
-        // Nothing to update; the session owns and configures the view.
+        nsView.acceptsFileDrops = isActive
     }
 }

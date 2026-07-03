@@ -132,9 +132,17 @@ private struct DetailAreaView: View {
                         : centerIDs.first?.id
                     ZStack {
                         ForEach(sessions.centerSessions) { session in
-                            TerminalContainer(session: session)
+                            TerminalContainer(session: session,
+                                              isVisible: session.id == shownID)
                                 .opacity(session.id == shownID ? 1 : 0)
                                 .allowsHitTesting(session.id == shownID)
+                                // Keep the visible tab topmost. Every tab stays
+                                // mounted (to keep processes alive) and stacks
+                                // here; without this the visible one may sit
+                                // *under* a hidden sibling, which — while it lets
+                                // mouse clicks pass through — still blocks file
+                                // drops from reaching the terminal below it.
+                                .zIndex(session.id == shownID ? 1 : 0)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1724,6 +1732,10 @@ private struct TerminalTile: View {
 struct TerminalContainer: View {
     @ObservedObject var session: TerminalSession
     @EnvironmentObject var sessions: TerminalSessionManager
+    /// Whether this container is the one visible on screen. Passed to the
+    /// terminal so only the visible tab accepts file drops (the center area
+    /// keeps every tab mounted and stacked).
+    var isVisible: Bool = true
 
     var body: some View {
         if session.kind == .sftp {
@@ -1747,7 +1759,7 @@ struct TerminalContainer: View {
 
     private var terminal: some View {
         ZStack(alignment: .top) {
-            TerminalViewRepresentable(session: session)
+            TerminalViewRepresentable(session: session, isActive: isVisible)
                 .id(session.id)
 
             if !session.isRunning {

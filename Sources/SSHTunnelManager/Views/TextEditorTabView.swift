@@ -7,6 +7,7 @@ import AppKit
 struct TextEditorTabView: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var model: TextEditorModel
+    @EnvironmentObject var sessions: TerminalSessionManager
 
     init(session: TerminalSession) {
         self.session = session
@@ -31,8 +32,14 @@ struct TextEditorTabView: View {
             // sizes its `VStack`/`ZStack` from child ideals) balloons past the
             // window, covering the tab bar and scrolling typed text out of view.
             GeometryReader { geo in
-                CodeEditorView(model: model)
-                    .frame(width: geo.size.width, height: geo.size.height)
+                Group {
+                    if model.useScintillaEngine {
+                        ScintillaEditorView(model: model)
+                    } else {
+                        CodeEditorView(model: model)
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
@@ -136,6 +143,58 @@ struct TextEditorTabView: View {
 
             Divider().frame(height: 18)
 
+            toggleButton("chevron.left.forwardslash.chevron.right", "Folding Engine",
+                         isOn: model.useScintillaEngine,
+                         help: "Scintilla engine (beta): code folding for JSON, XML, and more") {
+                model.useScintillaEngine.toggle()
+            }
+
+            if model.useScintillaEngine {
+                toggleButton("map", "Document Map",
+                             isOn: model.showDocumentMap,
+                             help: "Show a document map (minimap) of the whole file") {
+                    model.showDocumentMap.toggle()
+                }
+
+                if model.compareActive {
+                    toolButton("chevron.up", "Previous Change", help: "Previous change") {
+                        model.compareGoToChange(-1)
+                    }
+                    toolButton("chevron.down", "Next Change", help: "Next change") {
+                        model.compareGoToChange(1)
+                    }
+                    Button(action: { model.endCompare() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .frame(width: 22, height: 20)
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Exit compare (\(model.compareOtherName))")
+                    .accessibilityLabel("Exit Compare")
+                } else {
+                    Menu {
+                        if otherEditorSessions.isEmpty {
+                            Text("No other open files")
+                        } else {
+                            ForEach(otherEditorSessions, id: \.id) { other in
+                                Button(other.textEditorModel?.displayName ?? "Untitled") {
+                                    startCompare(with: other)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.left.arrow.right")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Compare with another open file")
+                    .accessibilityLabel("Compare")
+                }
+            }
+
+            Divider().frame(height: 18)
+
             toolButton("minus.magnifyingglass", "Smaller", help: "Decrease font size") {
                 model.decreaseFont()
             }
@@ -175,6 +234,19 @@ struct TextEditorTabView: View {
         .buttonStyle(.borderless)
         .help(help)
         .accessibilityLabel(title)
+    }
+
+    /// Other open text-editor tabs, eligible as the right-hand side of a compare.
+    private var otherEditorSessions: [TerminalSession] {
+        sessions.sessions.filter {
+            $0.kind == .editor && $0.id != session.id && $0.textEditorModel != nil
+        }
+    }
+
+    /// Begin comparing this document against another open file's current text.
+    private func startCompare(with other: TerminalSession) {
+        guard let target = other.textEditorModel else { return }
+        model.beginCompare(withText: target.pendingContent, name: target.displayName)
     }
 
     // MARK: - Find / replace bar
