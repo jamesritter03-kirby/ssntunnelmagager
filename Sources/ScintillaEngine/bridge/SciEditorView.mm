@@ -34,6 +34,17 @@ static sptr_t SciColourFromNSColor(NSColor *color) {
     return (sptr_t)(r | (g << 8) | (b << 16));
 }
 
+/// True for the bracket characters Scintilla's brace matcher understands.
+static BOOL sci_isBrace(char c) {
+    return c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}';
+}
+
+/// True for bytes that make up an identifier-ish word (ASCII letters/digits/_).
+static BOOL sci_isWordByte(char c) {
+    return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+           (c >= 'a' && c <= 'z') || c == '_';
+}
+
 /// A top-left-origin container so document-map line math reads naturally
 /// (y increases downward, matching Scintilla's line ordering).
 @interface SciFlippedView : NSView
@@ -52,6 +63,11 @@ enum {
     kCmpMarkFiller = 3
 };
 static const int kCmpIndic = 8;
+
+// Main-editor decorations.
+static const int kOccurIndic = 9;      // highlight of every occurrence of the selection
+static const int kBookmarkMarker = 2;  // bookmark marker slot
+static const int kSymbolMargin = 1;    // margin hosting bookmarks + the change-history bar
 
 @class SciEditorView;
 
@@ -73,6 +89,11 @@ static const int kCmpIndic = 8;
 - (void)refreshMapViewport;
 // Private compare helper (implemented in the "Compare" section).
 - (void)sci_compareNotification:(SCNotification *)notification fromTag:(NSInteger)tag;
+// Private view-option helpers (implemented in the "View options" section).
+- (void)sci_applyChangeHistoryOption;
+- (void)sci_updateSymbolMargin;
+// Private context-menu helper (implemented in the "Context menu" section).
+- (void)sci_installContextMenu;
 @end
 
 @implementation SciEditorView {
@@ -117,6 +138,17 @@ static const int kCmpIndic = 8;
     NSArray<NSNumber *> *_cmpBlockStarts;
     sptr_t _cmpAdded, _cmpDeleted, _cmpChanged, _cmpFiller;
     BOOL _hasCompareColors;
+
+    // View options / smart-editing state.
+    BOOL _changeHistoryOn;
+    sptr_t _occurrenceColor;
+    BOOL _hasOccurrenceColor;
+
+    // Right-click menu: comment delimiters for the active language, pushed by
+    // the host (empty strings when the language has no comment syntax).
+    NSString *_commentLinePrefix;
+    NSString *_commentBlockStart;
+    NSString *_commentBlockEnd;
 }
 
 #pragma mark Lifecycle
@@ -137,6 +169,11 @@ static const int kCmpIndic = 8;
     return self;
 }
 
+- (void)dealloc {
+    // We register for the compare panes' clip-view scroll notifications.
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
 - (void)sci_setup {
     _scintilla = [[ScintillaView alloc] initWithFrame:self.bounds];
     _scintilla.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -155,6 +192,35 @@ static const int kCmpIndic = 8;
     [self setFoldingEnabled:YES];
 
     _scintilla.editable = YES;
+
+    // Multiple cursors + Option-drag rectangular (column) selection.
+    [self sci_message:SCI_SETMULTIPLESELECTION wparam:1 lparam:0];
+    [self sci_message:SCI_SETADDITIONALSELECTIONTYPING wparam:1 lparam:0];
+    [self sci_message:SCI_SETRECTANGULARSELECTIONMODIFIER wparam:SCMOD_ALT lparam:0];
+
+    // Translucent “highlight every occurrence of the selection” indicator.
+    [self sci_message:SCI_INDICSETSTYLE wparam:(uptr_t)kOccurIndic lparam:INDIC_STRAIGHTBOX];
+    [self sci_message:SCI_INDICSETALPHA wparam:(uptr_t)kOccurIndic lparam:60];
+    [self sci_message:SCI_INDICSETOUTLINEALPHA wparam:(uptr_t)kOccurIndic lparam:130];
+    [self sci_message:SCI_INDICSETUNDER wparam:(uptr_t)kOccurIndic lparam:1];
+
+    // Symbol margin (index 1) hosts bookmarks and the change-history bar. It
+    // starts hidden (width 0) and is widened on demand by sci_updateSymbolMargin.
+    const sptr_t historyMask = (1 << SC_MARKNUM_HISTORY_REVERTED_TO_ORIGIN) |
+                               (1 << SC_MARKNUM_HISTORY_SAVED) |
+                               (1 << SC_MARKNUM_HISTORY_MODIFIED) |
+                               (1 << SC_MARKNUM_HISTORY_REVERTED_TO_MODIFIED);
+    [self sci_message:SCI_SETMARGINTYPEN wparam:kSymbolMargin lparam:SC_MARGIN_SYMBOL];
+    [self sci_message:SCI_SETMARGINMASKN wparam:kSymbolMargin lparam:(sptr_t)((1 << kBookmarkMarker) | historyMask)];
+    [self sci_message:SCI_SETMARGINWIDTHN wparam:kSymbolMargin lparam:0];
+    [self sci_message:SCI_SETMARGINSENSITIVEN wparam:kSymbolMargin lparam:1];
+    [self sci_message:SCI_MARKERDEFINE wparam:(uptr_t)kBookmarkMarker lparam:SC_MARK_BOOKMARK];
+
+    // Editor right-click menu (clipboard + relevant code commands).
+    _commentLinePrefix = @"";
+    _commentBlockStart = @"";
+    _commentBlockEnd = @"";
+    [self sci_installContextMenu];
 
     // Document-map defaults (the map view itself is created lazily on show).
     _mapWidth = 128.0;
@@ -184,6 +250,12 @@ static const int kCmpIndic = 8;
     // A freshly loaded document is clean with no undo history.
     [self sci_message:SCI_EMPTYUNDOBUFFER wparam:0 lparam:0];
     [self sci_message:SCI_SETSAVEPOINT wparam:0 lparam:0];
+    // (Re)establish change-history tracking against this clean baseline. Scintilla
+    // only creates the tracking object while the undo buffer is empty, so this is
+    // the one safe moment: doing it here lets the bar be toggled on later even
+    // after edits, and resets any stale history from a previous document.
+    [self sci_message:SCI_SETCHANGEHISTORY wparam:SC_CHANGE_HISTORY_DISABLED lparam:0];
+    [self sci_applyChangeHistoryOption];
     if (_foldingEnabled) {
         [self sci_message:SCI_COLOURISE wparam:0 lparam:-1];
     }
@@ -1060,6 +1132,23 @@ static const int kFoldMarkers[] = {
 
     [self sci_configureCompareView:_cmpLeft];
     [self sci_configureCompareView:_cmpRight];
+
+    // Pixel-perfect synchronized scrolling: observe each pane's clip view and
+    // mirror its vertical scroll offset onto the other, frame by frame. This
+    // tracks smooth / momentum trackpad scrolling exactly, unlike Scintilla's
+    // whole-line scroll notifications (which snap to integer lines and can drift
+    // a line out of alignment). ScintillaCocoa observes the same clip view via
+    // its own scrollerAction: -> UpdateForScroll(), so mirroring one pane keeps
+    // that pane's internal top line consistent (used by next / previous change).
+    for (ScintillaView *v in @[_cmpLeft, _cmpRight]) {
+        NSClipView *clip = v.scrollView.contentView;
+        clip.postsBoundsChangedNotifications = YES;
+        [[NSNotificationCenter defaultCenter]
+            addObserver:self
+               selector:@selector(sci_compareClipViewDidScroll:)
+                   name:NSViewBoundsDidChangeNotification
+                 object:clip];
+    }
 }
 
 /// Loads one side's text, then applies its line numbers, diff markers, and
@@ -1233,19 +1322,450 @@ static const int kFoldMarkers[] = {
     _syncingCompare = NO;
 }
 
-/// Forwarded by the per-pane observers: mirror one pane's scroll to the other.
+/// Retained so the compare panes have a delegate; scroll syncing now happens in
+/// sci_compareClipViewDidScroll: below via pixel-level clip-view observation.
 - (void)sci_compareNotification:(SCNotification *)notification fromTag:(NSInteger)tag {
-    if (!_comparing || notification == NULL) { return; }
-    if (notification->nmhdr.code != SCN_UPDATEUI) { return; }
-    if ((notification->updated & (SC_UPDATE_V_SCROLL | SC_UPDATE_H_SCROLL)) == 0) { return; }
-    if (_syncingCompare) { return; }
+    (void)notification;
+    (void)tag;
+}
+
+/// Mirrors one compare pane's vertical scroll offset onto the other, exactly, as
+/// the user scrolls. The two panes share identical geometry (same font, line
+/// height and aligned row count), so copying the clip view's y origin keeps them
+/// perfectly locked. Horizontal offset is left independent because the two sides
+/// have different line lengths. Convergence (the equal-origin check) prevents a
+/// feedback loop: once the partner matches, its own notification is a no-op.
+- (void)sci_compareClipViewDidScroll:(NSNotification *)note {
+    if (!_comparing || _syncingCompare) { return; }
+
+    NSClipView *srcClip = (NSClipView *)note.object;
+    ScintillaView *dst = nil;
+    if (srcClip == _cmpLeft.scrollView.contentView) {
+        dst = _cmpRight;
+    } else if (srcClip == _cmpRight.scrollView.contentView) {
+        dst = _cmpLeft;
+    } else {
+        return;
+    }
+
+    NSClipView *dstClip = dst.scrollView.contentView;
+    const CGFloat srcY = srcClip.bounds.origin.y;
+    const CGFloat dstY = dstClip.bounds.origin.y;
+    if (fabs(srcY - dstY) < 0.5) { return; }
 
     _syncingCompare = YES;
-    ScintillaView *src = (tag == 0) ? _cmpLeft : _cmpRight;
-    ScintillaView *dst = (tag == 0) ? _cmpRight : _cmpLeft;
-    const sptr_t fv = [src message:SCI_GETFIRSTVISIBLELINE wParam:0 lParam:0];
-    [dst message:SCI_SETFIRSTVISIBLELINE wParam:(uptr_t)fv lParam:0];
+    [dstClip scrollToPoint:NSMakePoint(dstClip.bounds.origin.x, srcY)];
+    [dst.scrollView reflectScrolledClipView:dstClip];
     _syncingCompare = NO;
+}
+
+#pragma mark View options
+
+- (void)setCurrentLineHighlight:(BOOL)visible color:(NSColor *)color {
+    [self sci_message:SCI_SETCARETLINEVISIBLE wparam:(uptr_t)(visible ? 1 : 0) lparam:0];
+    if (visible) {
+        [self sci_message:SCI_SETCARETLINELAYER wparam:SC_LAYER_UNDER_TEXT lparam:0];
+        [self sci_message:SCI_SETCARETLINEBACK wparam:(uptr_t)SciColourFromNSColor(color) lparam:0];
+        [self sci_message:SCI_SETCARETLINEBACKALPHA wparam:36 lparam:0];
+    }
+}
+
+- (void)setIndentationGuidesVisible:(BOOL)visible {
+    [self sci_message:SCI_SETINDENTATIONGUIDES wparam:(uptr_t)(visible ? SC_IV_LOOKBOTH : SC_IV_NONE) lparam:0];
+}
+
+- (void)setWhitespaceVisible:(BOOL)visible color:(NSColor *)color {
+    [self sci_message:SCI_SETVIEWWS wparam:(uptr_t)(visible ? SCWS_VISIBLEALWAYS : SCWS_INVISIBLE) lparam:0];
+    [self sci_message:SCI_SETWHITESPACEFORE wparam:1 lparam:SciColourFromNSColor(color)];
+}
+
+- (void)setRulerColumn:(NSInteger)column visible:(BOOL)visible color:(NSColor *)color {
+    [self sci_message:SCI_SETEDGECOLUMN wparam:(uptr_t)column lparam:0];
+    [self sci_message:SCI_SETEDGECOLOUR wparam:(uptr_t)SciColourFromNSColor(color) lparam:0];
+    [self sci_message:SCI_SETEDGEMODE wparam:(uptr_t)(visible ? EDGE_LINE : EDGE_NONE) lparam:0];
+}
+
+- (void)setChangeHistoryVisible:(BOOL)visible {
+    _changeHistoryOn = visible;
+    // History marker colours (idempotent; markers 21-24 default to a Bar symbol).
+    const sptr_t saved = SciColourFromNSColor([NSColor systemGreenColor]);
+    const sptr_t modified = SciColourFromNSColor([NSColor systemOrangeColor]);
+    const sptr_t reverted = SciColourFromNSColor([NSColor systemTealColor]);
+    for (int m = SC_MARKNUM_HISTORY_REVERTED_TO_ORIGIN; m <= SC_MARKNUM_HISTORY_REVERTED_TO_MODIFIED; m++) {
+        const sptr_t c = (m == SC_MARKNUM_HISTORY_SAVED) ? saved
+                       : (m == SC_MARKNUM_HISTORY_MODIFIED) ? modified : reverted;
+        [self sci_message:SCI_MARKERSETFORE wparam:(uptr_t)m lparam:c];
+        [self sci_message:SCI_MARKERSETBACK wparam:(uptr_t)m lparam:c];
+    }
+    // Keep tracking alive; only flip the marker display + margin width. Fully
+    // disabling would discard the tracking object and break re-enabling after
+    // edits (Scintilla only recreates it while the undo buffer is empty).
+    [self sci_applyChangeHistoryOption];
+    [self sci_updateSymbolMargin];
+}
+
+/// Pushes the current change-history option. Tracking (the ENABLED bit) is kept
+/// on whenever a clean baseline exists so the bar can be toggled at any time;
+/// the MARKERS bit follows the visible flag.
+- (void)sci_applyChangeHistoryOption {
+    uptr_t opt = SC_CHANGE_HISTORY_ENABLED;
+    if (_changeHistoryOn) { opt |= SC_CHANGE_HISTORY_MARKERS; }
+    [self sci_message:SCI_SETCHANGEHISTORY wparam:opt lparam:0];
+}
+
+- (void)setOccurrenceHighlightColor:(NSColor *)color {
+    _occurrenceColor = SciColourFromNSColor(color);
+    _hasOccurrenceColor = YES;
+    [self sci_message:SCI_INDICSETFORE wparam:(uptr_t)kOccurIndic lparam:_occurrenceColor];
+}
+
+- (void)setBraceColorsMatch:(NSColor *)match mismatch:(NSColor *)mismatch {
+    [self sci_message:SCI_STYLESETFORE wparam:STYLE_BRACELIGHT lparam:SciColourFromNSColor(match)];
+    [self sci_message:SCI_STYLESETFORE wparam:STYLE_BRACEBAD lparam:SciColourFromNSColor(mismatch)];
+}
+
+- (void)setBookmarkColor:(NSColor *)color {
+    const sptr_t c = SciColourFromNSColor(color);
+    [self sci_message:SCI_MARKERSETFORE wparam:(uptr_t)kBookmarkMarker lparam:c];
+    [self sci_message:SCI_MARKERSETBACK wparam:(uptr_t)kBookmarkMarker lparam:c];
+}
+
+/// Widens the symbol margin when the change-history bar is on or any bookmark
+/// exists, and hides it otherwise.
+- (void)sci_updateSymbolMargin {
+    const sptr_t anyBookmark = [self sci_message:SCI_MARKERNEXT wparam:0 lparam:(1 << kBookmarkMarker)];
+    const BOOL need = _changeHistoryOn || (anyBookmark >= 0);
+    [self sci_message:SCI_SETMARGINWIDTHN wparam:kSymbolMargin lparam:(need ? 18 : 0)];
+}
+
+#pragma mark Smart editing (brace match + occurrence highlight)
+
+/// Highlights the bracket at/next to the caret and its partner (or flags an
+/// unmatched bracket). Driven from SCN_UPDATEUI.
+- (void)sci_updateBraceMatch {
+    const sptr_t pos = [self sci_message:SCI_GETCURRENTPOS wparam:0 lparam:0];
+    const sptr_t len = [self sci_message:SCI_GETLENGTH wparam:0 lparam:0];
+    sptr_t bracePos = -1;
+    if (pos > 0 && sci_isBrace((char)[self sci_message:SCI_GETCHARAT wparam:(uptr_t)(pos - 1) lparam:0])) {
+        bracePos = pos - 1;
+    } else if (pos < len && sci_isBrace((char)[self sci_message:SCI_GETCHARAT wparam:(uptr_t)pos lparam:0])) {
+        bracePos = pos;
+    }
+    if (bracePos >= 0) {
+        const sptr_t match = [self sci_message:SCI_BRACEMATCH wparam:(uptr_t)bracePos lparam:0];
+        if (match >= 0) {
+            [self sci_message:SCI_BRACEHIGHLIGHT wparam:(uptr_t)bracePos lparam:match];
+        } else {
+            [self sci_message:SCI_BRACEBADLIGHT wparam:(uptr_t)bracePos lparam:0];
+        }
+    } else {
+        [self sci_message:SCI_BRACEHIGHLIGHT wparam:(uptr_t)-1 lparam:-1];
+        [self sci_message:SCI_BRACEBADLIGHT wparam:(uptr_t)-1 lparam:0];
+    }
+}
+
+/// Underlines every occurrence of the selected word (single-line, word-ish,
+/// short selections only). Driven from SCN_UPDATEUI on selection/content change.
+- (void)sci_updateOccurrences {
+    if (!_hasOccurrenceColor) { return; }
+    const sptr_t docLen = [self sci_message:SCI_GETLENGTH wparam:0 lparam:0];
+    [self sci_message:SCI_SETINDICATORCURRENT wparam:(uptr_t)kOccurIndic lparam:0];
+    [self sci_message:SCI_INDICATORCLEARRANGE wparam:0 lparam:docLen];
+
+    const sptr_t s = [self sci_message:SCI_GETSELECTIONSTART wparam:0 lparam:0];
+    const sptr_t e = [self sci_message:SCI_GETSELECTIONEND wparam:0 lparam:0];
+    const sptr_t n = e - s;
+    if (n <= 1 || n > 100) { return; }
+    if ([self sci_message:SCI_LINEFROMPOSITION wparam:(uptr_t)s lparam:0] !=
+        [self sci_message:SCI_LINEFROMPOSITION wparam:(uptr_t)e lparam:0]) { return; }
+
+    char *buf = (char *)malloc((size_t)n + 1);
+    if (!buf) { return; }
+    for (sptr_t i = 0; i < n; i++) {
+        buf[i] = (char)[self sci_message:SCI_GETCHARAT wparam:(uptr_t)(s + i) lparam:0];
+        if (!sci_isWordByte(buf[i])) { free(buf); return; }
+    }
+    buf[n] = 0;
+
+    [self sci_message:SCI_SETSEARCHFLAGS wparam:(SCFIND_MATCHCASE | SCFIND_WHOLEWORD) lparam:0];
+    sptr_t pos = 0;
+    while (pos < docLen) {
+        [self sci_message:SCI_SETTARGETSTART wparam:(uptr_t)pos lparam:0];
+        [self sci_message:SCI_SETTARGETEND wparam:(uptr_t)docLen lparam:0];
+        const sptr_t f = [self sci_message:SCI_SEARCHINTARGET wparam:(uptr_t)n lparam:(sptr_t)buf];
+        if (f < 0) { break; }
+        const sptr_t ts = [self sci_message:SCI_GETTARGETSTART wparam:0 lparam:0];
+        const sptr_t te = [self sci_message:SCI_GETTARGETEND wparam:0 lparam:0];
+        [self sci_message:SCI_INDICATORFILLRANGE wparam:(uptr_t)ts lparam:(te - ts)];
+        pos = (te > ts) ? te : ts + 1;
+    }
+    free(buf);
+}
+
+#pragma mark Editing commands
+
+- (void)moveSelectedLinesUp { [self sci_message:SCI_MOVESELECTEDLINESUP wparam:0 lparam:0]; }
+- (void)moveSelectedLinesDown { [self sci_message:SCI_MOVESELECTEDLINESDOWN wparam:0 lparam:0]; }
+- (void)duplicateSelection { [self sci_message:SCI_LINEDUPLICATE wparam:0 lparam:0]; }
+- (void)deleteCurrentLine { [self sci_message:SCI_LINEDELETE wparam:0 lparam:0]; }
+
+- (void)toggleCommentLinePrefix:(NSString *)linePrefix
+                     blockStart:(NSString *)blockStart
+                       blockEnd:(NSString *)blockEnd {
+    if (linePrefix.length > 0) {
+        const char *pfx = [linePrefix UTF8String];
+        const NSInteger plen = (NSInteger)strlen(pfx);
+        const sptr_t selS = [self sci_message:SCI_GETSELECTIONSTART wparam:0 lparam:0];
+        const sptr_t selE = [self sci_message:SCI_GETSELECTIONEND wparam:0 lparam:0];
+        sptr_t l0 = [self sci_message:SCI_LINEFROMPOSITION wparam:(uptr_t)selS lparam:0];
+        sptr_t l1 = [self sci_message:SCI_LINEFROMPOSITION wparam:(uptr_t)selE lparam:0];
+        if (selE > selS && [self sci_message:SCI_GETCOLUMN wparam:(uptr_t)selE lparam:0] == 0 && l1 > l0) {
+            l1--;
+        }
+
+        BOOL all = YES, any = NO;
+        for (sptr_t l = l0; l <= l1; l++) {
+            const sptr_t ip = [self sci_message:SCI_GETLINEINDENTPOSITION wparam:(uptr_t)l lparam:0];
+            const sptr_t le = [self sci_message:SCI_GETLINEENDPOSITION wparam:(uptr_t)l lparam:0];
+            if (ip >= le) { continue; }
+            any = YES;
+            BOOL match = YES;
+            for (NSInteger k = 0; k < plen; k++) {
+                if ((char)[self sci_message:SCI_GETCHARAT wparam:(uptr_t)(ip + k) lparam:0] != pfx[k]) {
+                    match = NO; break;
+                }
+            }
+            if (!match) { all = NO; break; }
+        }
+        if (!any) { return; }
+
+        [self sci_message:SCI_BEGINUNDOACTION wparam:0 lparam:0];
+        for (sptr_t l = l1; l >= l0; l--) {
+            const sptr_t ip = [self sci_message:SCI_GETLINEINDENTPOSITION wparam:(uptr_t)l lparam:0];
+            const sptr_t le = [self sci_message:SCI_GETLINEENDPOSITION wparam:(uptr_t)l lparam:0];
+            if (ip >= le) { continue; }
+            if (all) {
+                NSInteger rem = plen;
+                if ((char)[self sci_message:SCI_GETCHARAT wparam:(uptr_t)(ip + plen) lparam:0] == ' ') { rem++; }
+                [self sci_message:SCI_DELETERANGE wparam:(uptr_t)ip lparam:rem];
+            } else {
+                NSString *ins = [linePrefix stringByAppendingString:@" "];
+                [self sci_message:SCI_INSERTTEXT wparam:(uptr_t)ip lparam:(sptr_t)[ins UTF8String]];
+            }
+        }
+        [self sci_message:SCI_ENDUNDOACTION wparam:0 lparam:0];
+    } else if (blockStart.length > 0 && blockEnd.length > 0) {
+        const sptr_t selS = [self sci_message:SCI_GETSELECTIONSTART wparam:0 lparam:0];
+        const sptr_t selE = [self sci_message:SCI_GETSELECTIONEND wparam:0 lparam:0];
+        if (selS == selE) { return; }
+        [self sci_message:SCI_BEGINUNDOACTION wparam:0 lparam:0];
+        [self sci_message:SCI_INSERTTEXT wparam:(uptr_t)selE lparam:(sptr_t)[blockEnd UTF8String]];
+        [self sci_message:SCI_INSERTTEXT wparam:(uptr_t)selS lparam:(sptr_t)[blockStart UTF8String]];
+        [self sci_message:SCI_ENDUNDOACTION wparam:0 lparam:0];
+    }
+}
+
+- (void)selectNextOccurrence {
+    const sptr_t main = [self sci_message:SCI_GETMAINSELECTION wparam:0 lparam:0];
+    const sptr_t s = [self sci_message:SCI_GETSELECTIONNSTART wparam:(uptr_t)main lparam:0];
+    const sptr_t e = [self sci_message:SCI_GETSELECTIONNEND wparam:(uptr_t)main lparam:0];
+    if (s == e) {
+        const sptr_t pos = [self sci_message:SCI_GETCURRENTPOS wparam:0 lparam:0];
+        const sptr_t ws = [self sci_message:SCI_WORDSTARTPOSITION wparam:(uptr_t)pos lparam:1];
+        const sptr_t we = [self sci_message:SCI_WORDENDPOSITION wparam:(uptr_t)pos lparam:1];
+        if (we > ws) { [self sci_message:SCI_SETSELECTION wparam:(uptr_t)we lparam:ws]; }
+        return;
+    }
+    const sptr_t n = e - s;
+    if (n <= 0 || n > 512) { return; }
+    char *buf = (char *)malloc((size_t)n + 1);
+    if (!buf) { return; }
+    for (sptr_t i = 0; i < n; i++) {
+        buf[i] = (char)[self sci_message:SCI_GETCHARAT wparam:(uptr_t)(s + i) lparam:0];
+    }
+    buf[n] = 0;
+
+    const sptr_t docLen = [self sci_message:SCI_GETLENGTH wparam:0 lparam:0];
+    [self sci_message:SCI_SETSEARCHFLAGS wparam:SCFIND_MATCHCASE lparam:0];
+    [self sci_message:SCI_SETTARGETSTART wparam:(uptr_t)e lparam:0];
+    [self sci_message:SCI_SETTARGETEND wparam:(uptr_t)docLen lparam:0];
+    sptr_t f = [self sci_message:SCI_SEARCHINTARGET wparam:(uptr_t)n lparam:(sptr_t)buf];
+    if (f < 0) {
+        [self sci_message:SCI_SETTARGETSTART wparam:0 lparam:0];
+        [self sci_message:SCI_SETTARGETEND wparam:(uptr_t)s lparam:0];
+        f = [self sci_message:SCI_SEARCHINTARGET wparam:(uptr_t)n lparam:(sptr_t)buf];
+    }
+    if (f >= 0) {
+        const sptr_t ts = [self sci_message:SCI_GETTARGETSTART wparam:0 lparam:0];
+        const sptr_t te = [self sci_message:SCI_GETTARGETEND wparam:0 lparam:0];
+        [self sci_message:SCI_ADDSELECTION wparam:(uptr_t)te lparam:ts];
+        [self sci_message:SCI_SCROLLCARET wparam:0 lparam:0];
+    }
+    free(buf);
+}
+
+- (void)completeWord {
+    if ([self sci_message:SCI_AUTOCACTIVE wparam:0 lparam:0]) { return; }
+    const sptr_t pos = [self sci_message:SCI_GETCURRENTPOS wparam:0 lparam:0];
+    const sptr_t ws = [self sci_message:SCI_WORDSTARTPOSITION wparam:(uptr_t)pos lparam:1];
+    const NSInteger plen = (NSInteger)(pos - ws);
+    if (plen < 1) { return; }
+
+    NSMutableString *prefix = [NSMutableString stringWithCapacity:(NSUInteger)plen];
+    for (sptr_t i = ws; i < pos; i++) {
+        [prefix appendFormat:@"%c", (char)[self sci_message:SCI_GETCHARAT wparam:(uptr_t)i lparam:0]];
+    }
+    NSString *preLower = [prefix lowercaseString];
+
+    NSCharacterSet *wordChars = [NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"];
+    NSArray<NSString *> *tokens = [[self text] componentsSeparatedByCharactersInSet:[wordChars invertedSet]];
+    NSMutableSet<NSString *> *matches = [NSMutableSet set];
+    for (NSString *t in tokens) {
+        if (t.length > (NSUInteger)plen && [[t lowercaseString] hasPrefix:preLower] &&
+            ![t isEqualToString:prefix]) {
+            [matches addObject:t];
+        }
+    }
+    if (matches.count == 0) { return; }
+    NSArray<NSString *> *sorted = [matches.allObjects sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)];
+    NSString *list = [sorted componentsJoinedByString:@" "];
+
+    [self sci_message:SCI_AUTOCSETIGNORECASE wparam:1 lparam:0];
+    [self sci_message:SCI_AUTOCSETSEPARATOR wparam:(uptr_t)' ' lparam:0];
+    [self sci_message:SCI_AUTOCSHOW wparam:(uptr_t)plen lparam:(sptr_t)[list UTF8String]];
+}
+
+#pragma mark Bookmarks
+
+- (void)toggleBookmark {
+    const sptr_t pos = [self sci_message:SCI_GETCURRENTPOS wparam:0 lparam:0];
+    const sptr_t line = [self sci_message:SCI_LINEFROMPOSITION wparam:(uptr_t)pos lparam:0];
+    const sptr_t bits = [self sci_message:SCI_MARKERGET wparam:(uptr_t)line lparam:0];
+    if (bits & (1 << kBookmarkMarker)) {
+        [self sci_message:SCI_MARKERDELETE wparam:(uptr_t)line lparam:kBookmarkMarker];
+    } else {
+        [self sci_message:SCI_MARKERADD wparam:(uptr_t)line lparam:kBookmarkMarker];
+    }
+    [self sci_updateSymbolMargin];
+}
+
+- (void)nextBookmark {
+    const sptr_t pos = [self sci_message:SCI_GETCURRENTPOS wparam:0 lparam:0];
+    const sptr_t line = [self sci_message:SCI_LINEFROMPOSITION wparam:(uptr_t)pos lparam:0];
+    sptr_t f = [self sci_message:SCI_MARKERNEXT wparam:(uptr_t)(line + 1) lparam:(1 << kBookmarkMarker)];
+    if (f < 0) { f = [self sci_message:SCI_MARKERNEXT wparam:0 lparam:(1 << kBookmarkMarker)]; }
+    if (f >= 0) {
+        [self sci_message:SCI_GOTOLINE wparam:(uptr_t)f lparam:0];
+        [self sci_message:SCI_SCROLLCARET wparam:0 lparam:0];
+    }
+}
+
+- (void)previousBookmark {
+    const sptr_t pos = [self sci_message:SCI_GETCURRENTPOS wparam:0 lparam:0];
+    const sptr_t line = [self sci_message:SCI_LINEFROMPOSITION wparam:(uptr_t)pos lparam:0];
+    sptr_t f = -1;
+    if (line > 0) {
+        f = [self sci_message:SCI_MARKERPREVIOUS wparam:(uptr_t)(line - 1) lparam:(1 << kBookmarkMarker)];
+    }
+    if (f < 0) {
+        const sptr_t last = [self sci_message:SCI_GETLINECOUNT wparam:0 lparam:0] - 1;
+        f = [self sci_message:SCI_MARKERPREVIOUS wparam:(uptr_t)last lparam:(1 << kBookmarkMarker)];
+    }
+    if (f >= 0) {
+        [self sci_message:SCI_GOTOLINE wparam:(uptr_t)f lparam:0];
+        [self sci_message:SCI_SCROLLCARET wparam:0 lparam:0];
+    }
+}
+
+#pragma mark Context menu
+
+- (void)setCommentLinePrefix:(NSString *)linePrefix
+                  blockStart:(NSString *)blockStart
+                    blockEnd:(NSString *)blockEnd {
+    _commentLinePrefix = [linePrefix copy] ?: @"";
+    _commentBlockStart = [blockStart copy] ?: @"";
+    _commentBlockEnd = [blockEnd copy] ?: @"";
+}
+
+/// Builds the editor's right-click menu and assigns it to the Scintilla view.
+/// Items target this view; enablement is decided by -validateMenuItem:. This
+/// replaces Scintilla's built-in popup with clipboard + code-editing commands.
+/// The key equivalents are shown for discoverability (they mirror the toolbar's
+/// Actions menu); the shortcuts themselves are handled there.
+- (void)sci_installContextMenu {
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Editor"];
+    menu.autoenablesItems = YES;
+
+    NSMenuItem *(^add)(NSString *, SEL, NSString *, NSEventModifierFlags) =
+        ^NSMenuItem *(NSString *title, SEL action, NSString *key, NSEventModifierFlags mods) {
+            NSMenuItem *it = [menu addItemWithTitle:title action:action keyEquivalent:key];
+            it.keyEquivalentModifierMask = mods;
+            it.target = self;
+            return it;
+        };
+
+    add(@"Cut", @selector(sciMenuCut:), @"x", NSEventModifierFlagCommand);
+    add(@"Copy", @selector(sciMenuCopy:), @"c", NSEventModifierFlagCommand);
+    add(@"Paste", @selector(sciMenuPaste:), @"v", NSEventModifierFlagCommand);
+    [menu addItem:[NSMenuItem separatorItem]];
+    add(@"Select All", @selector(sciMenuSelectAll:), @"a", NSEventModifierFlagCommand);
+    [menu addItem:[NSMenuItem separatorItem]];
+    add(@"Toggle Comment", @selector(sciMenuToggleComment:), @"/", NSEventModifierFlagCommand);
+    [menu addItem:[NSMenuItem separatorItem]];
+    add(@"Duplicate Line", @selector(sciMenuDuplicateLine:), @"d",
+        NSEventModifierFlagCommand | NSEventModifierFlagShift);
+    add(@"Delete Line", @selector(sciMenuDeleteLine:), @"k",
+        NSEventModifierFlagCommand | NSEventModifierFlagShift);
+    NSString *upKey = [NSString stringWithFormat:@"%C", (unichar)NSUpArrowFunctionKey];
+    NSString *downKey = [NSString stringWithFormat:@"%C", (unichar)NSDownArrowFunctionKey];
+    add(@"Move Line Up", @selector(sciMenuMoveLineUp:), upKey, NSEventModifierFlagOption);
+    add(@"Move Line Down", @selector(sciMenuMoveLineDown:), downKey, NSEventModifierFlagOption);
+    [menu addItem:[NSMenuItem separatorItem]];
+    add(@"Toggle Bookmark", @selector(sciMenuToggleBookmark:), @"", 0);
+
+    _scintilla.menu = menu;
+}
+
+- (void)sciMenuCut:(id)sender { [self sci_message:SCI_CUT wparam:0 lparam:0]; }
+- (void)sciMenuCopy:(id)sender { [self sci_message:SCI_COPY wparam:0 lparam:0]; }
+- (void)sciMenuPaste:(id)sender { [self sci_message:SCI_PASTE wparam:0 lparam:0]; }
+- (void)sciMenuSelectAll:(id)sender { [self sci_message:SCI_SELECTALL wparam:0 lparam:0]; }
+- (void)sciMenuToggleComment:(id)sender {
+    [self toggleCommentLinePrefix:_commentLinePrefix
+                       blockStart:_commentBlockStart
+                         blockEnd:_commentBlockEnd];
+}
+- (void)sciMenuDuplicateLine:(id)sender { [self duplicateSelection]; }
+- (void)sciMenuDeleteLine:(id)sender { [self deleteCurrentLine]; }
+- (void)sciMenuMoveLineUp:(id)sender { [self moveSelectedLinesUp]; }
+- (void)sciMenuMoveLineDown:(id)sender { [self moveSelectedLinesDown]; }
+- (void)sciMenuToggleBookmark:(id)sender { [self toggleBookmark]; }
+
+- (BOOL)validateMenuItem:(NSMenuItem *)item {
+    const SEL action = item.action;
+    const BOOL editable = [_scintilla isEditable];
+    const BOOL hasSelection = ![self sci_message:SCI_GETSELECTIONEMPTY wparam:0 lparam:0];
+
+    if (action == @selector(sciMenuCopy:)) {
+        return hasSelection;
+    }
+    if (action == @selector(sciMenuCut:)) {
+        return editable && hasSelection;
+    }
+    if (action == @selector(sciMenuPaste:)) {
+        return editable && [self sci_message:SCI_CANPASTE wparam:0 lparam:0];
+    }
+    if (action == @selector(sciMenuToggleComment:)) {
+        return editable && (_commentLinePrefix.length > 0 || _commentBlockStart.length > 0);
+    }
+    if (action == @selector(sciMenuDuplicateLine:) ||
+        action == @selector(sciMenuDeleteLine:) ||
+        action == @selector(sciMenuMoveLineUp:) ||
+        action == @selector(sciMenuMoveLineDown:)) {
+        return editable;
+    }
+    return YES;  // Select All, Toggle Bookmark.
 }
 
 #pragma mark Introspection
@@ -1288,6 +1808,12 @@ static const int kFoldMarkers[] = {
         if (_documentMapVisible &&
             (notification->updated & (SC_UPDATE_V_SCROLL | SC_UPDATE_H_SCROLL | SC_UPDATE_SELECTION))) {
             [self refreshMapViewport];
+        }
+        if (!_comparing) {
+            [self sci_updateBraceMatch];
+            if (notification->updated & (SC_UPDATE_SELECTION | SC_UPDATE_CONTENT)) {
+                [self sci_updateOccurrences];
+            }
         }
     }
 }

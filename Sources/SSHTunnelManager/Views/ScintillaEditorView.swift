@@ -40,6 +40,7 @@ struct ScintillaEditorView: NSViewRepresentable {
         // while this view is the one on screen.
         model.scintillaFindProvider = coord
         model.scintillaCompareControl = coord
+        model.scintillaActionControl = coord
 
         // Language first (setting a lexer resets styles), then appearance,
         // then the document contents.
@@ -73,6 +74,9 @@ struct ScintillaEditorView: NSViewRepresentable {
         if coordinator.model.scintillaCompareControl === coordinator {
             coordinator.model.scintillaCompareControl = nil
         }
+        if coordinator.model.scintillaActionControl === coordinator {
+            coordinator.model.scintillaActionControl = nil
+        }
         nsView.endCompare()
         nsView.onTextChanged = nil
         nsView.onSelectionChanged = nil
@@ -92,6 +96,11 @@ struct ScintillaEditorView: NSViewRepresentable {
         private var lastLineNumbers: Bool?
         private var lastDocumentMap: Bool?
         private var lastCompareToken: UUID?
+        private var lastCurrentLine: Bool?
+        private var lastIndentGuides: Bool?
+        private var lastWhitespace: Bool?
+        private var lastRuler: Bool?
+        private var lastChangeHistory: Bool?
 
         init(model: TextEditorModel) { self.model = model }
 
@@ -113,6 +122,11 @@ struct ScintillaEditorView: NSViewRepresentable {
             if force || lastLanguage != model.language {
                 view.setLexerLanguage(ScintillaEditorView.lexerName(for: model.language))
                 lastLanguage = model.language
+                // Feed the editor's right-click "Toggle Comment" item.
+                let tokens = ScintillaEditorView.commentTokens(for: model.language)
+                view.setCommentLinePrefix(tokens.line,
+                                          blockStart: tokens.blockStart,
+                                          blockEnd: tokens.blockEnd)
                 // Assigning a lexer clears styles, so re‑apply appearance.
                 applyAppearance(force: true)
             }
@@ -121,8 +135,9 @@ struct ScintillaEditorView: NSViewRepresentable {
         func applyAppearance(force: Bool) {
             guard let view else { return }
             let theme = EditorTheme.theme(id: model.themeID)
+            let themeChanged = force || lastThemeID != model.themeID || lastFontSize != model.fontSize
 
-            if force || lastThemeID != model.themeID || lastFontSize != model.fontSize {
+            if themeChanged {
                 let fontName = NSFont.userFixedPitchFont(ofSize: CGFloat(model.fontSize))?.fontName ?? "Menlo"
                 view.setFontName(fontName, size: CGFloat(model.fontSize))
                 view.setEditorForeground(theme.foreground, background: theme.background)
@@ -130,6 +145,10 @@ struct ScintillaEditorView: NSViewRepresentable {
                 view.setGutterForeground(theme.gutterForeground, background: theme.gutterBackground)
                 view.setFoldColorsWithBackground(theme.background, marker: theme.gutterForeground)
                 view.setDocumentMapViewportColor(theme.selection)
+                // Static decoration colors (independent of the on/off flags).
+                view.setOccurrenceHighlight(theme.selection)
+                view.setBraceColorsMatch(.systemGreen, mismatch: .systemRed)
+                view.setBookmarkColor(.systemBlue)
                 Coordinator.pushTokenColors(theme: theme, to: view)
                 lastThemeID = model.themeID
                 lastFontSize = model.fontSize
@@ -145,6 +164,29 @@ struct ScintillaEditorView: NSViewRepresentable {
             if force || lastDocumentMap != model.showDocumentMap {
                 view.setDocumentMapVisible(model.showDocumentMap)
                 lastDocumentMap = model.showDocumentMap
+            }
+
+            // View options. Color-bearing flags are re-pushed on theme change so
+            // their tints track the active theme.
+            if themeChanged || lastCurrentLine != model.showCurrentLine {
+                view.setCurrentLineHighlight(model.showCurrentLine, color: theme.selection)
+                lastCurrentLine = model.showCurrentLine
+            }
+            if force || lastIndentGuides != model.showIndentGuides {
+                view.setIndentationGuidesVisible(model.showIndentGuides)
+                lastIndentGuides = model.showIndentGuides
+            }
+            if themeChanged || lastWhitespace != model.showWhitespace {
+                view.setWhitespaceVisible(model.showWhitespace, color: theme.gutterForeground)
+                lastWhitespace = model.showWhitespace
+            }
+            if themeChanged || lastRuler != model.showRuler {
+                view.setRulerColumn(80, visible: model.showRuler, color: theme.gutterForeground)
+                lastRuler = model.showRuler
+            }
+            if force || lastChangeHistory != model.showChangeHistory {
+                view.setChangeHistoryVisible(model.showChangeHistory)
+                lastChangeHistory = model.showChangeHistory
             }
         }
 
@@ -279,5 +321,48 @@ extension ScintillaEditorView.Coordinator: EditorFindProvider {
 extension ScintillaEditorView.Coordinator: EditorCompareControl {
     func compareGoToChange(_ direction: Int) {
         view?.compareStep(direction)
+    }
+}
+
+// MARK: - Smart-editing bridging
+
+/// Routes the toolbar's Actions menu and keyboard shortcuts to Scintilla's
+/// native line-editing, multi-cursor, autocomplete, and bookmark commands.
+extension ScintillaEditorView.Coordinator: EditorActionControl {
+    func moveLinesUp() { view?.moveSelectedLinesUp() }
+    func moveLinesDown() { view?.moveSelectedLinesDown() }
+    func duplicateSelection() { view?.duplicateSelection() }
+    func deleteCurrentLine() { view?.deleteCurrentLine() }
+    func toggleComment() {
+        let tokens = ScintillaEditorView.commentTokens(for: model.language)
+        view?.toggleCommentLinePrefix(tokens.line,
+                                      blockStart: tokens.blockStart,
+                                      blockEnd: tokens.blockEnd)
+    }
+    func selectNextOccurrence() { view?.selectNextOccurrence() }
+    func completeWord() { view?.completeWord() }
+    func toggleBookmark() { view?.toggleBookmark() }
+    func nextBookmark() { view?.nextBookmark() }
+    func previousBookmark() { view?.previousBookmark() }
+}
+
+extension ScintillaEditorView {
+    /// The comment delimiters for a language: a line-comment prefix, or a
+    /// block-comment pair, or neither. Used by the Toggle Comment command.
+    static func commentTokens(for language: CodeLanguage) -> (line: String, blockStart: String, blockEnd: String) {
+        switch language {
+        case .swift, .javascript, .typescript, .c, .cpp, .java, .csharp, .go, .rust, .php:
+            return ("//", "", "")
+        case .python, .yaml, .toml, .ini, .shell, .ruby:
+            return ("#", "", "")
+        case .sql:
+            return ("--", "", "")
+        case .css:
+            return ("", "/*", "*/")
+        case .html, .xml, .markdown:
+            return ("", "<!--", "-->")
+        case .json, .plainText:
+            return ("", "", "")
+        }
     }
 }

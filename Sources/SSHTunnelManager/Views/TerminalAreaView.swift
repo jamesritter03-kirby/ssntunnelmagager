@@ -1112,6 +1112,12 @@ private struct TerminalTabContextMenu: View {
     }
 
     var body: some View {
+        // Editor tabs get file-specific actions (Save, Reveal, Copy Path, …)
+        // at the top; the generic Dock / Detach / Close items follow below.
+        if session.kind == .editor, let editorModel = session.textEditorModel {
+            EditorTabContextMenu(session: session, model: editorModel)
+            Divider()
+        }
         // Snippets submenu (terminal tabs only)
         if let profile, !profile.snippets.isEmpty,
            session.kind == .ssh || session.kind == .localShell {
@@ -1267,6 +1273,109 @@ private struct TerminalTabContextMenu: View {
             onClose()
         } label: {
             Label("Close Tab", systemImage: "xmark")
+        }
+    }
+}
+
+/// The file-oriented right-click actions for a text-editor tab, prepended to the
+/// shared `TerminalTabContextMenu` for `.editor` sessions. Mirrors the editor
+/// toolbar's file commands (Save / Save As / Revert) and adds the usual Finder
+/// niceties (Reveal, Open externally, Copy Path / Name) plus a quick Compare
+/// against any other open document. Shown both on the tab chip and on a tile's
+/// header, so a tiled editor offers the same actions as its tab.
+private struct EditorTabContextMenu: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    @ObservedObject var session: TerminalSession
+    @ObservedObject var model: TextEditorModel
+
+    /// Other open editor tabs, eligible as the right-hand side of a compare.
+    private var otherEditors: [TerminalSession] {
+        sessions.sessions.filter {
+            $0.kind == .editor && $0.id != session.id && $0.textEditorModel != nil
+        }
+    }
+
+    private func copyToPasteboard(_ string: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(string, forType: .string)
+    }
+
+    var body: some View {
+        Button {
+            model.save()
+        } label: {
+            Label("Save", systemImage: "square.and.arrow.down")
+        }
+        .disabled(model.fileURL != nil && !model.isDirty)
+
+        Button {
+            model.saveAs()
+        } label: {
+            Label("Save As…", systemImage: "square.and.arrow.down.on.square")
+        }
+
+        if model.fileURL != nil {
+            Button {
+                model.revertToSaved()
+            } label: {
+                Label("Revert to Saved", systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!model.isDirty)
+        }
+
+        if let url = model.fileURL {
+            Divider()
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } label: {
+                Label("Reveal in Finder", systemImage: "folder")
+            }
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Label("Open in Default App", systemImage: "arrow.up.forward.app")
+            }
+            Divider()
+            Button {
+                copyToPasteboard(url.path)
+            } label: {
+                Label("Copy Full Path", systemImage: "doc.on.doc")
+            }
+            Button {
+                copyToPasteboard(url.lastPathComponent)
+            } label: {
+                Label("Copy File Name", systemImage: "textformat")
+            }
+        }
+
+        // Compare against another open document (Scintilla engine only, since it
+        // drives the side-by-side diff view).
+        if model.useScintillaEngine {
+            Divider()
+            Menu {
+                if otherEditors.isEmpty {
+                    Text("No other open files")
+                } else {
+                    ForEach(otherEditors, id: \.id) { other in
+                        Button(other.textEditorModel?.displayName ?? "Untitled") {
+                            guard let target = other.textEditorModel else { return }
+                            model.beginCompare(withText: target.pendingContent,
+                                               name: target.displayName)
+                        }
+                    }
+                }
+            } label: {
+                Label("Compare With", systemImage: "arrow.left.arrow.right")
+            }
+            .disabled(otherEditors.isEmpty)
+        }
+
+        Divider()
+        Button {
+            sessions.openTextEditor()
+        } label: {
+            Label("New Text Editor", systemImage: "doc.badge.plus")
         }
     }
 }

@@ -180,6 +180,75 @@ typedef NS_ENUM(NSInteger, SciTokenKind) {
 /// wrapping around at the ends.
 - (void)compareStep:(NSInteger)direction;
 
+#pragma mark - View options
+
+/// Highlights the line containing the caret with a translucent tint.
+- (void)setCurrentLineHighlight:(BOOL)visible color:(NSColor *)color;
+
+/// Shows faint vertical guides at each indentation level.
+- (void)setIndentationGuidesVisible:(BOOL)visible;
+
+/// Renders spaces as dots and tabs as arrows in the given color.
+- (void)setWhitespaceVisible:(BOOL)visible color:(NSColor *)color;
+
+/// Draws a vertical ruler line at `column`, in the given color.
+- (void)setRulerColumn:(NSInteger)column visible:(BOOL)visible color:(NSColor *)color;
+
+/// Shows a Git-style change-history gutter: a colored bar in the margin marking
+/// lines that are modified (unsaved), saved, or reverted since the file opened.
+- (void)setChangeHistoryVisible:(BOOL)visible;
+
+/// Sets the tint used to highlight every occurrence of the selected word.
+- (void)setOccurrenceHighlightColor:(NSColor *)color;
+
+/// Sets the colors used to flag the matching (or unmatched) bracket at the caret.
+- (void)setBraceColorsMatch:(NSColor *)match mismatch:(NSColor *)mismatch;
+
+/// Sets the color of the bookmark markers in the margin.
+- (void)setBookmarkColor:(NSColor *)color;
+
+#pragma mark - Editing commands
+
+/// Moves the selected line(s) up or down by one line.
+- (void)moveSelectedLinesUp;
+- (void)moveSelectedLinesDown;
+
+/// Duplicates the current line (or selection).
+- (void)duplicateSelection;
+
+/// Deletes the line containing the caret.
+- (void)deleteCurrentLine;
+
+/// Toggles commenting on the selected lines using `linePrefix` (e.g. "//", "#"),
+/// or wraps/unwraps the selection with `blockStart`/`blockEnd` when no line
+/// prefix exists for the language. Pass nil for unavailable styles.
+- (void)toggleCommentLinePrefix:(nullable NSString *)linePrefix
+                     blockStart:(nullable NSString *)blockStart
+                       blockEnd:(nullable NSString *)blockEnd;
+
+/// Supplies the comment delimiters for the active language so the editor's
+/// built-in right-click "Toggle Comment" item works. The host pushes these
+/// whenever the language changes; same argument semantics as above.
+- (void)setCommentLinePrefix:(nullable NSString *)linePrefix
+                  blockStart:(nullable NSString *)blockStart
+                    blockEnd:(nullable NSString *)blockEnd;
+
+/// Multi-cursor: selects the word at the caret, or if a word is already
+/// selected, adds the next occurrence as an additional selection (like ⌘D).
+- (void)selectNextOccurrence;
+
+/// Shows a word-completion popup built from the other words already in the file.
+- (void)completeWord;
+
+#pragma mark - Bookmarks
+
+/// Toggles a bookmark on the caret's line.
+- (void)toggleBookmark;
+
+/// Jumps to the next / previous bookmarked line, wrapping around.
+- (void)nextBookmark;
+- (void)previousBookmark;
+
 #pragma mark - Introspection
 
 /// Returns the Scintilla version string the engine was built against, e.g. "5.6.3".

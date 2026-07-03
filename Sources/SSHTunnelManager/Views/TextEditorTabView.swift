@@ -156,6 +156,9 @@ struct TextEditorTabView: View {
                     model.showDocumentMap.toggle()
                 }
 
+                viewOptionsMenu
+                if !model.compareActive { actionsMenu }
+
                 if model.compareActive {
                     toolButton("chevron.up", "Previous Change", help: "Previous change") {
                         model.compareGoToChange(-1)
@@ -211,6 +214,58 @@ struct TextEditorTabView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
+    }
+
+    /// Scintilla-only editor view toggles (highlights, guides, whitespace,
+    /// ruler, change-history bar). Persisted app-wide via the model.
+    private var viewOptionsMenu: some View {
+        Menu {
+            Toggle("Current Line Highlight", isOn: $model.showCurrentLine)
+            Toggle("Indentation Guides", isOn: $model.showIndentGuides)
+            Toggle("Show Whitespace", isOn: $model.showWhitespace)
+            Toggle("Column Ruler (80)", isOn: $model.showRuler)
+            Toggle("Change History Bar", isOn: $model.showChangeHistory)
+        } label: {
+            Image(systemName: "eye")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Editor view options")
+        .accessibilityLabel("View Options")
+    }
+
+    /// Scintilla-only smart-editing commands (line ops, comment toggle,
+    /// multi-cursor, word completion, bookmarks) with keyboard shortcuts.
+    private var actionsMenu: some View {
+        Menu {
+            Button("Move Line Up") { model.moveLinesUp() }
+                .keyboardShortcut(.upArrow, modifiers: .option)
+            Button("Move Line Down") { model.moveLinesDown() }
+                .keyboardShortcut(.downArrow, modifiers: .option)
+            Button("Duplicate Line") { model.duplicateSelection() }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+            Button("Delete Line") { model.deleteCurrentLine() }
+                .keyboardShortcut("k", modifiers: [.command, .shift])
+            Divider()
+            Button("Toggle Comment") { model.toggleComment() }
+                .keyboardShortcut("/", modifiers: .command)
+            Button("Select Next Occurrence") { model.selectNextOccurrence() }
+                .keyboardShortcut("d", modifiers: .command)
+            Button("Complete Word") { model.completeWord() }
+                .keyboardShortcut(.escape, modifiers: .option)
+            Divider()
+            Button("Toggle Bookmark") { model.toggleBookmark() }
+            Button("Next Bookmark") { model.nextBookmark() }
+            Button("Previous Bookmark") { model.previousBookmark() }
+        } label: {
+            Image(systemName: "wand.and.stars")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Editing actions")
+        .accessibilityLabel("Actions")
     }
 
     private func toolButton(_ symbol: String, _ title: String, help: String,

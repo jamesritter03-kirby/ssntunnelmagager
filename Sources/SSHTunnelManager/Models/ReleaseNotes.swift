@@ -45,6 +45,17 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.23", build: 33, date: "Jul 2, 2026",
+            highlights: [
+                "A big upgrade to the text editor’s folding engine — new View Options: highlight the current line, show indentation guides, reveal spaces and tabs, add a column ruler at 80, and turn on a Git‑style change‑history bar in the margin that marks the lines you’ve modified (orange), saved (green) or reverted (teal) since the file was opened.",
+                "Smarter editing as you type: the matching bracket is highlighted wherever your cursor lands (and a mismatched one is flagged), selecting a word underlines every other occurrence, and you can work with multiple cursors — press ⌘D to add the next match and edit them all at once. Option‑drag makes a rectangular (column) selection.",
+                "Handy code commands with keyboard shortcuts, gathered into a new Actions menu on the editor toolbar: move lines up/down (⌥↑ / ⌥↓), duplicate a line (⇧⌘D), delete a line (⇧⌘K), toggle comments for the current language (⌘/), complete a word from the rest of the file (⌥⎋), and drop bookmarks to jump around.",
+                "Right‑click inside the editor for a proper menu: Cut, Copy, Paste and Select All alongside Toggle Comment, Duplicate / Delete line, Move line up/down and Toggle Bookmark — each enabled only when it applies.",
+                "Right‑click a text‑editor tab for file actions: Save, Save As…, Revert to Saved, Reveal in Finder, Open in Default App, Copy Full Path or File Name, and Compare With another open file.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.22", build: 32, date: "Jul 2, 2026",
             highlights: [
                 "New in the text editor — code folding (beta): turn on the Folding Engine from the editor toolbar to collapse and expand structured sections (objects and arrays in JSON, tags in XML/HTML, and blocks in many other languages), with the classic +/- markers in the margin.",
@@ -53,7 +64,7 @@ enum ReleaseCatalog {
                 "The folding engine now follows your theme end to end: syntax colours and the fold markers in the margin match your chosen editor theme, and find & replace (with regex and whole‑word) plus the live line/column readout work here too.",
                 "Fixed: dragging a file onto a terminal reliably shows the Paste Path / Paste Contents menu again — it could be missed when several terminal tabs were stacked in the same area.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.21", build: 31, date: "Jul 2, 2026",

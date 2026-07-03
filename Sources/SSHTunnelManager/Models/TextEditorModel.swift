@@ -71,6 +71,23 @@ protocol EditorCompareControl: AnyObject {
     func compareGoToChange(_ direction: Int)
 }
 
+/// Drives the Scintilla “smart editing” commands (move / duplicate / delete
+/// line, toggle comment, multi-cursor, word completion, bookmarks) from the
+/// toolbar and keyboard shortcuts. The Scintilla coordinator implements this
+/// while its editor is on screen; in classic mode these are no-ops.
+protocol EditorActionControl: AnyObject {
+    func moveLinesUp()
+    func moveLinesDown()
+    func duplicateSelection()
+    func deleteCurrentLine()
+    func toggleComment()
+    func selectNextOccurrence()
+    func completeWord()
+    func toggleBookmark()
+    func nextBookmark()
+    func previousBookmark()
+}
+
 /// Bridges the SwiftUI/model world to the live `NSTextView`. The view layer sets
 /// `textView`; the model calls these methods to read text and drive find/replace
 /// and navigation without importing any AppKit view code itself.
@@ -327,6 +344,11 @@ final class TextEditorModel: ObservableObject {
     /// the toolbar's next / previous-change buttons can drive it.
     weak var scintillaCompareControl: EditorCompareControl?
 
+    /// The Scintilla coordinator registers here while its editor is on screen so
+    /// the toolbar's Actions menu and keyboard shortcuts can drive the native
+    /// editing commands. Weak: the coordinator owns its own lifetime.
+    weak var scintillaActionControl: EditorActionControl?
+
     /// Begin (or refresh) a side-by-side comparison of this document against the
     /// given text. Only meaningful while the Scintilla engine is active.
     func beginCompare(withText text: String, name: String) {
@@ -346,6 +368,19 @@ final class TextEditorModel: ObservableObject {
     func compareGoToChange(_ direction: Int) {
         scintillaCompareControl?.compareGoToChange(direction)
     }
+
+    // MARK: Smart-editing commands (Scintilla only)
+
+    func moveLinesUp() { scintillaActionControl?.moveLinesUp() }
+    func moveLinesDown() { scintillaActionControl?.moveLinesDown() }
+    func duplicateSelection() { scintillaActionControl?.duplicateSelection() }
+    func deleteCurrentLine() { scintillaActionControl?.deleteCurrentLine() }
+    func toggleComment() { scintillaActionControl?.toggleComment() }
+    func selectNextOccurrence() { scintillaActionControl?.selectNextOccurrence() }
+    func completeWord() { scintillaActionControl?.completeWord() }
+    func toggleBookmark() { scintillaActionControl?.toggleBookmark() }
+    func nextBookmark() { scintillaActionControl?.nextBookmark() }
+    func previousBookmark() { scintillaActionControl?.previousBookmark() }
 
     /// The find / replace target for the editor currently on screen.
     private var findProvider: EditorFindProvider {
@@ -381,6 +416,42 @@ final class TextEditorModel: ObservableObject {
     @Published var showDocumentMap: Bool = UserDefaults.standard.bool(forKey: "editor.showDocumentMap") {
         didSet {
             UserDefaults.standard.set(showDocumentMap, forKey: "editor.showDocumentMap")
+        }
+    }
+
+    /// Highlight the line the caret is on. Scintilla-only; persisted app-wide.
+    @Published var showCurrentLine: Bool = UserDefaults.standard.object(forKey: "editor.showCurrentLine") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(showCurrentLine, forKey: "editor.showCurrentLine")
+        }
+    }
+
+    /// Draw indentation guide lines. Scintilla-only; persisted app-wide.
+    @Published var showIndentGuides: Bool = UserDefaults.standard.object(forKey: "editor.showIndentGuides") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(showIndentGuides, forKey: "editor.showIndentGuides")
+        }
+    }
+
+    /// Render spaces / tabs as visible dots and arrows. Scintilla-only.
+    @Published var showWhitespace: Bool = UserDefaults.standard.bool(forKey: "editor.showWhitespace") {
+        didSet {
+            UserDefaults.standard.set(showWhitespace, forKey: "editor.showWhitespace")
+        }
+    }
+
+    /// Draw a vertical ruler at a fixed column (80). Scintilla-only.
+    @Published var showRuler: Bool = UserDefaults.standard.bool(forKey: "editor.showRuler") {
+        didSet {
+            UserDefaults.standard.set(showRuler, forKey: "editor.showRuler")
+        }
+    }
+
+    /// Show a git-style change-history bar in the gutter marking edited,
+    /// saved, and reverted lines. Scintilla-only; persisted app-wide.
+    @Published var showChangeHistory: Bool = UserDefaults.standard.bool(forKey: "editor.showChangeHistory") {
+        didSet {
+            UserDefaults.standard.set(showChangeHistory, forKey: "editor.showChangeHistory")
         }
     }
 
