@@ -45,6 +45,17 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.22", build: 32, date: "Jul 2, 2026",
+            highlights: [
+                "New in the text editor — code folding (beta): turn on the Folding Engine from the editor toolbar to collapse and expand structured sections (objects and arrays in JSON, tags in XML/HTML, and blocks in many other languages), with the classic +/- markers in the margin.",
+                "Document map (minimap): the folding engine can show a zoomed‑out map of the whole file down the right edge with a draggable “you are here” slider — click or drag it to sail through a long file at a glance. Toggle it from the editor toolbar.",
+                "Compare two open files side by side: click Compare in the folding engine and pick another open file. Differences are colour‑coded line by line — added, removed and changed — with the exact edited text highlighted inside each changed line, original line numbers on both sides, synchronized scrolling, and up/down buttons to jump between changes.",
+                "The folding engine now follows your theme end to end: syntax colours and the fold markers in the margin match your chosen editor theme, and find & replace (with regex and whole‑word) plus the live line/column readout work here too.",
+                "Fixed: dragging a file onto a terminal reliably shows the Paste Path / Paste Contents menu again — it could be missed when several terminal tabs were stacked in the same area.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.21", build: 31, date: "Jul 2, 2026",
             highlights: [
                 "See what’s connected at a glance: the sidebar now shows a green dot on profiles with a live tunnel, and each row’s button switches between Connect and a red Disconnect. Right‑click a profile for a Disconnect command too.",
@@ -55,7 +66,7 @@ enum ReleaseCatalog {
                 "A more consistent app throughout: unified dialog headers each with a “?” help button, matching empty‑state screens, icons on every right‑click menu, and clearer wording (for example “Set Up Passwordless Login” everywhere).",
                 "Polish: Settings gains an Editor section for the default text‑editor theme plus its own help topic, the Keyboard Shortcuts guide is up to date, the Help window’s topic list is wider, and the ZeroTier browser is now resizable and remembers your “Connect as” username.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.20", build: 30, date: "Jul 1, 2026",
