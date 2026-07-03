@@ -1183,6 +1183,28 @@ private struct TerminalTabContextMenu: View {
                 Label("Edit Connection…", systemImage: "pencil")
             }
         }
+        // Mount the SFTP connection as a Finder drive (via sshfs/FUSE). Falls back
+        // to the fuse-t setup page when no mount helper is installed.
+        if session.kind == .sftp, let mounter = session.sftpMounter, mounter.canMount {
+            if mounter.isMounted {
+                Button {
+                    mounter.unmount()
+                } label: {
+                    Label("Unmount Drive", systemImage: "eject")
+                }
+            } else {
+                Button {
+                    if SFTPMounter.helperInstalled {
+                        mounter.mount()
+                    } else if let url = URL(string: "https://www.fuse-t.org/") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    Label("Mount with FUSE…", systemImage: "externaldrive.badge.plus")
+                }
+                .disabled(mounter.isBusy)
+            }
+        }
         if session.kind == .vnc, let viewer = session.embeddedVNCViewer {
             VNCTabOptionsMenu(viewer: viewer)
         }

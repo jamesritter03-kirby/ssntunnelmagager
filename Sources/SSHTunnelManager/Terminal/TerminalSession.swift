@@ -59,6 +59,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// For `.sftp` sessions: the headless driver behind the graphical browser.
     let sftpClient: SFTPClient?
 
+    /// For `.sftp` sessions: mounts the remote filesystem locally via `sshfs`
+    /// (FUSE) so it can be browsed in Finder. `nil` for non-sftp tabs.
+    let sftpMounter: SFTPMounter?
+
     /// For `.vnc` sessions: the headless ssh-tunnel driver behind the console.
     let vncClient: VNCClient?
 
@@ -186,8 +190,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
                                          autofillPassword: autofillPassword,
                                          requireAuthForPassword: requireAuthForPassword,
                                          presetPassword: presetPassword)
+            self.sftpMounter = SFTPMounter(profileID: profileID)
         } else {
             self.sftpClient = nil
+            self.sftpMounter = nil
         }
         // A profile/SSH-tunneled VNC tab carries `ssh -L` args and gets a
         // `VNCClient` to drive the tunnel. An ad-hoc *direct* VNC tab has no args
@@ -463,6 +469,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             return
         }
         if kind == .sftp {
+            sftpMounter?.unmountQuietly()
             sftpClient?.disconnect()
             return
         }
@@ -500,6 +507,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case .editor:
             return
         case .sftp:
+            sftpMounter?.unmountQuietly()
             sftpClient?.disconnect()
         case .vnc:
             embeddedVNCViewer?.disconnect()

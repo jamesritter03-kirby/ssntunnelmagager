@@ -45,11 +45,19 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.25", build: 35, date: "Jul 3, 2026",
+            highlights: [
+                "New in the SFTP window — Mount with FUSE: mount a server as a drive in Finder and open its files in any app, just like a local folder. Look for the drive button in the SFTP toolbar, or right‑click inside the file list (or the SFTP tab) and choose Mount with FUSE. Mounting reuses the profile’s host, port, key and jump‑host — and your saved password from the Keychain — and unmounts automatically when you disconnect or close the tab.",
+                "Because macOS doesn’t include a filesystem‑mount layer (only ssh and sftp), the first time you mount, a short setup sheet points you to the free fuse‑t helper with copy‑paste install commands and a Re‑check button — no kernel extension and no reboot required.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.24", build: 34, date: "Jul 2, 2026",
             highlights: [
                 "Fixed: the text editor’s right‑click menu now shows Undo and Redo again (at the top, above Cut / Copy / Paste), each enabled only when there’s something to undo or redo. The ⌘Z / ⇧⌘Z keyboard shortcuts were unaffected.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.23", build: 33, date: "Jul 2, 2026",

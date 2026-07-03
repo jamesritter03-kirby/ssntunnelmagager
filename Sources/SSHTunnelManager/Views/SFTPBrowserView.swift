@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 struct SFTPBrowserView: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var client: SFTPClient
+    @ObservedObject var mounter: SFTPMounter
     @EnvironmentObject var sessions: TerminalSessionManager
 
     /// F5 (NSF5FunctionKey) — the conventional “refresh” key.
@@ -22,6 +23,7 @@ struct SFTPBrowserView: View {
     @State private var dropTargetFolder: String?
     @State private var showLog = false
     @State private var showNewFolder = false
+    @State private var showMountHelp = false
     @State private var newFolderName = ""
     @State private var renameTarget: SFTPEntry?
     @State private var renameText = ""
@@ -31,6 +33,7 @@ struct SFTPBrowserView: View {
         _client = ObservedObject(initialValue: session.sftpClient ?? SFTPClient(
             executable: "/usr/bin/sftp", args: [], profileID: nil,
             autofillPassword: false, requireAuthForPassword: false))
+        _mounter = ObservedObject(initialValue: session.sftpMounter ?? SFTPMounter(profileID: nil))
     }
 
     var body: some View {
@@ -57,6 +60,17 @@ struct SFTPBrowserView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .background(refreshShortcut)
         .sheet(isPresented: $showLog) { logSheet }
+        .sheet(isPresented: $showMountHelp) {
+            SFTPMountHelpSheet(onRecheckSucceeded: { mounter.mount() })
+        }
+        .alert("Couldn’t Mount as Drive", isPresented: mountErrorBinding) {
+            if !SFTPMounter.helperInstalled {
+                Button("Set Up…") { mounter.clearFailure(); showMountHelp = true }
+            }
+            Button("OK", role: .cancel) { mounter.clearFailure() }
+        } message: {
+            Text(mounter.failureMessage ?? "")
+        }
         .alert("New Folder", isPresented: $showNewFolder) {
             TextField("Folder name", text: $newFolderName)
             Button("Create") { client.makeDirectory(newFolderName); newFolderName = "" }
@@ -101,6 +115,9 @@ struct SFTPBrowserView: View {
             Button(role: .destructive) { confirmDelete(selectedEntries) } label: { Image(systemName: "trash") }
                 .help("Delete selected").disabled(selectedEntries.isEmpty)
 
+            Divider().frame(height: 16)
+            mountButton
+
             if client.isBusy {
                 ProgressView().controlSize(.small).padding(.leading, 2)
             }
@@ -127,6 +144,57 @@ struct SFTPBrowserView: View {
         .fixedSize()
         .help("Jump to a parent folder")
         .disabled(!client.isConnected)
+    }
+
+    /// Toolbar control that mounts this connection as a Finder drive via `sshfs`
+    /// (FUSE), toggling to an eject button once mounted. When no FUSE helper is
+    /// installed it opens a short guided-install explainer instead.
+    @ViewBuilder
+    private var mountButton: some View {
+        switch mounter.state {
+        case .mounting, .unmounting:
+            ProgressView().controlSize(.small).padding(.horizontal, 2)
+                .help(mounter.state == .mounting ? "Mounting…" : "Unmounting…")
+        case .mounted:
+            Button { mounter.unmount() } label: { Image(systemName: "eject.fill") }
+                .help("Unmount \(mounter.mountPoint?.path ?? "the drive")")
+        default:
+            Button { mountAction() } label: { Image(systemName: "externaldrive.badge.plus") }
+                .help(mounter.canMount
+                      ? "Mount this connection as a drive in Finder"
+                      : "Mounting as a drive requires a saved profile")
+                .disabled(!mounter.canMount)
+        }
+    }
+
+    /// Mount if a FUSE helper is present; otherwise show the guided-install sheet.
+    private func mountAction() {
+        if SFTPMounter.helperInstalled { mounter.mount() }
+        else { showMountHelp = true }
+    }
+
+    /// The Mount / Unmount action for a right-click menu (mirrors `mountButton`).
+    /// Hidden for ad-hoc SFTP tabs that have no saved profile to mount.
+    @ViewBuilder
+    private var mountMenuItem: some View {
+        if mounter.canMount {
+            if mounter.isMounted {
+                Button { mounter.unmount() } label: {
+                    Label("Unmount Drive", systemImage: "eject")
+                }
+            } else {
+                Button { mountAction() } label: {
+                    Label("Mount with FUSE…", systemImage: "externaldrive.badge.plus")
+                }
+                .disabled(mounter.isBusy)
+            }
+        }
+    }
+
+    /// Drives the mount-failure alert from the mounter's `.failed` state.
+    private var mountErrorBinding: Binding<Bool> {
+        Binding(get: { mounter.failureMessage != nil },
+                set: { if !$0 { mounter.clearFailure() } })
     }
 
     /// Cumulative ancestor paths of `currentPath`, deepest last.
@@ -405,6 +473,10 @@ struct SFTPBrowserView: View {
             .disabled(!client.isConnected)
         Button { chooseAndUpload() } label: { Label("Upload…", systemImage: "arrow.up.doc") }
             .disabled(!client.isConnected)
+        if mounter.canMount {
+            Divider()
+            mountMenuItem
+        }
     }
 
     /// An invisible button binding F5 to Refresh, active only on the selected tab
@@ -625,5 +697,83 @@ private struct SFTPRow: View {
                     .strokeBorder(Color.accentColor, lineWidth: 2)
             }
         }
+    }
+}
+
+/// A one-time guided-install explainer shown when "Mount as Drive" is used but no
+/// FUSE mount helper is installed. macOS ships `ssh` / `sftp` but not a
+/// filesystem-mount layer, so mounting needs a helper installed once. We
+/// recommend **fuse-t** (no kernel extension, no reboot) plus **sshfs**.
+private struct SFTPMountHelpSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    /// Called when the user hits Re-check and a helper is now detected.
+    var onRecheckSucceeded: () -> Void
+    @State private var stillMissing = false
+
+    private let brewCommands = """
+    brew install macos-fuse-t/homebrew-cask/fuse-t
+    brew install macos-fuse-t/homebrew-cask/sshfs-fuse-t
+    """
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "externaldrive.badge.questionmark")
+                    .font(.system(size: 34)).foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Mount as Drive needs a FUSE helper").font(.headline)
+                    Text("One-time setup").font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            Text("macOS includes **ssh** and **sftp**, but not a filesystem-mount layer. Install **fuse-t** (recommended — no kernel extension and no reboot) together with **sshfs** once, and this button will mount the server so you can browse it in Finder and open its files in any app.")
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Install with Homebrew").font(.subheadline.weight(.semibold))
+                HStack(alignment: .top, spacing: 8) {
+                    Text(brewCommands)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(nsColor: .textBackgroundColor),
+                                    in: RoundedRectangle(cornerRadius: 6))
+                    Button { copyCommands() } label: { Image(systemName: "doc.on.doc") }
+                        .buttonStyle(.borderless)
+                        .help("Copy the install commands")
+                }
+            }
+
+            Text("After installing, macOS may ask to allow **Network Volumes** under System Settings ▸ Privacy & Security — allow it, then click Re-check.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if stillMissing {
+                Label("Still not detected. Finish the install (and any Privacy prompt), then re-check.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+
+            HStack {
+                Button("Learn More…") {
+                    if let url = URL(string: "https://www.fuse-t.org/") { NSWorkspace.shared.open(url) }
+                }
+                Spacer()
+                Button("Re-check") {
+                    if SFTPMounter.helperInstalled { dismiss(); onRecheckSucceeded() }
+                    else { stillMissing = true }
+                }
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 470)
+    }
+
+    private func copyCommands() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(brewCommands, forType: .string)
     }
 }
