@@ -45,6 +45,13 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.24", build: 34, date: "Jul 2, 2026",
+            highlights: [
+                "Fixed: the text editor’s right‑click menu now shows Undo and Redo again (at the top, above Cut / Copy / Paste), each enabled only when there’s something to undo or redo. The ⌘Z / ⇧⌘Z keyboard shortcuts were unaffected.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.23", build: 33, date: "Jul 2, 2026",
             highlights: [
                 "A big upgrade to the text editor’s folding engine — new View Options: highlight the current line, show indentation guides, reveal spaces and tabs, add a column ruler at 80, and turn on a Git‑style change‑history bar in the margin that marks the lines you’ve modified (orange), saved (green) or reverted (teal) since the file was opened.",
@@ -53,7 +60,7 @@ enum ReleaseCatalog {
                 "Right‑click inside the editor for a proper menu: Cut, Copy, Paste and Select All alongside Toggle Comment, Duplicate / Delete line, Move line up/down and Toggle Bookmark — each enabled only when it applies.",
                 "Right‑click a text‑editor tab for file actions: Save, Save As…, Revert to Saved, Reveal in Finder, Open in Default App, Copy Full Path or File Name, and Compare With another open file.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.22", build: 32, date: "Jul 2, 2026",

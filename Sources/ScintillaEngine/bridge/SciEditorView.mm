@@ -1705,6 +1705,10 @@ static const int kFoldMarkers[] = {
             return it;
         };
 
+    add(@"Undo", @selector(sciMenuUndo:), @"z", NSEventModifierFlagCommand);
+    add(@"Redo", @selector(sciMenuRedo:), @"z",
+        NSEventModifierFlagCommand | NSEventModifierFlagShift);
+    [menu addItem:[NSMenuItem separatorItem]];
     add(@"Cut", @selector(sciMenuCut:), @"x", NSEventModifierFlagCommand);
     add(@"Copy", @selector(sciMenuCopy:), @"c", NSEventModifierFlagCommand);
     add(@"Paste", @selector(sciMenuPaste:), @"v", NSEventModifierFlagCommand);
@@ -1727,6 +1731,8 @@ static const int kFoldMarkers[] = {
     _scintilla.menu = menu;
 }
 
+- (void)sciMenuUndo:(id)sender { [self sci_message:SCI_UNDO wparam:0 lparam:0]; }
+- (void)sciMenuRedo:(id)sender { [self sci_message:SCI_REDO wparam:0 lparam:0]; }
 - (void)sciMenuCut:(id)sender { [self sci_message:SCI_CUT wparam:0 lparam:0]; }
 - (void)sciMenuCopy:(id)sender { [self sci_message:SCI_COPY wparam:0 lparam:0]; }
 - (void)sciMenuPaste:(id)sender { [self sci_message:SCI_PASTE wparam:0 lparam:0]; }
@@ -1747,6 +1753,12 @@ static const int kFoldMarkers[] = {
     const BOOL editable = [_scintilla isEditable];
     const BOOL hasSelection = ![self sci_message:SCI_GETSELECTIONEMPTY wparam:0 lparam:0];
 
+    if (action == @selector(sciMenuUndo:)) {
+        return editable && [self sci_message:SCI_CANUNDO wparam:0 lparam:0];
+    }
+    if (action == @selector(sciMenuRedo:)) {
+        return editable && [self sci_message:SCI_CANREDO wparam:0 lparam:0];
+    }
     if (action == @selector(sciMenuCopy:)) {
         return hasSelection;
     }
