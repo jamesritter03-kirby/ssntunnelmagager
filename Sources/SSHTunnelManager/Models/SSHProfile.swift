@@ -265,6 +265,12 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     /// **saved workspace** (a template): its tabs and layout are recreated fresh,
     /// then the profile connects. `nil` = no template.
     var workspaceTemplateID: UUID? = nil
+    /// When true this profile is a **workspace launcher** created by “Save as
+    /// Profile” on a workspace tab: connecting it just rebuilds its assigned
+    /// workspace template (every tab reconnecting via its own profile) and opens
+    /// no connection of its own. It never re-points the template's tabs the way a
+    /// duplicated profile does.
+    var isWorkspaceLauncher: Bool = false
     /// The custom name for this profile's dedicated workspace. Empty = fall back
     /// to the profile's own name. (Also the migration target for the pre-1.9.21
     /// free-text “open in workspace” field.)
@@ -339,6 +345,7 @@ extension SSHProfile {
         case links
         case workspace
         case opensInOwnWorkspace, workspaceTemplateID
+        case isWorkspaceLauncher
     }
 
     init(from decoder: Decoder) throws {
@@ -367,6 +374,7 @@ extension SSHProfile {
         workspace = try c.decodeIfPresent(String.self, forKey: .workspace) ?? ""
         opensInOwnWorkspace = try c.decodeIfPresent(Bool.self, forKey: .opensInOwnWorkspace) ?? false
         workspaceTemplateID = try c.decodeIfPresent(UUID.self, forKey: .workspaceTemplateID)
+        isWorkspaceLauncher = try c.decodeIfPresent(Bool.self, forKey: .isWorkspaceLauncher) ?? false
         // Migrate the pre-1.9.21 free-text “open in workspace”: a profile that only
         // had a name string now launches into its own (custom-named) workspace.
         if !workspace.trimmingCharacters(in: .whitespaces).isEmpty

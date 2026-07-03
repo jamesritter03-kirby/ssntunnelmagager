@@ -117,7 +117,7 @@ final class ProfileStore: ObservableObject {
     }
 
     /// A display name that doesn't already exist, suffixing " (2)", " (3)"… as needed.
-    private func uniqueName(for proposed: String) -> String {
+    func uniqueName(for proposed: String) -> String {
         let trimmed = proposed.trimmingCharacters(in: .whitespaces)
         let base = trimmed.isEmpty ? "Imported Profile" : trimmed
         let existing = Set(profiles.map(\.name))

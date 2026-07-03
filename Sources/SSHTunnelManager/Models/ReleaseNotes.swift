@@ -45,12 +45,20 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.26", build: 36, date: "Jul 3, 2026",
+            highlights: [
+                "Save a whole workspace as a profile: right‑click a workspace tab and choose Save as Profile… to turn its set of tabs into a one‑click launcher. It appears in the sidebar and welcome screen, and connecting it reopens the workspace with every tab reconnecting through its own profile.",
+                "When every tab in a workspace is docked to a side, the empty center now offers the full set of welcome‑screen starting points — New Local Terminal, Browser, Finder and Text Editor tabs, the Connect‑to‑a‑server shortcuts (Remote Terminal, SFTP, VNC, MQTT, Redis, ZeroTier), your profiles and recently‑closed items — instead of just New Local Terminal.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.25", build: 35, date: "Jul 3, 2026",
             highlights: [
                 "New in the SFTP window — Mount with FUSE: mount a server as a drive in Finder and open its files in any app, just like a local folder. Look for the drive button in the SFTP toolbar, or right‑click inside the file list (or the SFTP tab) and choose Mount with FUSE. Mounting reuses the profile’s host, port, key and jump‑host — and your saved password from the Keychain — and unmounts automatically when you disconnect or close the tab.",
                 "Because macOS doesn’t include a filesystem‑mount layer (only ssh and sftp), the first time you mount, a short setup sheet points you to the free fuse‑t helper with copy‑paste install commands and a Re‑check button — no kernel extension and no reboot required.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.24", build: 34, date: "Jul 2, 2026",

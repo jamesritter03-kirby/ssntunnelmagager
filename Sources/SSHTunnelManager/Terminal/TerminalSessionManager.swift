@@ -364,6 +364,9 @@ final class TerminalSessionManager: ObservableObject {
         // its dedicated workspace — recreating an assigned launch template the
         // first time — so the connection tab lands there.
         let assigned = ensureDedicatedWorkspace(for: profile.id, instantiateTemplate: true)
+        // A workspace-launcher profile has no connection of its own — building (or
+        // revealing) its dedicated workspace from the template is the whole action.
+        if profile.isWorkspaceLauncher && assigned { return }
         if profile.isLocal { connectLocalProfile(profile); return }
         // A profile's tunnel binds fixed forwarded ports, so a second tunnel for
         // the same profile can't bind them (ssh runs with ExitOnForwardFailure=yes)
@@ -801,9 +804,21 @@ final class TerminalSessionManager: ObservableObject {
             })?.profileID
             ?? template.tabs.first(where: { $0.profileID != nil })?.profileID
 
+        // A workspace launcher (“Save as Profile”) rebuilds the workspace exactly:
+        // every tab keeps its original profile and reconnects as itself, and the
+        // launcher opens no connection of its own — so skip the duplicate-profile
+        // re-pointing entirely.
+        let isLauncher = ProfileStore.shared.profiles
+            .first(where: { $0.id == profileID })?.isWorkspaceLauncher ?? false
+
         var keptTemplateIndices: [Int] = []
         for (i, tab) in template.tabs.enumerated() {
             var tab = tab
+            if isLauncher {
+                keptTemplateIndices.append(i)
+                recreate(tab)
+                continue
+            }
             let isMainProfileTab = tab.profileID == profileID
                 || (originProfileID != nil && tab.profileID == originProfileID)
             // The launching profile's own primary tab is started by the caller
@@ -1514,6 +1529,75 @@ final class TerminalSessionManager: ObservableObject {
     func deleteSavedWorkspace(_ id: UUID) {
         savedWorkspaces.removeAll { $0.id == id }
         persistSavedWorkspaces()
+    }
+
+    /// Save a workspace as a **launcher profile**: snapshot its tabs and layout
+    /// into a saved-workspace template, then create a profile assigned to that
+    /// template. The profile appears in the sidebar / welcome screen; connecting
+    /// it rebuilds the workspace with every tab reconnecting via its own profile.
+    /// Returns the new profile (already added to the store), or nil if the
+    /// workspace no longer exists.
+    @discardableResult
+    func saveWorkspaceAsProfile(_ id: UUID, name: String) -> SSHProfile? {
+        guard let ws = workspaces.first(where: { $0.id == id }) else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? ws.name : trimmed
+
+        // A dedicated template (its own fresh entry, so it never clobbers an
+        // unrelated same-named saved workspace the user maintains separately).
+        let templateID = createSavedWorkspaceTemplate(from: ws, name: base)
+
+        // A local “launcher” profile: it opens no connection of its own, it just
+        // rebuilds the template's workspace. `isLocal` gives it a harmless fallback
+        // (a plain shell) if its template is ever removed.
+        var profile = SSHProfile()
+        profile.name = ProfileStore.shared.uniqueName(for: base)
+        profile.isLocal = true
+        profile.icon = "square.stack.3d.up.fill"
+        profile.isWorkspaceLauncher = true
+        profile.opensInOwnWorkspace = true
+        profile.workspaceTemplateID = templateID
+        ProfileStore.shared.add(profile)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.note(title: "Saved “\(profile.name)” as a Profile",
+                       text: "Find it in the sidebar and welcome screen. Connecting it reopens this workspace’s tabs.")
+        }
+        return profile
+    }
+
+    /// Snapshot a workspace into a brand-new `SavedWorkspace` (a launch template),
+    /// giving it a name unique among saved workspaces, and return its id.
+    private func createSavedWorkspaceTemplate(from ws: Workspace, name: String) -> UUID {
+        let template = SavedWorkspace(name: uniqueSavedWorkspaceName(for: name),
+                                      tabs: snapshotTabs(for: ws),
+                                      isTiled: ws.isTiled,
+                                      tileLayout: ws.tileLayout,
+                                      docks: dockSnapshots(for: ws))
+        savedWorkspaces.append(template)
+        persistSavedWorkspaces()
+        return template.id
+    }
+
+    /// A saved-workspace name that doesn't already exist, suffixing " (2)", " (3)"…
+    private func uniqueSavedWorkspaceName(for proposed: String) -> String {
+        let trimmed = proposed.trimmingCharacters(in: .whitespaces)
+        let base = trimmed.isEmpty ? "Workspace" : trimmed
+        let existing = Set(savedWorkspaces.map(\.name))
+        guard existing.contains(base) else { return base }
+        var n = 2
+        while existing.contains("\(base) (\(n))") { n += 1 }
+        return "\(base) (\(n))"
+    }
+
+    /// Show a simple informational alert.
+    private func note(title: String, text: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func persistSavedWorkspaces() {

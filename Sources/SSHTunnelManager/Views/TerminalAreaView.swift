@@ -518,29 +518,31 @@ private struct DockPaneView: View {
 }
 
 /// Shown in the center when every tab in the workspace has been docked to a side.
+/// Keeps the "tabs are docked" hint, then offers the same full set of starting
+/// points as the welcome screen (not just "New Local Terminal") so any kind of
+/// new tab can be opened right here.
 private struct DockedOnlyCenter: View {
     @EnvironmentObject var sessions: TerminalSessionManager
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "sidebar.squares.leading")
-                .font(.system(size: 40))
-                .foregroundStyle(.tint)
-            Text("Tabs are docked to the side")
-                .font(.title3.weight(.semibold))
-            Text("Use a drawer's return button to bring a tab back here, or open a new one.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
-            Button {
-                sessions.openLocalShell()
-            } label: {
-                Label("New Local Terminal", systemImage: "terminal")
+        ScrollView {
+            VStack(spacing: 20) {
+                VStack(spacing: 12) {
+                    Image(systemName: "sidebar.squares.leading")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.tint)
+                    Text("Tabs are docked to the side")
+                        .font(.title3.weight(.semibold))
+                    Text("Use a drawer's return button to bring a tab back here, or open a new one below.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 360)
+                }
+                WelcomeLaunchOptions(showsResume: false)
             }
-            .controlSize(.large)
+            .frame(maxWidth: .infinity)
+            .padding()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
     }
 }
 
@@ -554,6 +556,9 @@ private struct WorkspaceBar: View {
     @State private var nameField = ""
     @State private var isSaving = false
     @State private var saveField = ""
+    @State private var isSavingAsProfile = false
+    @State private var profileNameField = ""
+    @State private var pendingProfileWorkspaceID: UUID?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -568,7 +573,8 @@ private struct WorkspaceBar: View {
                     onClose: { sessions.closeWorkspace(ws.id) },
                     onRename: { beginRename(ws) },
                     onQuickSave: { sessions.saveWorkspaceInPlace(ws.id) },
-                    onSave: { beginSave(ws) }
+                    onSave: { beginSave(ws) },
+                    onSaveAsProfile: { beginSaveAsProfile(ws) }
                 )
             }
             Button { sessions.addWorkspace() } label: {
@@ -601,6 +607,18 @@ private struct WorkspaceBar: View {
             }
         } message: {
             Text("Save this workspace's tabs so you can reopen them later from the workspaces menu.")
+        }
+        .alert("Save Workspace as Profile", isPresented: $isSavingAsProfile) {
+            TextField("Profile name", text: $profileNameField)
+            Button("Cancel", role: .cancel) { pendingProfileWorkspaceID = nil }
+            Button("Save") {
+                if let id = pendingProfileWorkspaceID {
+                    sessions.saveWorkspaceAsProfile(id, name: profileNameField)
+                }
+                pendingProfileWorkspaceID = nil
+            }
+        } message: {
+            Text("Create a profile that reopens this workspace's tabs. It appears in the sidebar and welcome screen; each tab reconnects through its own profile.")
         }
     }
 
@@ -655,6 +673,12 @@ private struct WorkspaceBar: View {
         saveField = ws?.name ?? ""
         isSaving = true
     }
+
+    private func beginSaveAsProfile(_ ws: Workspace) {
+        profileNameField = ws.name
+        pendingProfileWorkspaceID = ws.id
+        isSavingAsProfile = true
+    }
 }
 
 /// One workspace "pill" in the workspace bar.
@@ -669,6 +693,7 @@ private struct WorkspacePill: View {
     var onRename: () -> Void
     var onQuickSave: () -> Void = {}
     var onSave: () -> Void
+    var onSaveAsProfile: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 6) {
@@ -707,6 +732,7 @@ private struct WorkspacePill: View {
                       systemImage: isSaved ? "arrow.triangle.2.circlepath" : "square.and.arrow.down")
             }
             Button { onSave() } label: { Label("Save as Workspace…", systemImage: "square.and.arrow.down.on.square") }
+            Button { onSaveAsProfile() } label: { Label("Save as Profile…", systemImage: "rectangle.stack.badge.plus") }
             if canClose {
                 Divider()
                 Button(role: .destructive) { onClose() } label: {
@@ -1943,11 +1969,6 @@ private struct ExitBanner: View {
 }
 
 private struct WelcomeView: View {
-    @EnvironmentObject var sessions: TerminalSessionManager
-    @EnvironmentObject var store: ProfileStore
-
-    private let columns = [GridItem(.adaptive(minimum: 180, maximum: 280), spacing: 10)]
-
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 12) {
@@ -1962,9 +1983,34 @@ private struct WelcomeView: View {
                     .frame(maxWidth: 460)
             }
 
+            WelcomeLaunchOptions()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(28)
+    }
+}
+
+/// The launch actions shown on the welcome screen — a row of "new tab" buttons,
+/// the "Connect to a server" shortcuts, the profiles grid and the recently-closed
+/// list. Extracted into its own view so the all-docked center (`DockedOnlyCenter`)
+/// can offer the same full set of starting points instead of just a single
+/// "New Local Terminal" button.
+private struct WelcomeLaunchOptions: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    @EnvironmentObject var store: ProfileStore
+
+    private let columns = [GridItem(.adaptive(minimum: 180, maximum: 280), spacing: 10)]
+
+    /// Whether to offer "Resume Last Session". Only the welcome screen sets this
+    /// true; the docked-only center already has open (docked) tabs, so it never
+    /// applies there.
+    var showsResume: Bool = true
+
+    var body: some View {
+        VStack(spacing: 20) {
             HStack(spacing: 12) {
                 let saved = sessions.savedSessionCount
-                if saved > 0 && sessions.sessions.isEmpty {
+                if showsResume, saved > 0 && sessions.sessions.isEmpty {
                     Button {
                         sessions.restoreSavedSessions()
                     } label: {
@@ -2083,8 +2129,6 @@ private struct WelcomeView: View {
                     .frame(maxWidth: 580)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(28)
     }
 }
 
