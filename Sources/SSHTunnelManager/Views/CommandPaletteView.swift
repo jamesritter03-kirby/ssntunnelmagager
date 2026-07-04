@@ -127,6 +127,11 @@ struct CommandPaletteView: View {
                                  systemImage: "doc.text") {
             sessions.openTextEditor()
         })
+        items.append(PaletteItem(title: "New Spreadsheet",
+                                 subtitle: "Open or create a CSV / TSV grid",
+                                 systemImage: "tablecells") {
+            sessions.openSpreadsheet()
+        })
         items.append(PaletteItem(title: "Set Up Passwordless Login…",
                                  subtitle: "Copy your SSH key to any server (ssh-copy-id)",
                                  systemImage: "key") {

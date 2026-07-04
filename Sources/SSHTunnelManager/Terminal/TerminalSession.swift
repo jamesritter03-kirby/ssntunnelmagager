@@ -24,6 +24,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case redis
         case finder
         case editor
+        case spreadsheet
     }
 
     let kind: Kind
@@ -88,6 +89,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// For `.editor` sessions: the text document behind `TextEditorTabView`.
     let textEditorModel: TextEditorModel?
 
+    /// For `.spreadsheet` sessions: the delimited-grid document behind
+    /// `SpreadsheetTabView`.
+    let spreadsheetModel: SpreadsheetModel?
+
     /// For `.mqtt` / `.redis` sessions: the local (forwarded) port the native
     /// client connects to, kept so the tab can be recreated on the next launch.
     let servicePort: Int?
@@ -124,6 +129,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case .redis:      return "cylinder.split.1x2"
         case .finder:     return "folder"
         case .editor:     return "doc.text"
+        case .spreadsheet: return "tablecells"
         }
     }
 
@@ -266,6 +272,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         } else {
             self.textEditorModel = nil
         }
+        if kind == .spreadsheet {
+            self.spreadsheetModel = SpreadsheetModel(path: startDirectory)
+        } else {
+            self.spreadsheetModel = nil
+        }
         super.init()
         terminalView.processDelegate = self
         terminalView.onUserInput = { [weak self] data in self?.handleInput(data) }
@@ -302,6 +313,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             self?.title = trimmed.isEmpty ? "Untitled" : trimmed
         }
         textEditorModel?.refreshTitle()
+        spreadsheetModel?.onTitleChange = { [weak self] newTitle in
+            let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
+            self?.title = trimmed.isEmpty ? "Untitled" : trimmed
+        }
+        spreadsheetModel?.refreshTitle()
         applyAppearance()
     }
 
@@ -363,7 +379,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             return
         }
 
-        if kind == .editor {
+        if kind == .editor || kind == .spreadsheet {
             hasStarted = true
             isRunning = true
             exitCode = nil
@@ -465,7 +481,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// exactly as if the session had ended on its own. Use `close` on the manager
     /// to remove the tab entirely.
     func disconnect() {
-        if kind == .web || kind == .finder || kind == .editor {
+        if kind == .web || kind == .finder || kind == .editor || kind == .spreadsheet {
             return
         }
         if kind == .sftp {
@@ -505,6 +521,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         case .finder:
             return
         case .editor:
+            return
+        case .spreadsheet:
             return
         case .sftp:
             sftpMounter?.unmountQuietly()

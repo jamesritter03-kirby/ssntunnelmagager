@@ -45,12 +45,23 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.27", build: 37, date: "Jul 3, 2026",
+            highlights: [
+                "New Spreadsheet tab — a real, editable grid, not just text. Open it from the welcome screen or the New menu, or right‑click a file in a Finder or SFTP tab and choose Open as Spreadsheet. Click a header to sort, right‑click a column header to rename / insert / delete, add or remove rows and columns from the toolbar, and toggle whether the first row is a header.",
+                "Full Excel support: the Spreadsheet tab opens and saves real .xlsx workbooks — including multiple worksheets, shown as tabs along the bottom that you can switch, add, rename and delete. It also reads and writes CSV and TSV (with automatic delimiter detection), and remote files opened over SFTP upload straight back to the server on save.",
+                "Right‑click a Spreadsheet tab for Open in Excel — it saves the sheet and hands it to Microsoft Excel (or your default spreadsheet app), alongside Save, Save As, Reveal in Finder and Copy Path.",
+                "The ZeroTier window now shows what this Mac itself is doing: a “This Mac” bar with your node id, how many networks it’s actively Connected to and how many it’s a Member of, plus a Details list of every joined network and its live status. Each network in the list is marked when this Mac is connected to it.",
+                "Fixed: saving a workspace as a profile now opens the profile editor so you can finish setting it up, and it correctly captures the workspace’s remote connection (host, port, forwards) instead of defaulting to a plain local terminal.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.26", build: 36, date: "Jul 3, 2026",
             highlights: [
                 "Save a whole workspace as a profile: right‑click a workspace tab and choose Save as Profile… to turn its set of tabs into a one‑click launcher. It appears in the sidebar and welcome screen, and connecting it reopens the workspace with every tab reconnecting through its own profile.",
                 "When every tab in a workspace is docked to a side, the empty center now offers the full set of welcome‑screen starting points — New Local Terminal, Browser, Finder and Text Editor tabs, the Connect‑to‑a‑server shortcuts (Remote Terminal, SFTP, VNC, MQTT, Redis, ZeroTier), your profiles and recently‑closed items — instead of just New Local Terminal.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.25", build: 35, date: "Jul 3, 2026",

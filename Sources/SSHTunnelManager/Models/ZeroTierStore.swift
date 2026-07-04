@@ -343,6 +343,41 @@ struct ZeroTierAccount: Identifiable, Codable, Hashable {
     }
 }
 
+/// One network **this computer** has joined, as reported by the local ZeroTier
+/// service (`http://127.0.0.1:9993/network`) — distinct from the account/API
+/// view, which lists networks a token can administer. `status` is the live join
+/// state on this Mac (`OK`, `ACCESS_DENIED`, `REQUESTING_CONFIGURATION`, …).
+struct LocalNetworkStatus: Hashable {
+    let id: String                 // 16-hex network id, lowercased
+    var name: String
+    var status: String
+    var type: String               // PRIVATE / PUBLIC
+    var assignedAddresses: [String]
+
+    /// True when the tunnel is up and this Mac is authorized (status `OK`).
+    var isConnected: Bool { status.uppercased() == "OK" }
+
+    /// The first assigned IP without its CIDR suffix (for tooltips / subtitles).
+    var primaryIP: String? {
+        guard let first = assignedAddresses.first else { return nil }
+        return first.split(separator: "/").first.map(String.init) ?? first
+    }
+
+    /// A friendly, human-readable version of the raw status code.
+    var statusText: String {
+        switch status.uppercased() {
+        case "OK":                     return "Connected"
+        case "ACCESS_DENIED":          return "Access denied"
+        case "REQUESTING_CONFIGURATION": return "Requesting configuration"
+        case "NOT_FOUND":              return "Network not found"
+        case "PORT_ERROR":            return "Port error"
+        case "CLIENT_TOO_OLD":        return "Client too old"
+        case "":                       return "Unknown"
+        default:                       return status.capitalized
+        }
+    }
+}
+
 
 // MARK: - Store
 
@@ -359,6 +394,14 @@ final class ZeroTierStore: ObservableObject {
     @Published private(set) var isLoadingNetworks = false
     @Published private(set) var loadingMembers: Set<String> = []
     @Published private(set) var lastError: String?
+
+    // This Mac's own ZeroTier client (the local service on loopback:9993),
+    // separate from the account/API view above.
+    @Published private(set) var localNodeAddress: String?
+    @Published private(set) var localNodeOnline = false
+    @Published private(set) var localNetworks: [String: LocalNetworkStatus] = [:]
+    /// True when the local ZeroTier service was reachable and its token readable.
+    @Published private(set) var localNodeAvailable = false
 
     /// True once at least one ZeroTier account (API token) has been added.
     var hasAccounts: Bool { !accounts.isEmpty }
@@ -486,6 +529,7 @@ final class ZeroTierStore: ObservableObject {
         guard hasAccounts else { return }
         isLoadingNetworks = true
         lastError = nil
+        await refreshLocalNode()
         for account in accounts {
             await loadNetworks(for: account)
         }
@@ -595,6 +639,104 @@ final class ZeroTierStore: ObservableObject {
     /// Clear the last error banner.
     func clearError() {
         lastError = nil
+    }
+
+    // MARK: Local node (this Mac's ZeroTier client)
+
+    /// The local ZeroTier control service on loopback. Connections to a raw IP
+    /// bypass App Transport Security, so plain HTTP here needs no Info.plist
+    /// exception.
+    private static let localServiceBase = "http://127.0.0.1:9993"
+
+    /// Read the local service's API token. The macOS installer leaves a
+    /// world-readable copy in the user's Library so GUI clients can use it; fall
+    /// back to the root-owned system copy if that's readable too.
+    private static func readLocalAuthToken() -> String? {
+        let fm = FileManager.default
+        let candidates = [
+            fm.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/ZeroTier/One/authtoken.secret"),
+            URL(fileURLWithPath: "/Library/Application Support/ZeroTier/One/authtoken.secret"),
+        ]
+        for url in candidates {
+            if let s = try? String(contentsOf: url, encoding: .utf8) {
+                let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { return t }
+            }
+        }
+        return nil
+    }
+
+    /// Refresh this Mac's local ZeroTier state — the node address / online flag
+    /// and every network it has joined, with live status. Safe to call often;
+    /// any failure just marks the local node unavailable (the UI hides its strip).
+    func refreshLocalNode() async {
+        guard let token = Self.readLocalAuthToken() else { setLocalUnavailable(); return }
+        let status: LocalStatusDTO? = try? await localGet("/status", token: token)
+        let nets: [LocalNetworkDTO]? = try? await localGet("/network", token: token)
+        guard status != nil || nets != nil else { setLocalUnavailable(); return }
+        localNodeAddress = status?.address
+        localNodeOnline = status?.online ?? false
+        if let nets {
+            var map: [String: LocalNetworkStatus] = [:]
+            for n in nets {
+                let nwid = (n.id ?? n.nwid ?? "").lowercased()
+                guard !nwid.isEmpty else { continue }
+                map[nwid] = LocalNetworkStatus(id: nwid, name: n.name ?? "",
+                                               status: n.status ?? "", type: n.type ?? "",
+                                               assignedAddresses: n.assignedAddresses ?? [])
+            }
+            localNetworks = map
+        }
+        localNodeAvailable = true
+    }
+
+    private func setLocalUnavailable() {
+        localNodeAvailable = false
+        localNetworks = [:]
+        localNodeAddress = nil
+        localNodeOnline = false
+    }
+
+    private struct LocalStatusDTO: Decodable { let address: String?; let online: Bool? }
+    private struct LocalNetworkDTO: Decodable {
+        let id: String?; let nwid: String?; let name: String?
+        let status: String?; let type: String?; let assignedAddresses: [String]?
+    }
+
+    private func localGet<T: Decodable>(_ path: String, token: String) async throws -> T {
+        guard let url = URL(string: Self.localServiceBase + path) else {
+            throw ZeroTierError.transport("bad URL")
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 4
+        req.setValue(token, forHTTPHeaderField: "X-ZT1-Auth")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ZeroTierError.decoding
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// This Mac's join state for a network id, if it has joined that network.
+    func localStatus(for networkID: String) -> LocalNetworkStatus? {
+        localNetworks[networkID.lowercased()]
+    }
+
+    /// How many networks this Mac is actively connected to (status `OK`).
+    var localConnectedCount: Int { localNetworks.values.filter(\.isConnected).count }
+    /// How many networks this Mac is a member of (has joined locally).
+    var localMemberCount: Int { localNetworks.count }
+
+    /// All locally-joined networks, connected ones first, then by name.
+    var localNetworksSorted: [LocalNetworkStatus] {
+        localNetworks.values.sorted { a, b in
+            if a.isConnected != b.isConnected { return a.isConnected && !b.isConnected }
+            let an = a.name.isEmpty ? a.id : a.name
+            let bn = b.name.isEmpty ? b.id : b.name
+            return an.localizedCaseInsensitiveCompare(bn) == .orderedAscending
+        }
     }
 
     private func friendly(_ error: Error, account: ZeroTierAccount) -> String {

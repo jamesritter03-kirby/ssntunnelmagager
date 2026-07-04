@@ -308,6 +308,7 @@ struct SFTPBrowserView: View {
         }
         if targets.count == 1, entry.kind == .file {
             Button { editRemoteFile(entry) } label: { Label("Open in Text Editor", systemImage: "doc.text") }
+            Button { openRemoteAsSpreadsheet(entry) } label: { Label("Open as Spreadsheet", systemImage: "tablecells") }
         }
         Button {
             client.download(targets)
@@ -593,6 +594,24 @@ struct SFTPBrowserView: View {
             sessions.openRemoteEdit(localURL: localURL, remoteName: entry.name,
                                     remotePath: remotePath, uploader: client,
                                     serverLabel: label)
+        }
+    }
+
+    /// Download a remote delimited file to a temp copy and open it in a
+    /// spreadsheet tab, wiring save‑back so each save uploads it to the server.
+    private func openRemoteAsSpreadsheet(_ entry: SFTPEntry) {
+        guard client.isConnected, entry.kind == .file else { return }
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SSHTM-Edit-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let remotePath = absoluteRemotePath(for: entry.name)
+        let label = session.title
+        client.download([entry], to: tempDir, reveal: false) { urls in
+            guard let localURL = urls.first,
+                  FileManager.default.fileExists(atPath: localURL.path) else { return }
+            sessions.openRemoteSpreadsheet(localURL: localURL, remoteName: entry.name,
+                                           remotePath: remotePath, uploader: client,
+                                           serverLabel: label)
         }
     }
 

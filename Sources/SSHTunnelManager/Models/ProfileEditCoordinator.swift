@@ -24,6 +24,11 @@ final class ProfileEditCoordinator: ObservableObject {
     /// True when the open editor's profile is valid enough to save.
     @Published var canSave = false
 
+    /// Set to ask `ContentView` to open the profile editor for this profile — e.g.
+    /// right after “Save Workspace as Profile” creates one, so the user can name
+    /// it and adjust its connection. `ContentView` clears it once presented.
+    @Published var profileToEdit: SSHProfile?
+
     /// Drives the SwiftUI "save changes before quitting?" alert in `ContentView`.
     @Published var showQuitConfirmation = false
 

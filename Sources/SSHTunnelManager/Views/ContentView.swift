@@ -54,6 +54,14 @@ struct ContentView: View {
             )
             .frame(minWidth: 680, idealWidth: 720, minHeight: 540)
         }
+        .onChange(of: editCoordinator.profileToEdit) { requested in
+            // A profile the app asked us to edit (e.g. one just created by “Save
+            // Workspace as Profile”): open the editor for it, then clear the request.
+            guard let requested else { return }
+            duplicatedFromName = nil
+            editingProfile = requested
+            editCoordinator.profileToEdit = nil
+        }
         .sheet(isPresented: $palette.isPresented) {
             CommandPaletteView(palette: palette)
                 .environmentObject(store)

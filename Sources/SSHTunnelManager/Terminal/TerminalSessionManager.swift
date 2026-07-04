@@ -972,6 +972,47 @@ final class TerminalSessionManager: ObservableObject {
         addAndStart(session)
     }
 
+    /// Open a spreadsheet tab. Pass a CSV / TSV file path to open it, or nil for
+    /// a new blank grid.
+    func openSpreadsheet(path: String? = nil) {
+        let title: String
+        if let path, !path.isEmpty {
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            title = name.isEmpty ? "Untitled" : name
+        } else {
+            title = "Untitled"
+        }
+        let session = TerminalSession(
+            kind: .spreadsheet,
+            title: title,
+            executable: "",
+            args: [],
+            commandPreview: path ?? "",
+            startDirectory: path
+        )
+        addAndStart(session)
+    }
+
+    /// Open a **remote delimited file as a spreadsheet**: it has already been
+    /// downloaded to `localURL`; this opens it in a spreadsheet tab and wires a
+    /// save‑back link so each save uploads it to `remotePath` over the given
+    /// SFTP `uploader`. Backs the SFTP browser's “Open as Spreadsheet” action.
+    func openRemoteSpreadsheet(localURL: URL, remoteName: String, remotePath: String,
+                               uploader: RemoteFileUploader, serverLabel: String) {
+        let session = TerminalSession(
+            kind: .spreadsheet,
+            title: remoteName,
+            executable: "",
+            args: [],
+            commandPreview: remotePath,
+            startDirectory: localURL.path
+        )
+        session.spreadsheetModel?.beginRemoteEdit(
+            uploader: uploader, localURL: localURL,
+            remoteName: remoteName, remotePath: remotePath, serverLabel: serverLabel)
+        addAndStart(session)
+    }
+
     /// Open an **ad-hoc** MQTT / Redis tab that connects directly to `host:port`
     /// (no SSH tunnel / profile). Used by the “new connection” setup sheet.
     func openAdHocService(category: ForwardCategory, host: String, port: Int,
@@ -1296,6 +1337,11 @@ final class TerminalSessionManager: ObservableObject {
            !editor.confirmCloseIfNeeded() {
             return
         }
+        // Likewise for a spreadsheet tab with unsaved edits.
+        if session.kind == .spreadsheet, let sheet = session.spreadsheetModel,
+           !sheet.confirmCloseIfNeeded() {
+            return
+        }
         // Remember this tab so it can be reopened from the welcome screen if the
         // close was accidental (skips tabs we couldn't recreate, e.g. profile-free
         // tabs whose profile is gone).
@@ -1531,10 +1577,18 @@ final class TerminalSessionManager: ObservableObject {
         persistSavedWorkspaces()
     }
 
-    /// Save a workspace as a **launcher profile**: snapshot its tabs and layout
-    /// into a saved-workspace template, then create a profile assigned to that
-    /// template. The profile appears in the sidebar / welcome screen; connecting
-    /// it rebuilds the workspace with every tab reconnecting via its own profile.
+    /// Save a workspace as a profile: snapshot its tabs and layout into a
+    /// saved-workspace template, then create a profile assigned to that template.
+    /// The profile appears in the sidebar / welcome screen; connecting it reopens
+    /// the workspace's tabs.
+    ///
+    /// The new profile's connection identity is seeded from the workspace's
+    /// **primary** connection so it isn't shown as a plain local terminal:
+    /// - a profile-backed **SSH** tab → the profile clones that connection and
+    ///   opens it on connect, with the template adding the other tabs alongside;
+    /// - otherwise → a **workspace launcher** that opens no connection of its own
+    ///   and rebuilds every tab as-is, its host / user seeded from the first
+    ///   remote tab (or left local when the workspace has no remote connection).
     /// Returns the new profile (already added to the store), or nil if the
     /// workspace no longer exists.
     @discardableResult
@@ -1547,23 +1601,67 @@ final class TerminalSessionManager: ObservableObject {
         // unrelated same-named saved workspace the user maintains separately).
         let templateID = createSavedWorkspaceTemplate(from: ws, name: base)
 
-        // A local “launcher” profile: it opens no connection of its own, it just
-        // rebuilds the template's workspace. `isLocal` gives it a harmless fallback
-        // (a plain shell) if its template is ever removed.
-        var profile = SSHProfile()
+        let liveTabs = ws.tabIDs.compactMap { tid in sessions.first(where: { $0.id == tid }) }
+        var profile: SSHProfile
+
+        if let s = liveTabs.first(where: { $0.kind == .ssh && $0.profileID != nil }),
+           let pid = s.profileID,
+           let src = ProfileStore.shared.profiles.first(where: { $0.id == pid }), !src.isLocal {
+            // A real remote profile: clone the ssh connection. Connecting it
+            // reconnects the terminal, and the template opens the workspace's other
+            // tabs (sftp / vnc / …) alongside, re-pointed to this profile.
+            profile = cloneConnection(of: src)
+            profile.isWorkspaceLauncher = false
+        } else if let s = liveTabs.first(where: {
+                    $0.kind == .ssh || $0.kind == .sftp || $0.kind == .vnc }),
+                  let seed = connectionSeed(for: s) {
+            // A launcher seeded from the first remote tab so it isn't shown as a
+            // local terminal. It opens no connection of its own — the template
+            // rebuilds every tab as-is (each reconnecting via its own profile).
+            profile = seed
+            profile.isWorkspaceLauncher = true
+        } else {
+            // Purely local / non-connection tabs → a local launcher.
+            profile = SSHProfile()
+            profile.isLocal = true
+            profile.isWorkspaceLauncher = true
+        }
+
         profile.name = ProfileStore.shared.uniqueName(for: base)
-        profile.isLocal = true
         profile.icon = "square.stack.3d.up.fill"
-        profile.isWorkspaceLauncher = true
         profile.opensInOwnWorkspace = true
         profile.workspaceTemplateID = templateID
         ProfileStore.shared.add(profile)
-
-        DispatchQueue.main.async { [weak self] in
-            self?.note(title: "Saved “\(profile.name)” as a Profile",
-                       text: "Find it in the sidebar and welcome screen. Connecting it reopens this workspace’s tabs.")
-        }
         return profile
+    }
+
+    /// A copy of `p`'s connection settings under a fresh id, with its forwards
+    /// re-keyed and its snippets / links dropped — the connection identity used to
+    /// seed a workspace profile (mirrors how duplicating a profile is sanitized).
+    private func cloneConnection(of p: SSHProfile) -> SSHProfile {
+        var c = p
+        c.id = UUID()
+        c.forwards = c.forwards.map { var f = $0; f.id = UUID(); return f }
+        c.snippets = []
+        c.links = []
+        return c
+    }
+
+    /// The connection identity to seed a workspace **launcher** from: a sanitized
+    /// clone of the tab's profile, or — for an ad-hoc tab — a profile built from
+    /// its captured host / username / port. Nil if there's nothing to seed.
+    private func connectionSeed(for s: TerminalSession) -> SSHProfile? {
+        if let pid = s.profileID,
+           let p = ProfileStore.shared.profiles.first(where: { $0.id == pid }) {
+            return cloneConnection(of: p)
+        }
+        let host = s.serviceHost.trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty else { return nil }
+        var p = SSHProfile()
+        p.host = host
+        p.username = s.serviceUsername.trimmingCharacters(in: .whitespaces)
+        if let port = s.servicePort { p.port = String(port) }
+        return p
     }
 
     /// Snapshot a workspace into a brand-new `SavedWorkspace` (a launch template),
@@ -1588,16 +1686,6 @@ final class TerminalSessionManager: ObservableObject {
         var n = 2
         while existing.contains("\(base) (\(n))") { n += 1 }
         return "\(base) (\(n))"
-    }
-
-    /// Show a simple informational alert.
-    private func note(title: String, text: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = title
-        alert.informativeText = text
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
     }
 
     private func persistSavedWorkspaces() {
@@ -1653,7 +1741,7 @@ final class TerminalSessionManager: ObservableObject {
             ProfileStore.shared.profiles.contains { $0.id == id }
         } ?? false
         switch snap.kind {
-        case .localShell, .web, .finder, .editor:
+        case .localShell, .web, .finder, .editor, .spreadsheet:
             return true
         case .ssh, .sftp, .vnc:
             return hasProfile || (snap.serviceHost?.isEmpty == false)
@@ -1737,7 +1825,7 @@ final class TerminalSessionManager: ObservableObject {
             if !u.isEmpty { user = u }
         }
         return SessionSnapshot(kind: s.kind, profileID: s.profileID,
-                               webURL: s.webModel?.currentURLString ?? s.finderModel?.currentPath ?? s.textEditorModel?.fileURL?.path,
+                               webURL: s.webModel?.currentURLString ?? s.finderModel?.currentPath ?? s.textEditorModel?.fileURL?.path ?? s.spreadsheetModel?.fileURL?.path,
                                title: s.title,
                                servicePort: s.servicePort,
                                serviceHost: host, serviceUsername: user,
@@ -1893,6 +1981,8 @@ final class TerminalSessionManager: ObservableObject {
             openFinder(path: snap.webURL)
         case .editor:
             openTextEditor(path: snap.webURL, backupID: snap.editorBackupID)
+        case .spreadsheet:
+            openSpreadsheet(path: snap.webURL)
         }
     }
 

@@ -33,6 +33,7 @@ struct SSHTunnelManagerApp: App {
                 Button("New Finder Tab") { sessions.openFinder() }
                 Button("New Text Editor") { sessions.openTextEditor() }
                     .keyboardShortcut("n", modifiers: .command)
+                Button("New Spreadsheet") { sessions.openSpreadsheet() }
                 Divider()
                 Button("New Remote Terminal…") { RemoteConnectionModel.shared.present(.ssh) }
                 Button("New SFTP Connection…") { RemoteConnectionModel.shared.present(.sftp) }

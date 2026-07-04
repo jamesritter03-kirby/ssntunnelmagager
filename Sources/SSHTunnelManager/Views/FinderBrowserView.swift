@@ -582,6 +582,13 @@ struct FinderBrowserView: View {
                       : "Open in Text Editor", systemImage: "doc.text")
             }
         }
+        if editableFiles.count == 1, let file = editableFiles.first {
+            Button {
+                sessions.openSpreadsheet(path: file.url.path)
+            } label: {
+                Label("Open as Spreadsheet", systemImage: "tablecells")
+            }
+        }
         Button { browser.revealInFinder(targets) } label: {
             Label("Reveal in Finder", systemImage: "magnifyingglass")
         }

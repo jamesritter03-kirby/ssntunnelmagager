@@ -31,6 +31,8 @@ struct ZeroTierBrowserView: View {
     @State private var showPassword = false
     @State private var managingAccounts = false
     @State private var lastAction: String?
+    /// Whether the “This Mac” local-networks details popover is showing.
+    @State private var showLocalPopover = false
 
     // New-account form (in the accounts manager).
     @State private var newLabel = ""
@@ -54,6 +56,7 @@ struct ZeroTierBrowserView: View {
         .frame(minWidth: 780, idealWidth: 900, maxWidth: .infinity,
                minHeight: 540, idealHeight: 660, maxHeight: .infinity)
         .task { await store.loadIfNeeded() }
+        .task { await store.refreshLocalNode() }
     }
 
     // MARK: - Browser
@@ -61,6 +64,10 @@ struct ZeroTierBrowserView: View {
     private var browser: some View {
         VStack(spacing: 0) {
             header
+            if store.localNodeAvailable {
+                Divider()
+                localNodeStrip
+            }
             Divider()
             HStack(spacing: 0) {
                 networkList
@@ -97,6 +104,138 @@ struct ZeroTierBrowserView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    // A compact strip showing this Mac's own ZeroTier membership: the local
+    // node id / online state, how many networks it's connected to vs. a member
+    // of, and a popover listing them (including networks not in any account).
+    private var localNodeStrip: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "laptopcomputer")
+                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text("This Mac").font(.caption.weight(.semibold))
+                if let addr = store.localNodeAddress, !addr.isEmpty {
+                    Text(addr)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Circle()
+                    .fill(store.localNodeOnline ? Color.green : Color.secondary.opacity(0.5))
+                    .frame(width: 6, height: 6)
+                    .help(store.localNodeOnline ? "ZeroTier is online" : "ZeroTier is offline")
+            }
+
+            statusPill(color: .green, icon: "checkmark.circle.fill",
+                       text: "Connected to \(store.localConnectedCount)")
+                .help("Networks this Mac is actively connected to (status OK).")
+            statusPill(color: .blue, icon: "person.crop.circle.badge.checkmark",
+                       text: "Member of \(store.localMemberCount)")
+                .help("Networks this Mac has joined in the ZeroTier app.")
+
+            Spacer()
+
+            Button {
+                showLocalPopover = true
+            } label: {
+                Label("Details", systemImage: "list.bullet")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(store.localMemberCount == 0)
+            .popover(isPresented: $showLocalPopover, arrowEdge: .bottom) {
+                localNetworksPopover
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private func statusPill(color: Color, icon: String, text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.caption2)
+            Text(text).font(.caption)
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.14), in: Capsule())
+    }
+
+    private var localNetworksPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("This Mac’s ZeroTier Networks")
+                .font(.headline)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 2)
+            if let addr = store.localNodeAddress, !addr.isEmpty {
+                Text("Node \(addr) · \(store.localNodeOnline ? "online" : "offline")")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
+            Divider()
+            if store.localNetworksSorted.isEmpty {
+                Text("This Mac hasn’t joined any ZeroTier networks.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(14)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(store.localNetworksSorted, id: \.id) { net in
+                            localNetworkPopoverRow(net)
+                            Divider()
+                        }
+                    }
+                }
+                .frame(maxHeight: 280)
+            }
+        }
+        .frame(width: 380)
+    }
+
+    private func localNetworkPopoverRow(_ net: LocalNetworkStatus) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle()
+                .fill(net.isConnected ? Color.green : Color.orange)
+                .frame(width: 8, height: 8)
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(net.name.isEmpty ? net.id : net.name)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(net.statusText)
+                        .foregroundStyle(net.isConnected ? Color.green : Color.orange)
+                    Text(net.id).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                if let ip = net.primaryIP {
+                    Text(ip)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if store.networks.contains(where: { $0.id == net.id }) {
+                Button("Show") {
+                    selectedNetworkID = net.id
+                    showLocalPopover = false
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Show this network’s devices")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     // Left: the networks, grouped by account, plus an "All networks" entry.
@@ -137,8 +276,12 @@ struct ZeroTierBrowserView: View {
 
     private func networkRow(_ network: ZeroTierNetwork) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(network.displayName)
-                .lineLimit(1)
+            HStack(spacing: 6) {
+                Text(network.displayName)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                localBadge(for: network.id)
+            }
             HStack(spacing: 4) {
                 Circle()
                     .fill(onlineCount(for: network.id) > 0 ? Color.green : Color.secondary.opacity(0.5))
@@ -149,6 +292,27 @@ struct ZeroTierBrowserView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// A small marker on a network row showing this Mac's own relationship to it:
+    /// a green check when actively connected, a dashed ring when it's joined but
+    /// not currently connected (e.g. awaiting authorization).
+    @ViewBuilder
+    private func localBadge(for networkID: String) -> some View {
+        if let local = store.localStatus(for: networkID) {
+            if local.isConnected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                    .help("This Mac is connected to this network"
+                          + (local.primaryIP.map { " · \($0)" } ?? ""))
+            } else {
+                Image(systemName: "circle.dashed")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .help("This Mac is a member of this network — \(local.statusText)")
+            }
+        }
     }
 
     // Right: filter controls + the member list.

@@ -612,10 +612,16 @@ private struct WorkspaceBar: View {
             TextField("Profile name", text: $profileNameField)
             Button("Cancel", role: .cancel) { pendingProfileWorkspaceID = nil }
             Button("Save") {
-                if let id = pendingProfileWorkspaceID {
-                    sessions.saveWorkspaceAsProfile(id, name: profileNameField)
-                }
+                guard let id = pendingProfileWorkspaceID else { return }
                 pendingProfileWorkspaceID = nil
+                if let profile = sessions.saveWorkspaceAsProfile(id, name: profileNameField) {
+                    // Open the editor so the user can name it, pick an icon, and
+                    // adjust the connection. Deferred so the alert fully dismisses
+                    // before the editor sheet is presented.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        ProfileEditCoordinator.shared.profileToEdit = profile
+                    }
+                }
             }
         } message: {
             Text("Create a profile that reopens this workspace's tabs. It appears in the sidebar and welcome screen; each tab reconnects through its own profile.")
@@ -797,6 +803,11 @@ private struct TabBar: View {
                             sessions.openTextEditor()
                         } label: {
                             Label("New Text Editor", systemImage: "doc.text")
+                        }
+                        Button {
+                            sessions.openSpreadsheet()
+                        } label: {
+                            Label("New Spreadsheet", systemImage: "tablecells")
                         }
                         Divider()
                         Button {
@@ -1144,6 +1155,10 @@ private struct TerminalTabContextMenu: View {
             EditorTabContextMenu(session: session, model: editorModel)
             Divider()
         }
+        if session.kind == .spreadsheet, let sheetModel = session.spreadsheetModel {
+            SpreadsheetTabContextMenu(session: session, model: sheetModel)
+            Divider()
+        }
         // Snippets submenu (terminal tabs only)
         if let profile, !profile.snippets.isEmpty,
            session.kind == .ssh || session.kind == .localShell {
@@ -1193,7 +1208,8 @@ private struct TerminalTabContextMenu: View {
            || !profile.links.isEmpty || !profile.categorizedForwards.isEmpty {
             Divider()
         }
-        if session.kind != .web && session.kind != .finder && session.kind != .editor {
+        if session.kind != .web && session.kind != .finder && session.kind != .editor
+            && session.kind != .spreadsheet {
             Button {
                 session.disconnect()
             } label: {
@@ -1424,6 +1440,88 @@ private struct EditorTabContextMenu: View {
             sessions.openTextEditor()
         } label: {
             Label("New Text Editor", systemImage: "doc.badge.plus")
+        }
+        Button {
+            sessions.openSpreadsheet()
+        } label: {
+            Label("New Spreadsheet", systemImage: "tablecells")
+        }
+    }
+}
+
+/// The spreadsheet-specific items shown at the top of a `.spreadsheet` tab's
+/// right-click menu: save actions, Open in Excel / the default app, reveal in
+/// Finder, copy path, and a New Spreadsheet shortcut.
+private struct SpreadsheetTabContextMenu: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    @ObservedObject var session: TerminalSession
+    @ObservedObject var model: SpreadsheetModel
+
+    private func copyToPasteboard(_ string: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(string, forType: .string)
+    }
+
+    var body: some View {
+        Button {
+            model.save()
+        } label: {
+            Label("Save", systemImage: "square.and.arrow.down")
+        }
+        .disabled(model.fileURL != nil && !model.isDirty)
+
+        Button {
+            model.saveAs()
+        } label: {
+            Label("Save As…", systemImage: "square.and.arrow.down.on.square")
+        }
+
+        if model.fileURL != nil {
+            Button {
+                model.revertToSaved()
+            } label: {
+                Label("Revert to Saved", systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!model.isDirty)
+        }
+
+        Divider()
+        Button {
+            model.openInExcel()
+        } label: {
+            Label("Open in Excel", systemImage: "tablecells")
+        }
+
+        if let url = model.fileURL {
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Label("Open in Default App", systemImage: "arrow.up.forward.app")
+            }
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } label: {
+                Label("Reveal in Finder", systemImage: "folder")
+            }
+            Divider()
+            Button {
+                copyToPasteboard(url.path)
+            } label: {
+                Label("Copy Full Path", systemImage: "doc.on.doc")
+            }
+            Button {
+                copyToPasteboard(url.lastPathComponent)
+            } label: {
+                Label("Copy File Name", systemImage: "textformat")
+            }
+        }
+
+        Divider()
+        Button {
+            sessions.openSpreadsheet()
+        } label: {
+            Label("New Spreadsheet", systemImage: "doc.badge.plus")
         }
     }
 }
@@ -1909,6 +2007,8 @@ struct TerminalContainer: View {
             FinderBrowserView(session: session)
         } else if session.kind == .editor {
             TextEditorTabView(session: session)
+        } else if session.kind == .spreadsheet {
+            SpreadsheetTabView(session: session)
         } else {
             terminal
         }
@@ -2045,6 +2145,13 @@ private struct WelcomeLaunchOptions: View {
                     sessions.openTextEditor()
                 } label: {
                     Label("New Text Editor", systemImage: "doc.text")
+                }
+                .controlSize(.large)
+
+                Button {
+                    sessions.openSpreadsheet()
+                } label: {
+                    Label("New Spreadsheet", systemImage: "tablecells")
                 }
                 .controlSize(.large)
             }

@@ -68,6 +68,7 @@ struct ClosedItem: Identifiable, Codable {
         case .redis:      return "Redis"
         case .finder:     return "Finder"
         case .editor:     return "Text Editor"
+        case .spreadsheet: return "Spreadsheet"
         case .none:       return "Tab"
         }
     }
