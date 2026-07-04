@@ -11,6 +11,16 @@ final class ZeroTierBrowserModel: ObservableObject {
     func present() { isPresented = true }
 }
 
+/// The left-list selection: either the combined “All Networks” view or one
+/// specific network. A dedicated case (rather than `String?` with a `nil` tag)
+/// keeps the “All Networks” row selectable — SwiftUI's `List` treats a `nil`
+/// selection tag as “no selection”, which makes that row impossible to click
+/// again once a real network has been chosen.
+private enum NetworkFilter: Hashable {
+    case all
+    case network(String)
+}
+
 /// Browse the devices (members) across all of your ZeroTier networks and connect
 /// (SSH / SFTP / VNC) straight to any of their managed IP addresses. The account
 /// API token is stored in the Keychain; networks and members come from the
@@ -20,8 +30,8 @@ struct ZeroTierBrowserView: View {
     @EnvironmentObject var sessions: TerminalSessionManager
     @Environment(\.dismiss) private var dismiss
 
-    /// nil = "All networks"; otherwise a specific network id.
-    @State private var selectedNetworkID: String?
+    /// The left-list selection (“All Networks” or one network).
+    @State private var selection: NetworkFilter = .all
     @State private var search = ""
     @State private var onlineOnly = false
     /// The "Connect as" username, remembered across launches. Defaults to the
@@ -42,6 +52,12 @@ struct ZeroTierBrowserView: View {
     @State private var tokenEditAccount: UUID?
     @State private var tokenDraft = ""
     @State private var serverDraft = ""
+
+    /// The specific network id currently selected, or nil for “All Networks”.
+    private var selectedNetworkID: String? {
+        if case .network(let id) = selection { return id }
+        return nil
+    }
 
     var body: some View {
         Group {
@@ -226,7 +242,7 @@ struct ZeroTierBrowserView: View {
             Spacer()
             if store.networks.contains(where: { $0.id == net.id }) {
                 Button("Show") {
-                    selectedNetworkID = net.id
+                    selection = .network(net.id)
                     showLocalPopover = false
                 }
                 .buttonStyle(.bordered)
@@ -240,7 +256,7 @@ struct ZeroTierBrowserView: View {
 
     // Left: the networks, grouped by account, plus an "All networks" entry.
     private var networkList: some View {
-        List(selection: $selectedNetworkID) {
+        List(selection: $selection) {
             Label {
                 HStack {
                     Text("All Networks")
@@ -252,7 +268,7 @@ struct ZeroTierBrowserView: View {
             } icon: {
                 Image(systemName: "square.stack.3d.up")
             }
-            .tag(String?.none)
+            .tag(NetworkFilter.all)
 
             ForEach(store.accounts) { account in
                 Section(account.displayLabel) {
@@ -264,7 +280,7 @@ struct ZeroTierBrowserView: View {
                     } else {
                         ForEach(nets) { network in
                             networkRow(network)
-                                .tag(Optional(network.id))
+                                .tag(NetworkFilter.network(network.id))
                         }
                     }
                 }

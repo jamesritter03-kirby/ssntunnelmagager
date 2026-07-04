@@ -45,6 +45,13 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.28", build: 38, date: "Jul 3, 2026",
+            highlights: [
+                "Fixed: in the ZeroTier window you can now click “All Networks” again to clear a filter. Previously, once you selected a specific network on the left, the “All Networks” row couldn’t be re‑selected without closing and reopening the window.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.27", build: 37, date: "Jul 3, 2026",
             highlights: [
                 "New Spreadsheet tab — a real, editable grid, not just text. Open it from the welcome screen or the New menu, or right‑click a file in a Finder or SFTP tab and choose Open as Spreadsheet. Click a header to sort, right‑click a column header to rename / insert / delete, add or remove rows and columns from the toolbar, and toggle whether the first row is a header.",
