@@ -31,6 +31,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     @Published var title: String
     @Published var isRunning: Bool = true
     @Published var exitCode: Int32? = nil
+    /// An optional user-chosen tint for this tab's chip (nil = default accent).
+    /// Set from the tab's right-click "Tab Color" menu; persisted per tab.
+    @Published var tabColor: TabColor? = nil
     /// Commands typed in this tab, oldest first. Re-runnable from the history menu.
     @Published private(set) var commandHistory: [String] = []
 
@@ -52,6 +55,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// at the first password prompt, instead of reading one from the Keychain.
     /// Used for profile-free SSH / SFTP tabs; never persisted.
     let presetPassword: String?
+    /// A profile whose saved Keychain password this tab may autofill even though
+    /// the tab itself is profile-free. Set for ad-hoc ssh / sftp tabs rebuilt
+    /// inside a **profile-launched workspace**, so they use the launching
+    /// profile's saved password (Touch ID gated) instead of prompting for manual
+    /// entry. `nil` for ordinary tabs.
+    let autofillSourceProfileID: UUID?
+    /// Whether Touch ID / login password is required before using that source
+    /// profile's saved password.
+    let autofillSourceRequireAuth: Bool
     /// For local-shell sessions: the folder the shell should start in (nil = default).
     let startDirectory: String?
 
@@ -158,6 +170,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         }
     }
 
+    /// Whether “Duplicate Tab” makes sense for this tab. Every kind can be copied
+    /// except a **profile-backed ssh** tab: its tunnel binds fixed forwarded
+    /// ports, so a second one couldn't bind them (and the app keeps one tab per
+    /// profile anyway). An ad-hoc ssh tab — a plain interactive shell with no
+    /// forwards — duplicates fine.
+    var canDuplicate: Bool {
+        switch kind {
+        case .ssh: return profileID == nil
+        default:   return true
+        }
+    }
+
     private var hasStarted = false
 
     // Command-line reconstruction state (see handleInput).
@@ -167,12 +191,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     private var secretPromptActive = false
     private var recentOutputTail = ""
     private let historyLimit = 300
-    private var didAutofillPassword = false
+    /// How many times we've auto-typed the saved password this connection. Capped
+    /// (see `maxAutofillAttempts`) so a pre-auth banner that merely *mentions* a
+    /// password — or a second authentication prompt (a bastion hop) — doesn't burn
+    /// the one chance, while a genuinely wrong stored password still can't loop.
+    private var autofillAttempts = 0
+    private let maxAutofillAttempts = 2
+    /// The saved password once it's been unlocked (Touch ID) this connection, held
+    /// briefly so a second prompt can be answered without prompting for Touch ID
+    /// again. Cleared on (re)start and a short while after it's cached.
+    private var cachedAutofillSecret: String?
     /// Set when a PTY start was requested before the view was on screen; the
     /// pending start runs once `startIfPending()` sees the view attached.
     private var pendingStart = false
 
-    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, startDirectory: String? = nil, editorBackupID: UUID? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", presetPassword: String? = nil, extraEnvironment: [String: String] = [:], vncScaling: Bool = true, vncViewOnly: Bool = false, vncColorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor) {
+    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true, startDirectory: String? = nil, editorBackupID: UUID? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", presetPassword: String? = nil, sftpMountCredentialID: UUID? = nil, extraEnvironment: [String: String] = [:], vncScaling: Bool = true, vncViewOnly: Bool = false, vncColorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor) {
         self.kind = kind
         self.title = title
         self.executable = executable
@@ -183,6 +216,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         self.fontSize = TerminalFontMetrics.clamp(fontSize)
         self.autofillPassword = autofillPassword
         self.requireAuthForPassword = requireAuthForPassword
+        self.autofillSourceProfileID = autofillSourceProfileID
+        self.autofillSourceRequireAuth = autofillSourceRequireAuth
         self.startDirectory = startDirectory
         self.servicePort = servicePort
         self.serviceHost = serviceHost
@@ -195,8 +230,23 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             self.sftpClient = SFTPClient(executable: executable, args: args, profileID: profileID,
                                          autofillPassword: autofillPassword,
                                          requireAuthForPassword: requireAuthForPassword,
-                                         presetPassword: presetPassword)
-            self.sftpMounter = SFTPMounter(profileID: profileID)
+                                         presetPassword: presetPassword,
+                                         autofillSourceProfileID: autofillSourceProfileID,
+                                         autofillSourceRequireAuth: autofillSourceRequireAuth)
+            // A profile-backed tab mounts via its profile. Any ad-hoc tab with a
+            // captured host is mountable too: it uses that host / port / username,
+            // with its typed password (in memory) or one persisted under
+            // `sftpMountCredentialID` (a tab rebuilt from a workspace profile).
+            if let profileID {
+                self.sftpMounter = SFTPMounter(profileID: profileID)
+            } else if !serviceHost.isEmpty {
+                self.sftpMounter = SFTPMounter(adHocHost: serviceHost, port: servicePort ?? 22,
+                                               username: serviceUsername,
+                                               password: presetPassword,
+                                               credentialID: sftpMountCredentialID)
+            } else {
+                self.sftpMounter = SFTPMounter(profileID: nil)
+            }
         } else {
             self.sftpClient = nil
             self.sftpMounter = nil
@@ -401,7 +451,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         hasStarted = true
         isRunning = true
         exitCode = nil
-        didAutofillPassword = false
+        autofillAttempts = 0
+        cachedAutofillSecret = nil
         secretPromptActive = false
         terminalView.startProcess(executable: executable,
                                   args: args,
@@ -602,10 +653,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     /// Watch output to spot password prompts so the next submitted line isn't recorded.
     private func handleOutput(_ data: ArraySlice<UInt8>) {
-        recentOutputTail = String((recentOutputTail + String(decoding: data, as: UTF8.self)).suffix(200))
-        let lastLine = recentOutputTail
+        recentOutputTail = String((recentOutputTail + String(decoding: data, as: UTF8.self)).suffix(400))
+        // Strip ANSI colours / cursor moves first: a styled prompt like
+        // "Password: \u{1b}[0m" would otherwise not end in ":" and slip past.
+        let cleaned = TerminalSession.strippingTerminalControls(recentOutputTail)
+        let lastLine = cleaned
             .split(whereSeparator: { $0 == "\n" || $0 == "\r" })
-            .last.map(String.init) ?? recentOutputTail
+            .last.map(String.init) ?? cleaned
         let wasActive = secretPromptActive
         secretPromptActive = TerminalSession.looksLikeSecretPrompt(lastLine)
         if secretPromptActive && !wasActive {
@@ -613,38 +667,118 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         }
     }
 
-    /// On the first password prompt, fetch the saved password (gated by Touch ID)
-    /// and type it in. One-shot, so a wrong saved password can't cause a loop.
+    /// On a password prompt, fetch the saved password (gated by Touch ID) and type
+    /// it in. Fires at most `maxAutofillAttempts` times per connection: enough that
+    /// a pre-auth banner mentioning "password:", or a bastion's own prompt, doesn't
+    /// waste the fill on the wrong line — but few enough that a genuinely wrong
+    /// stored password can't loop and lock the account.
     private func maybeAutofillPassword() {
-        guard !didAutofillPassword else { return }
+        guard autofillAttempts < maxAutofillAttempts else { return }
         // An ad-hoc tab carries its typed password directly (no Keychain).
         if let preset = presetPassword, !preset.isEmpty {
-            didAutofillPassword = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.isRunning else { return }
-                self.isInjecting = true
-                self.terminalView.send(txt: preset)
-                self.terminalView.send(txt: "\r")
-                self.isInjecting = false
-            }
+            autofillAttempts += 1
+            typeSecret(preset)
             return
         }
-        guard autofillPassword, let pid = profileID else { return }
-        didAutofillPassword = true
+        // Otherwise autofill from a saved profile: the tab's own, or the profile
+        // that launched its workspace (assigned to profile-free tabs rebuilt
+        // inside a profile-launched workspace).
+        guard let source = autofillPasswordSource else { return }
+        // Reuse a password already unlocked this connection so a second prompt
+        // doesn't pop Touch ID again.
+        if let cached = cachedAutofillSecret {
+            autofillAttempts += 1
+            typeSecret(cached)
+            return
+        }
+        autofillAttempts += 1
         KeychainStore.shared.password(
-            for: pid,
-            requireAuth: requireAuthForPassword,
+            for: source.profileID,
+            requireAuth: source.requireAuth,
             reason: "Use the saved password for “\(title)”"
         ) { [weak self] result in
             guard let self, case .success(let password) = result else { return }
-            DispatchQueue.main.async {
-                guard self.isRunning else { return }
-                self.isInjecting = true
-                self.terminalView.send(txt: password)
-                self.terminalView.send(txt: "\r")
-                self.isInjecting = false
+            self.rememberAutofillSecret(password)
+            self.typeSecret(password)
+        }
+    }
+
+    /// The profile whose Keychain password this tab should autofill, and whether
+    /// Touch ID is required: its own profile when it autofills, otherwise an
+    /// assigned owning-workspace profile. `nil` when the tab has no saved profile
+    /// password to draw on.
+    private var autofillPasswordSource: (profileID: UUID, requireAuth: Bool)? {
+        if autofillPassword, let pid = profileID {
+            return (pid, requireAuthForPassword)
+        }
+        if let pid = autofillSourceProfileID {
+            return (pid, autofillSourceRequireAuth)
+        }
+        return nil
+    }
+
+    /// Type a secret into the terminal followed by Return, without recording it in
+    /// history (the `isInjecting` flag suppresses capture). Always hops to main.
+    private func typeSecret(_ secret: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.isInjecting = true
+            self.terminalView.send(txt: secret)
+            self.terminalView.send(txt: "\r")
+            self.isInjecting = false
+        }
+    }
+
+    /// Hold an unlocked password just long enough to answer a follow-up prompt
+    /// without a second Touch ID, then forget it so it isn't kept in memory.
+    private func rememberAutofillSecret(_ secret: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.cachedAutofillSecret = secret
+            DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in
+                self?.cachedAutofillSecret = nil
             }
         }
+    }
+
+    /// Remove ANSI/CSI/OSC escape sequences and other C0 control characters from
+    /// terminal output, keeping newlines / carriage returns (our line separators)
+    /// and printable text. Lets password-prompt detection see the plain text a
+    /// server printed even when the prompt is coloured or cursor-positioned —
+    /// otherwise stray escape bytes after the trailing ":" defeat the match.
+    private static func strippingTerminalControls(_ s: String) -> String {
+        let scalars = Array(s.unicodeScalars)
+        var out = String.UnicodeScalarView()
+        out.reserveCapacity(scalars.count)
+        var i = 0
+        while i < scalars.count {
+            let u = scalars[i].value
+            if u == 0x1b {                       // ESC — start of an escape sequence
+                i += 1
+                guard i < scalars.count else { break }
+                let next = scalars[i].value
+                if next == 0x5b {                // '[' → CSI: params… then a final @–~
+                    i += 1
+                    while i < scalars.count, !(0x40...0x7e).contains(scalars[i].value) { i += 1 }
+                    if i < scalars.count { i += 1 }
+                } else if next == 0x5d {         // ']' → OSC: … ended by BEL or ESC '\'
+                    i += 1
+                    while i < scalars.count, scalars[i].value != 0x07, scalars[i].value != 0x1b { i += 1 }
+                    if i < scalars.count, scalars[i].value == 0x1b { i += 1 }
+                    if i < scalars.count { i += 1 }
+                } else {
+                    i += 1                       // a two-character ESC sequence
+                }
+                continue
+            }
+            if u < 0x20, u != 0x0a, u != 0x0d {  // drop C0 controls except NL / CR
+                i += 1
+                continue
+            }
+            out.append(scalars[i])
+            i += 1
+        }
+        return String(out)
     }
 
     private static func looksLikeSecretPrompt(_ line: String) -> Bool {
@@ -667,6 +801,43 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     func clearHistory() {
         commandHistory.removeAll()
+    }
+
+    // MARK: - Terminal buffer actions
+
+    /// Clear the terminal display and scrollback (like Terminal.app's ⌘K). Feeds
+    /// the erase sequence to the emulator, so it works the same for local shells
+    /// and remote ssh sessions without sending anything to the running shell.
+    func clearTerminal() {
+        guard kind == .ssh || kind == .localShell else { return }
+        DispatchQueue.main.async { [weak self] in
+            // Erase scrollback (3J), home the cursor (H), erase the screen (2J).
+            self?.terminalView.feed(text: "\u{1b}[3J\u{1b}[H\u{1b}[2J")
+        }
+    }
+
+    /// The full terminal contents (scrollback + screen) as plain text, with
+    /// trailing blank lines trimmed.
+    var terminalBufferText: String {
+        let data = terminalView.getTerminal().getBufferAsData()
+        var text = String(decoding: data, as: UTF8.self)
+        while text.hasSuffix("\n") || text.hasSuffix("\r") { text.removeLast() }
+        return text
+    }
+
+    /// Copy the entire terminal buffer to the clipboard.
+    func copyTerminalBuffer() {
+        let text = terminalBufferText
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// A sensible default file name for saved terminal output.
+    var suggestedTerminalOutputFileName: String {
+        let safe = title.components(separatedBy: CharacterSet(charactersIn: "/:")).joined(separator: "-")
+        let trimmed = safe.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\(trimmed.isEmpty ? "Terminal" : trimmed) output.txt"
     }
 
     /// Import commands from plain text — one command per line — and append them to
@@ -741,6 +912,39 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         isInjecting = false
         lineBuffer.removeAll()
         addToHistory(trimmed)
+    }
+
+    /// Whether this tab has a saved password we can type on demand — an ad-hoc
+    /// tab's preset password, or a profile's Keychain password. Drives the
+    /// right-click **Enter Saved Password** fallback.
+    var hasSavedPasswordToSend: Bool {
+        if let preset = presetPassword, !preset.isEmpty { return true }
+        if let source = autofillPasswordSource {
+            return KeychainStore.shared.hasPassword(for: source.profileID)
+        }
+        return false
+    }
+
+    /// Manually type this tab's saved password at the current prompt (Touch ID as
+    /// the profile configures), without echoing it to history. A reliable fallback
+    /// for when auto-fill doesn't recognise an unusual password prompt — and a
+    /// quick way to tell the two apart: if this works but auto-fill didn't, the
+    /// prompt wording is what auto-detection is missing.
+    func sendSavedPassword() {
+        guard isRunning else { return }
+        if let preset = presetPassword, !preset.isEmpty {
+            typeSecret(preset)
+            return
+        }
+        guard let source = autofillPasswordSource else { return }
+        KeychainStore.shared.password(
+            for: source.profileID,
+            requireAuth: source.requireAuth,
+            reason: "Use the saved password for “\(title)”"
+        ) { [weak self] result in
+            guard let self, case .success(let password) = result else { return }
+            self.typeSecret(password)
+        }
     }
 
     /// Re-color a live terminal (used when a profile's theme is changed and saved).

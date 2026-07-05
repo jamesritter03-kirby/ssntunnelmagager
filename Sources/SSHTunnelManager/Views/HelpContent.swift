@@ -144,7 +144,8 @@ enum HelpContent {
                 "**Drag a file or folder out to Finder** (or the Desktop) to download it right where you drop it — the bytes are fetched on demand.",
                 "**Double‑click a folder** to open it; use **↑ Up** and the **path menu** to navigate.",
                 "**Double‑click a file** (or **Download**) to save it to your default folder (set with **Save to:**), or pick **Download To…** to choose a destination that one time.",
-                "**Edit a file in place**: right‑click a file ▸ **Open in Text Editor**. It downloads a temporary copy and opens it in a text‑editor tab; each **Save** (⌘S) uploads it straight back to the server. The editor's status bar shows a cloud badge — *Synced*, *Uploading…* or the failure reason.",
+                "**Edit a file in place**: right‑click a file ▸ **Edit in Text Editor**. It downloads a temporary copy and opens it in a text‑editor tab; each **Save** (⌘S) uploads it straight back to the server. The editor's status bar shows a cloud badge — *Synced*, *Uploading…* or the failure reason.",
+                "**Make a new file or folder**: use the toolbar's **New File** / **New Folder** buttons (or right‑click). New File creates it on the server and opens it in the editor so you can start typing.",
                 "**New Folder**, **Rename** and **Delete** are on the toolbar and the right‑click menu.",
                 "**Refresh** from the toolbar, the right‑click menu, or the **F5** key.",
             ]),
@@ -178,7 +179,7 @@ enum HelpContent {
                 "The status bar shows the **line & column**, selection length, line/character counts, **encoding** and **line endings** (LF / CRLF / CR — switchable).",
                 "An **Open** dialog reads any text file; **Save** / **Save As** write it back. Unsaved tabs show a **•** and prompt to save before closing.",
                 "**Drag a file onto the editor** to open it — you'll get a quick confirmation, then its contents load into the tab.",
-                "**Edit remote files over SFTP**: in an SFTP tab, right‑click a file ▸ **Open in Text Editor**. Saving uploads it back to the server automatically (watch the status‑bar cloud badge).",
+                "**Edit remote files over SFTP**: in an SFTP tab, right‑click a file ▸ **Edit in Text Editor**. Saving uploads it back to the server automatically (watch the status‑bar cloud badge).",
             ]),
             .tip("Reopened automatically on the next launch if the document was saved to a file — like every other tab."),
             .shortcuts([

@@ -45,11 +45,25 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.29", build: 39, date: "Jul 4, 2026",
+            highlights: [
+                "New: right‑click a terminal tab and choose Duplicate Tab to open an independent copy — browser tabs reopen at the same page, Finder / editor / spreadsheet tabs at the same file, and connection tabs reconnect a fresh session.",
+                "New terminal tab actions: right‑click an SSH or local‑shell tab for Copy Terminal Output, Save Terminal Output… and Clear Terminal.",
+                "New: give a profile’s workspace a color right in the profile editor. When a profile launches in its own or a saved‑workspace template, a Tab color picker tints its workspace pill — and the right‑click Tab Color menu now shows each swatch in its real color instead of plain white circles.",
+                "Fixed: profiles created from a workspace now autofill their saved password on both the terminal and SFTP tabs instead of stopping to ask you to type it, and a single Touch ID prompt now unlocks every tab a connection opens at once.",
+                "Fixed: the Snippets menu is back next to History on terminal tabs — it always shows for a profile’s shell tab (with Edit Snippets… when there are none yet), including tabs inside a workspace launched from a profile.",
+                "SFTP: “Open in Text Editor” is now “Edit in Text Editor”, and you can create a New File from the toolbar, the right‑click menu, or the empty‑space menu.",
+                "MQTT explorer now remembers its expanded topic tree and selection as you switch tabs, reads broker uptime reported as “1234 seconds”, and keeps retrying to connect for up to five minutes while a tunnel comes up.",
+                "When you save a new profile from a generated connection, browser tabs get their host re‑pointed too. Workspaces launched from a profile are now treated as disposable — they’re no longer saved and restored when you quit and reopen the app.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.28", build: 38, date: "Jul 3, 2026",
             highlights: [
                 "Fixed: in the ZeroTier window you can now click “All Networks” again to clear a filter. Previously, once you selected a specific network on the left, the “All Networks” row couldn’t be re‑selected without closing and reopening the window.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.27", build: 37, date: "Jul 3, 2026",

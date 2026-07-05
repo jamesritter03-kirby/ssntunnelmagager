@@ -574,8 +574,24 @@ private struct WorkspaceBar: View {
                     onRename: { beginRename(ws) },
                     onQuickSave: { sessions.saveWorkspaceInPlace(ws.id) },
                     onSave: { beginSave(ws) },
-                    onSaveAsProfile: { beginSaveAsProfile(ws) }
+                    onSaveAsProfile: { beginSaveAsProfile(ws) },
+                    onSetColor: { sessions.setWorkspaceColor($0, forWorkspace: ws.id) }
                 )
+                .onDrag {
+                    NSItemProvider(object: ws.id.uuidString as NSString)
+                }
+                .onDrop(of: [UTType.text], isTargeted: nil) { providers in
+                    guard let provider = providers.first else { return false }
+                    _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                        guard let idString = object as? String,
+                              let uuid = UUID(uuidString: idString),
+                              uuid != ws.id else { return }
+                        DispatchQueue.main.async {
+                            sessions.moveWorkspace(fromID: uuid, toID: ws.id)
+                        }
+                    }
+                    return true
+                }
             }
             Button { sessions.addWorkspace() } label: {
                 Image(systemName: "plus")
@@ -611,20 +627,9 @@ private struct WorkspaceBar: View {
         .alert("Save Workspace as Profile", isPresented: $isSavingAsProfile) {
             TextField("Profile name", text: $profileNameField)
             Button("Cancel", role: .cancel) { pendingProfileWorkspaceID = nil }
-            Button("Save") {
-                guard let id = pendingProfileWorkspaceID else { return }
-                pendingProfileWorkspaceID = nil
-                if let profile = sessions.saveWorkspaceAsProfile(id, name: profileNameField) {
-                    // Open the editor so the user can name it, pick an icon, and
-                    // adjust the connection. Deferred so the alert fully dismisses
-                    // before the editor sheet is presented.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        ProfileEditCoordinator.shared.profileToEdit = profile
-                    }
-                }
-            }
+            Button("Save") { finishSaveAsProfile() }
         } message: {
-            Text("Create a profile that reopens this workspace's tabs. It appears in the sidebar and welcome screen; each tab reconnects through its own profile.")
+            Text("Create a profile that reopens this workspace's tabs. It appears in the sidebar and welcome screen; each tab reconnects through its own profile. When you set the profile's host in the editor, you can point every tab at that address.")
         }
     }
 
@@ -685,6 +690,112 @@ private struct WorkspaceBar: View {
         pendingProfileWorkspaceID = ws.id
         isSavingAsProfile = true
     }
+
+    /// Perform the save-as-profile using the pending workspace + typed name, then
+    /// open the new profile's editor (where the host can be set and its tabs
+    /// re-pointed at that address).
+    private func finishSaveAsProfile() {
+        guard let id = pendingProfileWorkspaceID else { return }
+        pendingProfileWorkspaceID = nil
+        guard let profile = sessions.saveWorkspaceAsProfile(id, name: profileNameField) else { return }
+        // Deferred so the alert fully dismisses before the editor sheet appears.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            ProfileEditCoordinator.shared.profileToEdit = profile
+        }
+    }
+}
+
+// MARK: - Tab / workspace tinting
+
+extension TabColor {
+    /// The SwiftUI color this palette entry paints. Kept here (a view file) so the
+    /// `TabColor` model itself stays free of any SwiftUI dependency.
+    var color: Color {
+        switch self {
+        case .red:    return .red
+        case .orange: return .orange
+        case .yellow: return .yellow
+        case .green:  return .green
+        case .teal:   return .teal
+        case .blue:   return .blue
+        case .purple: return .purple
+        case .pink:   return .pink
+        }
+    }
+
+    /// The AppKit color used when drawing a menu swatch bitmap.
+    var nsColor: NSColor {
+        switch self {
+        case .red:    return .systemRed
+        case .orange: return .systemOrange
+        case .yellow: return .systemYellow
+        case .green:  return .systemGreen
+        case .teal:   return .systemTeal
+        case .blue:   return .systemBlue
+        case .purple: return .systemPurple
+        case .pink:   return .systemPink
+        }
+    }
+
+    /// A filled-circle swatch drawn as a real (non-template) bitmap so it keeps
+    /// its color inside an `NSMenu` — where SwiftUI's `.foregroundStyle` on an SF
+    /// Symbol is dropped and the glyph renders as a monochrome template. When
+    /// `selected` is true a white check is drawn over the circle.
+    func menuSwatch(selected: Bool) -> Image {
+        let side: CGFloat = 13
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            self.nsColor.setFill()
+            circle.fill()
+            if selected {
+                let check = NSBezierPath()
+                check.lineWidth = 1.7
+                check.lineCapStyle = .round
+                check.lineJoinStyle = .round
+                check.move(to: NSPoint(x: rect.width * 0.27, y: rect.height * 0.50))
+                check.line(to: NSPoint(x: rect.width * 0.43, y: rect.height * 0.33))
+                check.line(to: NSPoint(x: rect.width * 0.74, y: rect.height * 0.68))
+                NSColor.white.setStroke()
+                check.stroke()
+            }
+            return true
+        }
+        image.isTemplate = false
+        return Image(nsImage: image)
+    }
+}
+
+/// A reusable "Tab Color" right-click submenu: a swatch for each palette entry
+/// plus a "Default" item that clears the tint. Used by both the tab chips and
+/// the workspace pills — `current` shows the active choice with a checkmark and
+/// `onPick` applies (or clears, with `nil`) it.
+private struct TabColorMenu: View {
+    let current: TabColor?
+    let onPick: (TabColor?) -> Void
+
+    var body: some View {
+        Menu {
+            Button { onPick(nil) } label: {
+                Label {
+                    Text("Default")
+                } icon: {
+                    Image(systemName: current == nil ? "checkmark.circle.fill" : "circle.dashed")
+                }
+            }
+            Divider()
+            ForEach(TabColor.allCases) { c in
+                Button { onPick(c) } label: {
+                    Label {
+                        Text(c.label)
+                    } icon: {
+                        c.menuSwatch(selected: current == c)
+                    }
+                }
+            }
+        } label: {
+            Label("Tab Color", systemImage: "paintpalette")
+        }
+    }
 }
 
 /// One workspace "pill" in the workspace bar.
@@ -700,12 +811,24 @@ private struct WorkspacePill: View {
     var onQuickSave: () -> Void = {}
     var onSave: () -> Void
     var onSaveAsProfile: () -> Void = {}
+    var onSetColor: (TabColor?) -> Void = { _ in }
+
+    /// The pill's tint: the user's chosen color, or the default accent.
+    private var tint: Color { workspace.tabColor?.color ?? .accentColor }
+    private var pillBackground: Color {
+        if isCurrent { return tint.opacity(0.22) }
+        return workspace.tabColor != nil ? tint.opacity(0.16) : Color.secondary.opacity(0.10)
+    }
+    private var pillBorder: Color {
+        if isCurrent { return tint.opacity(0.7) }
+        return workspace.tabColor != nil ? tint.opacity(0.4) : .clear
+    }
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "square.stack.3d.up")
                 .font(.caption2)
-                .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+                .foregroundStyle(isCurrent || workspace.tabColor != nil ? tint : .secondary)
             Text(workspace.name)
                 .font(.callout.weight(isCurrent ? .semibold : .regular))
                 .lineLimit(1)
@@ -723,11 +846,11 @@ private struct WorkspacePill: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(isCurrent ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.10))
+        .background(pillBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(isCurrent ? Color.accentColor.opacity(0.7) : .clear, lineWidth: 1)
+                .strokeBorder(pillBorder, lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
@@ -739,6 +862,8 @@ private struct WorkspacePill: View {
             }
             Button { onSave() } label: { Label("Save as Workspace…", systemImage: "square.and.arrow.down.on.square") }
             Button { onSaveAsProfile() } label: { Label("Save as Profile…", systemImage: "rectangle.stack.badge.plus") }
+            Divider()
+            TabColorMenu(current: workspace.tabColor) { onSetColor($0) }
             if canClose {
                 Divider()
                 Button(role: .destructive) { onClose() } label: {
@@ -893,25 +1018,44 @@ private struct TabBar: View {
 }
 
 /// A drop-down of the active profile's saved commands; click one to insert it.
+/// Always shown for a profile-backed shell tab (so it stays next to History) —
+/// when the profile has no snippets yet it still offers **Edit Snippets…**, so
+/// they're easy to find and add.
 private struct SnippetsMenuButton: View {
     @ObservedObject var session: TerminalSession
     @EnvironmentObject var store: ProfileStore
+    @EnvironmentObject var sessions: TerminalSessionManager
 
-    private var snippets: [CommandSnippet] {
-        guard let pid = session.profileID,
-              let profile = store.profiles.first(where: { $0.id == pid }) else { return [] }
-        return profile.snippets
+    /// The profile whose snippets this tab shows: its own assigned profile if it
+    /// has one, otherwise the profile that launched its workspace (so a workspace
+    /// launcher's tabs surface that launcher profile's snippets).
+    private var profile: SSHProfile? {
+        if let pid = session.profileID,
+           let p = store.profiles.first(where: { $0.id == pid }) {
+            return p
+        }
+        return sessions.owningProfile(forSession: session.id)
     }
 
     var body: some View {
-        if !snippets.isEmpty {
+        if let profile {
             Menu {
-                ForEach(snippets) { snippet in
-                    Menu(snippet.label.isEmpty ? snippet.command : snippet.label) {
-                        Button("Run") { session.run(snippet.command) }
-                        Button("Insert at Prompt") { session.paste(snippet.command) }
+                if profile.snippets.isEmpty {
+                    Text("No snippets yet")
+                } else {
+                    ForEach(profile.snippets) { snippet in
+                        Menu(snippet.label.isEmpty ? snippet.command : snippet.label) {
+                            Button("Run") { session.run(snippet.command) }
+                            Button("Insert at Prompt") { session.paste(snippet.command) }
+                        }
+                        .disabled(!session.isRunning || snippet.command.isEmpty)
                     }
-                    .disabled(!session.isRunning || snippet.command.isEmpty)
+                }
+                Divider()
+                Button {
+                    ProfileEditCoordinator.shared.profileToEdit = profile
+                } label: {
+                    Label("Edit Snippets…", systemImage: "pencil")
                 }
             } label: {
                 Image(systemName: "text.badge.plus")
@@ -919,7 +1063,7 @@ private struct SnippetsMenuButton: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .padding(.leading, 8)
-            .help("Insert a saved command into the terminal")
+            .help("Insert a saved command, or edit this profile's snippets")
         }
     }
 }
@@ -932,8 +1076,11 @@ private struct LinksMenuButton: View {
     @EnvironmentObject var sessions: TerminalSessionManager
 
     private var profile: SSHProfile? {
-        guard let pid = session.profileID else { return nil }
-        return store.profiles.first(where: { $0.id == pid })
+        if let pid = session.profileID,
+           let p = store.profiles.first(where: { $0.id == pid }) {
+            return p
+        }
+        return sessions.owningProfile(forSession: session.id)
     }
 
     var body: some View {
@@ -1148,6 +1295,22 @@ private struct TerminalTabContextMenu: View {
         }
     }
 
+    /// Write the terminal's full output (scrollback + screen) to a chosen file.
+    private func saveTerminalOutput() {
+        let panel = NSSavePanel()
+        panel.title = "Save Terminal Output"
+        panel.nameFieldStringValue = session.suggestedTerminalOutputFileName
+        panel.allowedContentTypes = [.plainText]
+        panel.isExtensionHidden = false
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try session.terminalBufferText.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+
     var body: some View {
         // Editor tabs get file-specific actions (Save, Reveal, Copy Path, …)
         // at the top; the generic Dock / Detach / Close items follow below.
@@ -1218,6 +1381,38 @@ private struct TerminalTabContextMenu: View {
             }
             .disabled(!session.isRunning)
         }
+        // Type the profile's saved password at the current prompt (Touch ID as the
+        // profile configures) without revealing it — a reliable fallback for a
+        // password prompt the auto-fill doesn't recognise.
+        if (session.kind == .ssh || session.kind == .localShell),
+           session.hasSavedPasswordToSend {
+            Button {
+                session.sendSavedPassword()
+            } label: {
+                Label("Enter Saved Password", systemImage: "key.fill")
+            }
+            .disabled(!session.isRunning)
+        }
+        // Terminal buffer actions (interactive shells only): copy or save the
+        // scrollback, and clear the screen.
+        if session.kind == .ssh || session.kind == .localShell {
+            Divider()
+            Button {
+                session.copyTerminalBuffer()
+            } label: {
+                Label("Copy Terminal Output", systemImage: "doc.on.doc")
+            }
+            Button {
+                saveTerminalOutput()
+            } label: {
+                Label("Save Terminal Output…", systemImage: "square.and.arrow.down")
+            }
+            Button {
+                session.clearTerminal()
+            } label: {
+                Label("Clear Terminal", systemImage: "clear")
+            }
+        }
         if session.canEditConnection {
             Button {
                 EditConnectionModel.shared.present(for: session)
@@ -1281,6 +1476,9 @@ private struct TerminalTabContextMenu: View {
         if session.kind == .ssh || session.kind == .localShell {
             themeMenu
         }
+        TabColorMenu(current: session.tabColor) { color in
+            sessions.setTabColor(color, forSession: session.id)
+        }
         Divider()
         Menu {
             if sessions.dockSide(of: session.id) != .left {
@@ -1326,6 +1524,13 @@ private struct TerminalTabContextMenu: View {
             }
         } label: {
             Label("Dock", systemImage: "sidebar.right")
+        }
+        if session.canDuplicate {
+            Button {
+                sessions.duplicate(session)
+            } label: {
+                Label("Duplicate Tab", systemImage: "plus.square.on.square")
+            }
         }
         Button {
             onDetach()
@@ -1627,11 +1832,11 @@ private struct TabChip: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(isSelected ? Color.accentColor.opacity(0.20) : Color.secondary.opacity(0.12))
+        .background(chipBackground)
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(isSelected ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 1)
+                .strokeBorder(chipBorder, lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
@@ -1644,6 +1849,17 @@ private struct TabChip: View {
         if session.isRunning { return .green }
         if let code = session.exitCode, code != 0 { return .red }
         return .secondary
+    }
+
+    /// The chip's tint: the user's chosen color, or the default accent.
+    private var tint: Color { session.tabColor?.color ?? .accentColor }
+    private var chipBackground: Color {
+        if isSelected { return tint.opacity(0.20) }
+        return session.tabColor != nil ? tint.opacity(0.16) : Color.secondary.opacity(0.12)
+    }
+    private var chipBorder: Color {
+        if isSelected { return tint.opacity(0.6) }
+        return session.tabColor != nil ? tint.opacity(0.4) : .clear
     }
 }
 

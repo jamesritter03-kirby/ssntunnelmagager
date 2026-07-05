@@ -26,7 +26,15 @@ struct ContentView: View {
                 onEdit: { duplicatedFromName = nil; editingProfile = $0 },
                 onNew: { duplicatedFromName = nil; editingProfile = SSHProfile() },
                 onDuplicate: { original in
-                    let copy = store.duplicate(original)
+                    var copy = store.duplicate(original)
+                    // A duplicated workspace profile gets its **own** template copy
+                    // so re-pointing its tabs at a new host (in the editor) doesn't
+                    // also change the original's workspace.
+                    if let tid = copy.workspaceTemplateID,
+                       let newTid = sessions.duplicateTemplate(tid) {
+                        copy.workspaceTemplateID = newTid
+                        store.update(copy)
+                    }
                     duplicatedFromName = original.name
                     editingProfile = copy
                 }

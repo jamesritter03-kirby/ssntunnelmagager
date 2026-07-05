@@ -10,7 +10,6 @@ struct MQTTExplorerView: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var client: MQTTClient
 
-    @State private var selectedNodeID: String?
     @State private var filterText = ""
     @State private var publishTopic = ""
     @State private var publishPayload = ""
@@ -21,11 +20,32 @@ struct MQTTExplorerView: View {
     @State private var detailTab: TopicDetailTab = .payload
     @State private var graphSelection: Set<String> = []
 
+    // The topic tree's selection and expansion live on the (session-owned)
+    // `client`, not on view `@State`, so switching tabs/workspaces — which tears
+    // this view down and rebuilds it — no longer collapses the tree or re-expands
+    // everything. These proxies read/write that persistent state.
+
+    /// The currently-selected topic/branch id.
+    private var selectedNodeID: String? {
+        get { client.uiSelectedTopicID }
+        nonmutating set { client.uiSelectedTopicID = newValue }
+    }
+    /// A binding to the selection for `List(selection:)`.
+    private var selectedNodeBinding: Binding<String?> {
+        Binding(get: { client.uiSelectedTopicID },
+                set: { client.uiSelectedTopicID = $0 })
+    }
     /// Branch node ids the user has expanded in the topic tree.
-    @State private var expanded: Set<String> = []
+    private var expanded: Set<String> {
+        get { client.uiExpandedBranches }
+        nonmutating set { client.uiExpandedBranches = newValue }
+    }
     /// Branch ids we've already auto-expanded once, so brand-new topics open by
     /// default while the user's later manual collapses still stick.
-    @State private var seenBranches: Set<String> = []
+    private var seenBranches: Set<String> {
+        get { client.uiSeenBranches }
+        nonmutating set { client.uiSeenBranches = newValue }
+    }
 
     init(session: TerminalSession) {
         _session = ObservedObject(initialValue: session)
@@ -151,7 +171,7 @@ struct MQTTExplorerView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(selection: $selectedNodeID) {
+                List(selection: selectedNodeBinding) {
                     ForEach(visibleRows) { row in
                         treeRow(row.node, depth: row.depth)
                             .tag(row.node.id)
@@ -427,7 +447,7 @@ struct MQTTExplorerView: View {
                         }
                     }
                 }
-                .chartYScale(domain: .automatic(includesZero: false))
+                .chartYScale(domain: yDomain(for: points))
                 .chartLegend(shown.count > 1 ? .visible : .hidden)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Text("\(samplePointCount(topic: topic)) sample\(samplePointCount(topic: topic) == 1 ? "" : "s") · \(shown.count) of \(fields.count) item\(fields.count == 1 ? "" : "s") shown")
@@ -481,6 +501,25 @@ struct MQTTExplorerView: View {
 
     private func samplePointCount(topic: String) -> Int {
         client.history[topic]?.count ?? 0
+    }
+
+    /// A **padded** Y-axis domain for the plotted points. Swift Charts renders a
+    /// zero-height domain as a blank plot — which is exactly what an automatic
+    /// domain produces for a single sample or a constant series (a sensor that
+    /// keeps reporting the same number, a status topic, …), so the line/dots
+    /// vanish and the graph looks broken. Guaranteeing a non-zero span keeps the
+    /// series visible; when the values do vary we just pad the real range a touch
+    /// so points aren't flush against the top/bottom edges.
+    private func yDomain(for points: [MQTTChartPoint]) -> ClosedRange<Double> {
+        let values = points.map(\.value)
+        guard let lo = values.min(), let hi = values.max() else { return 0...1 }
+        if lo == hi {
+            // Single or constant value: center it with a small margin.
+            let pad = Swift.max(abs(lo) * 0.05, 0.5)
+            return (lo - pad)...(hi + pad)
+        }
+        let pad = (hi - lo) * 0.08
+        return (lo - pad)...(hi + pad)
     }
 
     private func fieldChip(_ field: String, selected: Bool) -> some View {

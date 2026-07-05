@@ -131,6 +131,12 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
     /// A password supplied up front (the ad-hoc “new connection” sheet) to send
     /// at the first password prompt instead of reading one from the Keychain.
     private let presetPassword: String?
+    /// A profile whose saved Keychain password this tab may autofill even though
+    /// the tab itself is profile-free — set for an ad-hoc SFTP tab rebuilt inside
+    /// a profile-launched workspace, so it uses the launching profile's saved
+    /// password (Touch ID gated) instead of popping the manual-entry dialog.
+    private let autofillSourceProfileID: UUID?
+    private let autofillSourceRequireAuth: Bool
 
     private var process: LocalProcess!
     private var rawBuffer = ""
@@ -150,13 +156,16 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
 
     init(executable: String, args: [String], profileID: UUID?,
          autofillPassword: Bool, requireAuthForPassword: Bool,
-         presetPassword: String? = nil) {
+         presetPassword: String? = nil,
+         autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true) {
         self.executable = executable
         self.args = args
         self.profileID = profileID
         self.autofillPassword = autofillPassword
         self.requireAuthForPassword = requireAuthForPassword
         self.presetPassword = presetPassword
+        self.autofillSourceProfileID = autofillSourceProfileID
+        self.autofillSourceRequireAuth = autofillSourceRequireAuth
         super.init()
         process = LocalProcess(delegate: self, dispatchQueue: .main)
     }
@@ -279,9 +288,9 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
             handlingAuthPrompt = false
             return
         }
-        if !didAutofillPassword, autofillPassword, let pid = profileID {
+        if !didAutofillPassword, let source = autofillPasswordSource {
             didAutofillPassword = true
-            KeychainStore.shared.password(for: pid, requireAuth: requireAuthForPassword,
+            KeychainStore.shared.password(for: source.profileID, requireAuth: source.requireAuth,
                                           reason: "Use the saved password for SFTP") { [weak self] result in
                 DispatchQueue.main.async {
                     guard let self else { return }
@@ -294,6 +303,15 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         } else {
             askUserForPassword()
         }
+    }
+
+    /// The profile whose Keychain password this SFTP tab should autofill, and
+    /// whether Touch ID is required: its own profile when it autofills, otherwise
+    /// an assigned owning-workspace profile. `nil` when there's none to draw on.
+    private var autofillPasswordSource: (profileID: UUID, requireAuth: Bool)? {
+        if autofillPassword, let pid = profileID { return (pid, requireAuthForPassword) }
+        if let pid = autofillSourceProfileID { return (pid, autofillSourceRequireAuth) }
+        return nil
     }
 
     private func askUserForPassword() {

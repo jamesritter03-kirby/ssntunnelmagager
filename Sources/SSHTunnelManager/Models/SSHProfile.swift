@@ -275,6 +275,9 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     /// to the profile's own name. (Also the migration target for the pre-1.9.21
     /// free-text “open in workspace” field.)
     var workspace: String = ""
+    /// The tint applied to this profile's dedicated workspace pill when launched.
+    /// `nil` = the default accent tint.
+    var workspaceTabColor: TabColor? = nil
 
     /// Whether connecting this profile should open (or reuse) a workspace
     /// dedicated to it, rather than using the current one.
@@ -345,6 +348,7 @@ extension SSHProfile {
         case links
         case workspace
         case opensInOwnWorkspace, workspaceTemplateID
+        case workspaceTabColor
         case isWorkspaceLauncher
     }
 
@@ -374,6 +378,7 @@ extension SSHProfile {
         workspace = try c.decodeIfPresent(String.self, forKey: .workspace) ?? ""
         opensInOwnWorkspace = try c.decodeIfPresent(Bool.self, forKey: .opensInOwnWorkspace) ?? false
         workspaceTemplateID = try c.decodeIfPresent(UUID.self, forKey: .workspaceTemplateID)
+        workspaceTabColor = try c.decodeIfPresent(TabColor.self, forKey: .workspaceTabColor)
         isWorkspaceLauncher = try c.decodeIfPresent(Bool.self, forKey: .isWorkspaceLauncher) ?? false
         // Migrate the pre-1.9.21 free-text “open in workspace”: a profile that only
         // had a name string now launches into its own (custom-named) workspace.

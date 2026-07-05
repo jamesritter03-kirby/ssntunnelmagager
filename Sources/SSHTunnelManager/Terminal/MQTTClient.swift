@@ -54,6 +54,16 @@ final class MQTTClient: ObservableObject {
     @Published private(set) var totalMessages: Int = 0
     @Published private(set) var lastActivity: Date?
 
+    // MARK: - Explorer UI state (persisted across view rebuilds)
+    // The `MQTTExplorerView` is torn down and recreated whenever the user
+    // switches tabs or workspaces, but this client lives on the session — so the
+    // topic tree's expansion, its "already auto-expanded" set, and the current
+    // selection ride along here instead of on view `@State` (which would reset
+    // and re-expand everything on every tab switch).
+    @Published var uiExpandedBranches: Set<String> = []
+    @Published var uiSeenBranches: Set<String> = []
+    @Published var uiSelectedTopicID: String?
+
     /// Upper bound on graph samples retained per topic (oldest dropped first).
     private let maxSamplesPerTopic = 600
 
@@ -77,10 +87,19 @@ final class MQTTClient: ObservableObject {
     private var generation = 0
     /// Retries of the *initial* connect — right after launch the SSH tunnel may
     /// not have finished binding its forwarded port yet, so the first attempt can
-    /// be refused. We retry quietly until it comes up.
+    /// be refused. We retry quietly until it comes up. Because the tunnel can be
+    /// waiting on the user to type a password / approve Touch ID (which, when a
+    /// whole workspace-profile launches at once, can take a while), we keep
+    /// retrying for a generous window with a gentle backoff rather than giving up
+    /// after a few seconds and forcing the user to re-open the connection.
     private var connectAttempts = 0
-    private let maxConnectAttempts = 25
-    private let retryDelay: TimeInterval = 1.2
+    /// How long (seconds) to keep retrying a refused initial connect before
+    /// surfacing the failure. A refused connection to a local forwarded port
+    /// essentially always means "tunnel not up yet," never "wrong port."
+    private let initialConnectWindow: TimeInterval = 300
+    /// When the current run of initial-connect retries began (nil until the first
+    /// refusal), so the window is measured in wall-clock time.
+    private var firstRetryAt: Date?
     /// Set once the TCP socket reaches the broker; after that a drop is real.
     private var reachedServer = false
 
@@ -99,6 +118,7 @@ final class MQTTClient: ObservableObject {
     func start() {
         guard phase != .connecting, phase != .connected else { return }
         connectAttempts = 0
+        firstRetryAt = nil
         reachedServer = false
         phase = .connecting
         onRunningChanged?(true)
@@ -156,11 +176,21 @@ final class MQTTClient: ObservableObject {
         connection?.cancel()
         connection = nil
         connectAttempts += 1
-        guard connectAttempts < maxConnectAttempts else {
+        let now = Date()
+        if firstRetryAt == nil { firstRetryAt = now }
+        // Keep retrying until the window elapses; a refused local forward means
+        // the tunnel simply isn't ready yet (it may be waiting on the user to
+        // authenticate), so patience here avoids a spurious "failed" that the
+        // user would otherwise have to clear by re-opening the connection.
+        guard now.timeIntervalSince(firstRetryAt ?? now) < initialConnectWindow else {
             fail(message)
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) { [weak self] in
+        // Gentle backoff: brisk at first (the tunnel is usually up within a second
+        // or two), easing off so a longer wait isn't a busy-loop.
+        let delay: TimeInterval = connectAttempts < 10 ? 1.2
+                                : connectAttempts < 30 ? 3.0 : 5.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.phase == .connecting, self.connection == nil else { return }
             self.openConnection()
         }
@@ -276,9 +306,12 @@ final class MQTTClient: ObservableObject {
     // MARK: - Numeric extraction (graphing)
 
     /// Pull the numeric leaves out of a payload so a topic can be graphed.
-    /// Handles a bare number (`23.5` → `["value": 23.5]`) and JSON objects/arrays
-    /// whose nested keys are flattened with `.` (array indices as `[i]`); JSON
-    /// booleans map to 1/0. Returns `nil` when nothing finite & numeric is found.
+    /// Handles a bare number (`23.5` → `["value": 23.5]`), JSON objects/arrays
+    /// whose nested keys are flattened with `.` (array indices as `[i]`; JSON
+    /// booleans map to 1/0), and a number carrying a trailing unit — most notably
+    /// Mosquitto's `$SYS/broker/uptime` (`"1234 seconds"`) and its load figures —
+    /// by reading the value's leading number. Returns `nil` when nothing finite &
+    /// numeric is found.
     static func numericValues(from payload: Data) -> [String: Double]? {
         if payload.isEmpty { return nil }
         // Fast path: a bare scalar like a lone sensor reading.
@@ -290,11 +323,49 @@ final class MQTTClient: ObservableObject {
         }
         guard let object = try? JSONSerialization.jsonObject(with: payload,
                                                              options: [.fragmentsAllowed]) else {
+            // Not JSON and not a bare number. Fall back to a number-with-unit like
+            // "1234 seconds" (`$SYS/broker/uptime`) or "21.5°C" by reading the
+            // leading numeric prefix, so those broker/system topics graph again.
+            if let text = String(data: payload, encoding: .utf8),
+               let d = MQTTClient.leadingNumber(in: text), d.isFinite {
+                return ["value": d]
+            }
             return nil
         }
         var out: [String: Double] = [:]
         MQTTClient.flattenNumeric(object, prefix: "", into: &out)
         return out.isEmpty ? nil : out
+    }
+
+    /// Parse the number at the very start of a string like `"1234 seconds"`,
+    /// `"0.42 (…)"`, or `"21.5°C"`. Scans the leading run of numeric characters
+    /// (optional sign, digits, one decimal point, optional exponent) and parses
+    /// it; returns `nil` when the string doesn't begin with a number.
+    static func leadingNumber(in text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var prefix = ""
+        var seenDigit = false
+        var seenDot = false
+        var seenExp = false
+        for c in trimmed {
+            if c == "+" || c == "-" {
+                // A sign is only valid at the very start or right after an exponent.
+                if prefix.isEmpty || prefix.hasSuffix("e") || prefix.hasSuffix("E") {
+                    prefix.append(c)
+                } else { break }
+            } else if ("0"..."9").contains(c) {
+                prefix.append(c); seenDigit = true
+            } else if c == "." && !seenDot && !seenExp {
+                prefix.append(c); seenDot = true
+            } else if (c == "e" || c == "E") && seenDigit && !seenExp {
+                prefix.append(c); seenExp = true
+            } else {
+                break
+            }
+        }
+        guard seenDigit else { return nil }
+        return Double(prefix)
     }
 
     private static func flattenNumeric(_ value: Any, prefix: String, into out: inout [String: Double]) {

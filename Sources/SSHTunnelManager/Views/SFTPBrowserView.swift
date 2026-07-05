@@ -23,8 +23,10 @@ struct SFTPBrowserView: View {
     @State private var dropTargetFolder: String?
     @State private var showLog = false
     @State private var showNewFolder = false
+    @State private var showNewFile = false
     @State private var showMountHelp = false
     @State private var newFolderName = ""
+    @State private var newFileName = ""
     @State private var renameTarget: SFTPEntry?
     @State private var renameText = ""
 
@@ -59,6 +61,7 @@ struct SFTPBrowserView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .background(refreshShortcut)
+        .task { mounter.autoMountIfRemembered() }
         .sheet(isPresented: $showLog) { logSheet }
         .sheet(isPresented: $showMountHelp) {
             SFTPMountHelpSheet(onRecheckSucceeded: { mounter.mount() })
@@ -77,6 +80,13 @@ struct SFTPBrowserView: View {
             Button("Cancel", role: .cancel) { newFolderName = "" }
         } message: {
             Text("Create a new folder in \(client.currentPath).")
+        }
+        .alert("New File", isPresented: $showNewFile) {
+            TextField("File name", text: $newFileName)
+            Button("Create") { createNewFile(named: newFileName); newFileName = "" }
+            Button("Cancel", role: .cancel) { newFileName = "" }
+        } message: {
+            Text("Create a new file in \(client.currentPath) and open it in the editor.")
         }
         .alert("Rename", isPresented: renameBinding) {
             TextField("New name", text: $renameText)
@@ -104,6 +114,8 @@ struct SFTPBrowserView: View {
                 .help("Refresh").disabled(!client.isConnected)
             Button { showNewFolder = true } label: { Image(systemName: "folder.badge.plus") }
                 .help("New folder").disabled(!client.isConnected)
+            Button { newFileName = ""; showNewFile = true } label: { Image(systemName: "doc.badge.plus") }
+                .help("New file").disabled(!client.isConnected)
             Button { chooseAndUpload() } label: { Image(systemName: "arrow.up.doc") }
                 .help("Upload files or folders…").disabled(!client.isConnected)
             Button { client.download(selectedEntries) } label: { Image(systemName: "arrow.down.doc") }
@@ -161,7 +173,7 @@ struct SFTPBrowserView: View {
         default:
             Button { mountAction() } label: { Image(systemName: "externaldrive.badge.plus") }
                 .help(mounter.canMount
-                      ? "Mount this connection as a drive in Finder"
+                      ? "Mount this connection as a drive in Finder. Remembered — it remounts automatically next time you open this connection."
                       : "Mounting as a drive requires a saved profile")
                 .disabled(!mounter.canMount)
         }
@@ -307,7 +319,7 @@ struct SFTPBrowserView: View {
             Button { client.open(entry) } label: { Label("Open", systemImage: "folder") }
         }
         if targets.count == 1, entry.kind == .file {
-            Button { editRemoteFile(entry) } label: { Label("Open in Text Editor", systemImage: "doc.text") }
+            Button { editRemoteFile(entry) } label: { Label("Edit in Text Editor", systemImage: "doc.text") }
             Button { openRemoteAsSpreadsheet(entry) } label: { Label("Open as Spreadsheet", systemImage: "tablecells") }
         }
         Button {
@@ -334,6 +346,8 @@ struct SFTPBrowserView: View {
             Label(targets.count > 1 ? "Delete \(targets.count) Items" : "Delete", systemImage: "trash")
         }
         Divider()
+        Button { newFileName = ""; showNewFile = true } label: { Label("New File…", systemImage: "doc.badge.plus") }
+        Button { newFolderName = ""; showNewFolder = true } label: { Label("New Folder…", systemImage: "folder.badge.plus") }
         Button { client.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
     }
 
@@ -470,7 +484,9 @@ struct SFTPBrowserView: View {
     private var listBackgroundMenu: some View {
         Button { client.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
             .disabled(!client.isConnected)
-        Button { showNewFolder = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
+        Button { newFileName = ""; showNewFile = true } label: { Label("New File", systemImage: "doc.badge.plus") }
+            .disabled(!client.isConnected)
+        Button { newFolderName = ""; showNewFolder = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
             .disabled(!client.isConnected)
         Button { chooseAndUpload() } label: { Label("Upload…", systemImage: "arrow.up.doc") }
             .disabled(!client.isConnected)
@@ -577,6 +593,38 @@ struct SFTPBrowserView: View {
         if base.isEmpty { return name }
         if base == "/" { return "/" + name }
         return base.hasSuffix("/") ? base + name : base + "/" + name
+    }
+
+    /// Create an empty file with `rawName` in the current folder and open it in a
+    /// text editor tab wired to save back to the server. Refuses to clobber an
+    /// existing name (a `put` would truncate it).
+    private func createNewFile(named rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespaces)
+        guard client.isConnected, !name.isEmpty else { return }
+        guard !client.entries.contains(where: { $0.name == name }) else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "“\(name)” already exists"
+            alert.informativeText = "Choose a different name, or open the existing item to edit it."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+        // Create an empty local temp file, upload it to make it on the server, then
+        // open that local copy in an editor whose saves upload back to this path.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SSHTM-New-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let localURL = tempDir.appendingPathComponent(name)
+        FileManager.default.createFile(atPath: localURL.path, contents: Data())
+        let remotePath = absoluteRemotePath(for: name)
+        let label = session.title
+        client.uploadFile(at: localURL, toRemotePath: remotePath) { ok in
+            guard ok, FileManager.default.fileExists(atPath: localURL.path) else { return }
+            sessions.openRemoteEdit(localURL: localURL, remoteName: name,
+                                    remotePath: remotePath, uploader: client,
+                                    serverLabel: label)
+        }
     }
 
     /// Download a remote file to a private temp folder and open it in a text

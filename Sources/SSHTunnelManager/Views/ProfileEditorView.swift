@@ -29,6 +29,10 @@ struct ProfileEditorView: View {
     /// prompt).
     @State private var originalProfile: SSHProfile
     @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
+    /// A save awaiting the “also update the workspace's tab addresses?” answer, and
+    /// the flag that presents that prompt.
+    @State private var pendingSaveProfile: SSHProfile?
+    @State private var isConfirmingTabHostSync = false
 
     init(profile: SSHProfile,
          duplicatedFromName: String? = nil,
@@ -115,6 +119,14 @@ struct ProfileEditorView: View {
                 onCancel()
             }
             editCoordinator.editorDidFinishCommit()
+        }
+        .alert("Point Workspace Tabs at This Host?", isPresented: $isConfirmingTabHostSync,
+               presenting: pendingSaveProfile) { saved in
+            Button("Update Tabs") { commitSave(saved, syncTabHosts: true) }
+            Button("Keep Their Addresses") { commitSave(saved, syncTabHosts: false) }
+            Button("Cancel", role: .cancel) { pendingSaveProfile = nil }
+        } message: { saved in
+            Text("This profile opens a workspace whose tabs point at a different address. Update those tabs to use “\(saved.host)” so they all connect to this server?")
         }
     }
 
@@ -576,6 +588,11 @@ struct ProfileEditorView: View {
                 } label: {
                     Label("Workspace name", systemImage: "character.cursor.ibeam")
                 }
+                LabeledContent {
+                    WorkspaceTabColorPicker(selection: $profile.workspaceTabColor)
+                } label: {
+                    Label("Tab color", systemImage: "paintpalette")
+                }
             }
             Text(workspaceHint)
                 .font(.caption)
@@ -871,16 +888,41 @@ struct ProfileEditorView: View {
             Spacer()
             Button("Cancel", role: .cancel, action: onCancel)
                 .keyboardShortcut(.cancelAction)
-            Button(isNew ? "Add Profile" : "Save") {
-                applyPasswordChanges()
-                onSave(normalized())
-            }
+            Button(isNew ? "Add Profile" : "Save") { attemptSave() }
             .keyboardShortcut(.defaultAction)
             .buttonStyle(.borderedProminent)
             .disabled(!canSave)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    /// Save, but first offer to bring the profile's workspace tabs along when its
+    /// host differs from the addresses baked into its assigned template — the
+    /// moment the final host is known (a profile made from a workspace, or a
+    /// duplicated workspace profile, whose tabs still point at the source address).
+    private func attemptSave() {
+        let final = normalized()
+        if !final.isLocal,
+           let tid = final.workspaceTemplateID,
+           !final.host.isEmpty,
+           TerminalSessionManager.shared.templateHasTabsWithDifferentHost(tid, than: final.host) {
+            pendingSaveProfile = final
+            isConfirmingTabHostSync = true
+            return
+        }
+        commitSave(final, syncTabHosts: false)
+    }
+
+    /// Persist the profile (optionally re-pointing its template's tabs at the
+    /// profile host), then hand back to the caller.
+    private func commitSave(_ final: SSHProfile, syncTabHosts: Bool) {
+        pendingSaveProfile = nil
+        if syncTabHosts, let tid = final.workspaceTemplateID {
+            TerminalSessionManager.shared.normalizeTemplateTabHosts(tid, to: final.host)
+        }
+        applyPasswordChanges()
+        onSave(final)
     }
 
     // MARK: - Field helpers
@@ -1290,6 +1332,50 @@ struct ForwardEditor: View {
             }
             .textFieldStyle(.roundedBorder)
             .autocorrectionDisabled()
+        }
+    }
+}
+
+/// A compact horizontal swatch picker for a workspace's launch tint. Renders one
+/// filled circle per `TabColor` (in its actual color) plus a “Default” chip that
+/// clears the tint; the active choice is ringed and checked.
+private struct WorkspaceTabColorPicker: View {
+    @Binding var selection: TabColor?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { selection = nil } label: {
+                ZStack {
+                    Circle().fill(Color.secondary.opacity(0.12))
+                    Circle().strokeBorder(Color.secondary.opacity(0.55), lineWidth: 1.5)
+                    if selection == nil {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Default")
+
+            ForEach(TabColor.allCases) { c in
+                Button { selection = c } label: {
+                    ZStack {
+                        Circle().fill(c.color)
+                        Circle().strokeBorder(Color.primary.opacity(selection == c ? 0.55 : 0.15),
+                                              lineWidth: selection == c ? 2 : 1)
+                        if selection == c {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .help(c.label)
+            }
         }
     }
 }

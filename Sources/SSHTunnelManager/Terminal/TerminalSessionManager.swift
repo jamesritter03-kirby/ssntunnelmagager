@@ -712,6 +712,85 @@ final class TerminalSessionManager: ObservableObject {
         }
     }
 
+    /// Open a copy of a tab in the **current** workspace. Content tabs (web,
+    /// files, editor, spreadsheet, shells) reopen mirroring their live state;
+    /// connection tabs reconnect a fresh independent session. A profile-backed
+    /// ssh tab can't be duplicated (its tunnel binds fixed ports) and is filtered
+    /// out by `TerminalSession.canDuplicate`.
+    func duplicate(_ session: TerminalSession) {
+        guard session.canDuplicate else { return }
+        // Keep the copy here rather than routing a profile tab to its dedicated
+        // workspace.
+        suppressWorkspaceRouting = true
+        defer { suppressWorkspaceRouting = false }
+
+        let profile = session.profileID.flatMap { id in
+            ProfileStore.shared.profiles.first { $0.id == id }
+        }
+
+        switch session.kind {
+        case .web:
+            let urlString = session.webModel?.currentURLString ?? ""
+            if let url = URL(string: urlString), !urlString.isEmpty {
+                var proxy: WebProxy? = nil
+                if let profile, let sx = profile.socksProxy {
+                    proxy = WebProxy(host: sx.host, port: sx.port)
+                }
+                openWeb(url: url, title: session.title, profileID: session.profileID, proxy: proxy)
+            } else {
+                openBlankWeb()
+            }
+        case .finder:
+            openFinder(path: session.finderModel?.currentPath)
+        case .editor:
+            openTextEditor(path: session.textEditorModel?.fileURL?.path)
+        case .spreadsheet:
+            openSpreadsheet(path: session.spreadsheetModel?.fileURL?.path)
+        case .localShell:
+            let copy = TerminalSession(
+                kind: .localShell,
+                title: session.title,
+                executable: session.executable,
+                args: session.args,
+                commandPreview: session.commandPreview,
+                profileID: session.profileID,
+                theme: session.theme,
+                fontSize: session.fontSize,
+                startDirectory: session.startDirectory
+            )
+            addAndStart(copy)
+        case .ssh:
+            // Only ad-hoc ssh reaches here (canDuplicate filters profile tunnels).
+            openAdHocSSH(host: session.serviceHost, port: session.servicePort ?? 22,
+                         username: session.serviceUsername,
+                         password: session.presetPassword ?? "")
+        case .sftp:
+            if let profile {
+                connectSFTP(profile: profile)
+            } else {
+                openAdHocSFTP(host: session.serviceHost, port: session.servicePort ?? 22,
+                              username: session.serviceUsername,
+                              password: session.presetPassword ?? "")
+            }
+        case .vnc:
+            if let profile {
+                connectVNC(profile: profile)
+            } else {
+                openAdHocVNC(host: session.serviceHost, port: session.servicePort ?? 5900,
+                             username: session.serviceUsername, password: session.servicePassword)
+            }
+        case .mqtt, .redis:
+            let category: ForwardCategory = session.kind == .redis ? .redis : .mqtt
+            if let profile, let port = session.servicePort,
+               let fwd = profile.forwards.first(where: { $0.localEndpoint?.port == port }) {
+                openService(category, forward: fwd, profile: profile)
+            } else if let port = session.servicePort {
+                openAdHocService(category: category, host: session.serviceHost, port: port,
+                                 username: session.serviceUsername, password: session.servicePassword)
+            }
+        }
+    }
+
     /// Light routing for a profile's secondary tabs (SFTP / VNC): make the
     /// profile's dedicated workspace current, creating an empty one if needed, but
     /// **without** building its launch template — a full `connect` does that.
@@ -766,6 +845,11 @@ final class TerminalSessionManager: ObservableObject {
             workspaces.append(ws)
             index = workspaces.count - 1
         }
+        // Tint the pill from the profile's chosen color (if any) so a
+        // profile-launched workspace always shows its designated color.
+        if let c = profile.workspaceTabColor {
+            workspaces[index].tabColor = c
+        }
         currentWorkspaceID = workspaces[index].id
 
         // Build the template once, on the first full launch of this workspace.
@@ -816,7 +900,7 @@ final class TerminalSessionManager: ObservableObject {
             var tab = tab
             if isLauncher {
                 keptTemplateIndices.append(i)
-                recreate(tab)
+                recreate(tab, owningProfileID: profileID)
                 continue
             }
             let isMainProfileTab = tab.profileID == profileID
@@ -835,7 +919,7 @@ final class TerminalSessionManager: ObservableObject {
                 tab.title = nil     // let the launching profile's name drive the title
             }
             keptTemplateIndices.append(i)
-            recreate(tab)
+            recreate(tab, owningProfileID: profileID)
         }
 
         // Remap the template's dock panes (indexed into its full tab list) onto the
@@ -1077,7 +1161,8 @@ final class TerminalSessionManager: ObservableObject {
     /// Open an **ad-hoc** remote terminal (SSH) tab to `host:port` without a saved
     /// profile. A typed password (optional — key auth is tried first) is sent at
     /// the prompt but never stored. Used by the “New Remote Terminal” setup sheet.
-    func openAdHocSSH(host: String, port: Int, username: String, password: String) {
+    func openAdHocSSH(host: String, port: Int, username: String, password: String,
+                      autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true) {
         let cleanHost = host.trimmingCharacters(in: .whitespaces)
         guard !cleanHost.isEmpty, port > 0 else { return }
         let profile = adHocProfile(host: cleanHost, port: port, username: username)
@@ -1087,6 +1172,8 @@ final class TerminalSessionManager: ObservableObject {
             executable: SSHCommandBuilder.sshPath,
             args: SSHCommandBuilder.arguments(for: profile),
             commandPreview: SSHCommandBuilder.commandPreview(for: profile),
+            autofillSourceProfileID: autofillSourceProfileID,
+            autofillSourceRequireAuth: autofillSourceRequireAuth,
             servicePort: port,
             serviceHost: cleanHost,
             serviceUsername: username.trimmingCharacters(in: .whitespaces),
@@ -1098,7 +1185,9 @@ final class TerminalSessionManager: ObservableObject {
     /// Open an **ad-hoc** SFTP file-transfer tab to `host:port` without a saved
     /// profile. A typed password (optional) is sent at the prompt but never
     /// stored. Used by the “New SFTP Connection” setup sheet.
-    func openAdHocSFTP(host: String, port: Int, username: String, password: String) {
+    func openAdHocSFTP(host: String, port: Int, username: String, password: String,
+                       credentialID: UUID? = nil,
+                       autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true) {
         let cleanHost = host.trimmingCharacters(in: .whitespaces)
         guard !cleanHost.isEmpty, port > 0 else { return }
         let profile = adHocProfile(host: cleanHost, port: port, username: username)
@@ -1108,10 +1197,13 @@ final class TerminalSessionManager: ObservableObject {
             executable: SFTPCommandBuilder.sftpPath,
             args: SFTPCommandBuilder.arguments(for: profile),
             commandPreview: SFTPCommandBuilder.commandPreview(for: profile),
+            autofillSourceProfileID: autofillSourceProfileID,
+            autofillSourceRequireAuth: autofillSourceRequireAuth,
             servicePort: port,
             serviceHost: cleanHost,
             serviceUsername: username.trimmingCharacters(in: .whitespaces),
-            presetPassword: password.isEmpty ? nil : password
+            presetPassword: password.isEmpty ? nil : password,
+            sftpMountCredentialID: credentialID
         )
         addAndStart(session)
     }
@@ -1406,13 +1498,38 @@ final class TerminalSessionManager: ObservableObject {
     /// the Reconnect banner and can be brought back with `connect(profile:)`. The
     /// mirror of the sidebar's Connect command. No-op if it isn't connected.
     func disconnect(profile: SSHProfile) {
+        // A workspace launcher owns no connection of its own — it rebuilt a
+        // dedicated workspace of independent tabs. “Disconnect” stops every running
+        // tab in that workspace.
+        if profile.isWorkspaceLauncher {
+            for s in launcherWorkspaceSessions(for: profile) where s.isRunning {
+                s.disconnect()
+            }
+            return
+        }
         let kind: TerminalSession.Kind = profile.isLocal ? .localShell : .ssh
         sessions.first { $0.profileID == profile.id && $0.kind == kind }?.disconnect()
+    }
+
+    /// The live sessions belonging to a workspace-launcher's dedicated workspace
+    /// (matched by `sourceProfileID`). Empty until the launcher has been connected
+    /// at least once (which builds the workspace).
+    private func launcherWorkspaceSessions(for profile: SSHProfile) -> [TerminalSession] {
+        guard let ws = workspaces.first(where: { $0.sourceProfileID == profile.id }) else {
+            return []
+        }
+        return ws.tabIDs.compactMap { tid in sessions.first(where: { $0.id == tid }) }
     }
 
     /// Whether `profile` has a running primary connection tab that Disconnect could
     /// act on. Read when the sidebar context menu opens to enable/disable it.
     func isConnected(profile: SSHProfile) -> Bool {
+        // A workspace launcher opens no connection of its own — it rebuilds a
+        // dedicated workspace whose tabs each reconnect under their own profile.
+        // It counts as connected when that workspace has any running tab.
+        if profile.isWorkspaceLauncher {
+            return launcherWorkspaceSessions(for: profile).contains { $0.isRunning }
+        }
         let kind: TerminalSession.Kind = profile.isLocal ? .localShell : .ssh
         return sessions.contains {
             $0.profileID == profile.id && $0.kind == kind && $0.isRunning
@@ -1512,7 +1629,45 @@ final class TerminalSessionManager: ObservableObject {
         workspaces[i].tabIDs.insert(movingID, at: to)
     }
 
-    // MARK: - Saved-workspace library
+    /// Move a workspace pill from one position to another (drag-reorder in the
+    /// workspace bar). Matched by id so it's robust to the source and target
+    /// having shifted. Order is display-only and persists with the open state, so
+    /// the next launch restores the rearranged order.
+    func moveWorkspace(fromID: UUID, toID: UUID) {
+        guard fromID != toID,
+              let from = workspaces.firstIndex(where: { $0.id == fromID }),
+              let to = workspaces.firstIndex(where: { $0.id == toID }) else { return }
+        let moving = workspaces.remove(at: from)
+        workspaces.insert(moving, at: to)
+    }
+
+    /// Set (or clear, with `nil`) the pill tint of a workspace. Persisted with the
+    /// open state so it survives relaunch.
+    func setWorkspaceColor(_ color: TabColor?, forWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        workspaces[i].tabColor = color
+    }
+
+    /// The profile that owns the workspace a session lives in, if that workspace
+    /// was launched from a profile (its `sourceProfileID`). Lets tabs inside a
+    /// profile-launched workspace surface that profile's snippets and links even
+    /// when the tab itself is profile-free — e.g. an ad-hoc connection that was
+    /// saved into a workspace template and rebuilt by a “Save as Profile” launcher.
+    func owningProfile(forSession sessionID: UUID) -> SSHProfile? {
+        guard let ws = workspaces.first(where: { $0.tabIDs.contains(sessionID) }),
+              let pid = ws.sourceProfileID else { return nil }
+        return ProfileStore.shared.profiles.first { $0.id == pid }
+    }
+
+    /// Set (or clear, with `nil`) the chip tint of a tab. Persisted per tab.
+    func setTabColor(_ color: TabColor?, forSession id: UUID) {
+        guard let s = sessions.first(where: { $0.id == id }) else { return }
+        s.tabColor = color
+        // The session's own `objectWillChange` refreshes its chip live. Changing a
+        // member object's property doesn't republish the `sessions` array, though,
+        // so save the open state directly to persist the new tint across relaunch.
+        writeOpenState()
+    }
 
     private let savedWorkspacesKey = "savedWorkspaces.v1"
 
@@ -1573,6 +1728,13 @@ final class TerminalSessionManager: ObservableObject {
     }
 
     func deleteSavedWorkspace(_ id: UUID) {
+        // Best-effort: drop any ad-hoc tab passwords this template persisted, so
+        // deleting it doesn't leave orphaned Keychain items behind.
+        if let ws = savedWorkspaces.first(where: { $0.id == id }) {
+            for tab in ws.tabs where tab.credentialID != nil {
+                KeychainStore.shared.deletePassword(for: tab.credentialID!)
+            }
+        }
         savedWorkspaces.removeAll { $0.id == id }
         persistSavedWorkspaces()
     }
@@ -1589,6 +1751,12 @@ final class TerminalSessionManager: ObservableObject {
     /// - otherwise → a **workspace launcher** that opens no connection of its own
     ///   and rebuilds every tab as-is, its host / user seeded from the first
     ///   remote tab (or left local when the workspace has no remote connection).
+    ///
+    /// The template's directly-addressed tabs keep their own addresses here;
+    /// unifying them onto the profile's host is offered later, in the profile
+    /// editor (once the user has set the final host) — see
+    /// `templateHasTabsWithDifferentHost` / `normalizeTemplateTabHosts`.
+    ///
     /// Returns the new profile (already added to the store), or nil if the
     /// workspace no longer exists.
     @discardableResult
@@ -1632,16 +1800,161 @@ final class TerminalSessionManager: ObservableObject {
         profile.opensInOwnWorkspace = true
         profile.workspaceTemplateID = templateID
         ProfileStore.shared.add(profile)
+
+        // Persist each ad-hoc tab's directly-typed password so the rebuilt tab can
+        // reconnect (mqtt / ssh / sftp / vnc). Otherwise it lives only in memory
+        // and is lost — forcing a manual re-entry — and an ad-hoc sftp tab couldn't
+        // be mounted at all. Profile-backed tabs resolve credentials from their own
+        // profile / forward, so they're skipped. `savedWorkspaces[ti].tabs` is
+        // built from the same `ws.tabIDs` order as `liveTabs`, so they line up.
+        if let ti = savedWorkspaces.firstIndex(where: { $0.id == templateID }) {
+            for i in savedWorkspaces[ti].tabs.indices {
+                guard savedWorkspaces[ti].tabs[i].profileID == nil,
+                      i < liveTabs.count,
+                      let pw = capturedAdHocPassword(for: liveTabs[i]), !pw.isEmpty else { continue }
+                let credentialID = UUID()
+                if KeychainStore.shared.setPassword(pw, for: credentialID) {
+                    savedWorkspaces[ti].tabs[i].credentialID = credentialID
+                }
+            }
+            persistSavedWorkspaces()
+        }
         return profile
+    }
+
+    /// The live password held by an **ad-hoc** connection tab, for persisting into
+    /// a workspace-profile template. mqtt / redis / direct-vnc keep it in
+    /// `servicePassword`; ad-hoc ssh / sftp use `presetPassword`. Nil for tabs that
+    /// never carried one.
+    private func capturedAdHocPassword(for s: TerminalSession) -> String? {
+        switch s.kind {
+        case .mqtt, .redis, .vnc:
+            return s.servicePassword.isEmpty ? nil : s.servicePassword
+        case .ssh, .sftp:
+            return s.presetPassword
+        default:
+            return nil
+        }
+    }
+
+    /// Whether `templateID`'s saved workspace has any **directly-addressed**
+    /// (ad-hoc) connection tab whose host differs from `host`. Drives the profile
+    /// editor's offer to bring a template-backed profile's tabs along when its
+    /// host is set or changed (covers both “Save Workspace as Profile” and
+    /// duplicating a workspace profile). Profile-backed tabs resolve their address
+    /// from their own profile and are ignored. **Browser (web) tabs** count too:
+    /// their host is read from (and later rewritten in) their URL, so a workspace
+    /// that also opens a device's web UI at an IP is offered for re-pointing.
+    func templateHasTabsWithDifferentHost(_ templateID: UUID, than host: String) -> Bool {
+        let target = host.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !target.isEmpty,
+              let tmpl = savedWorkspaces.first(where: { $0.id == templateID }) else { return false }
+        return tmpl.tabs.contains { tab in
+            guard tab.profileID == nil else { return false }
+            switch tab.kind {
+            case .ssh, .sftp, .vnc, .mqtt, .redis:
+                let h = (tab.serviceHost ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+                return !h.isEmpty && h != target
+            case .web:
+                guard let s = tab.webURL,
+                      let h = TerminalSessionManager.urlHost(of: s) else { return false }
+                return h.lowercased() != target
+            default:
+                return false
+            }
+        }
+    }
+
+    /// Re-point every directly-addressed (ad-hoc) connection tab in `templateID`'s
+    /// workspace at `host`, so a template-backed profile's tabs all connect to the
+    /// profile's server. Profile-backed tabs are left to their own profile.
+    /// **Browser (web) tabs** have the host swapped inside their URL (scheme,
+    /// port, path and query preserved), so a device's web UI follows the profile.
+    func normalizeTemplateTabHosts(_ templateID: UUID, to host: String) {
+        let clean = host.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty,
+              let ti = savedWorkspaces.firstIndex(where: { $0.id == templateID }) else { return }
+        for i in savedWorkspaces[ti].tabs.indices {
+            guard savedWorkspaces[ti].tabs[i].profileID == nil else { continue }
+            switch savedWorkspaces[ti].tabs[i].kind {
+            case .ssh, .sftp, .vnc, .mqtt, .redis:
+                if let h = savedWorkspaces[ti].tabs[i].serviceHost,
+                   !h.trimmingCharacters(in: .whitespaces).isEmpty {
+                    savedWorkspaces[ti].tabs[i].serviceHost = clean
+                }
+            case .web:
+                if let s = savedWorkspaces[ti].tabs[i].webURL,
+                   let swapped = TerminalSessionManager.replacingHost(in: s, with: clean) {
+                    savedWorkspaces[ti].tabs[i].webURL = swapped
+                }
+            default:
+                break
+            }
+        }
+        persistSavedWorkspaces()
+    }
+
+    /// The host component of a URL string, trimmed — or nil when it carries none
+    /// (so a blank/`about:` browser tab is skipped). Used to compare a web tab's
+    /// address against a profile's host.
+    static func urlHost(of urlString: String) -> String? {
+        guard let comps = URLComponents(string: urlString) else { return nil }
+        let h = (comps.host ?? "").trimmingCharacters(in: .whitespaces)
+        return h.isEmpty ? nil : h
+    }
+
+    /// `urlString` with its host replaced by `newHost`, keeping scheme, port,
+    /// path, query and fragment. Returns nil when the string has no host to swap.
+    static func replacingHost(in urlString: String, with newHost: String) -> String? {
+        guard var comps = URLComponents(string: urlString), comps.host != nil else { return nil }
+        comps.host = newHost
+        return comps.string
+    }
+
+    /// Duplicate a saved-workspace template under a fresh id, cloning any per-tab
+    /// ad-hoc credentials so the copy neither shares nor (on delete) clobbers the
+    /// source's Keychain items. Used when duplicating a profile so the copy gets
+    /// its own workspace it can edit — e.g. re-point its tabs at a different host —
+    /// without touching the original's. Returns the new template id, or nil.
+    @discardableResult
+    func duplicateTemplate(_ id: UUID) -> UUID? {
+        guard let src = savedWorkspaces.first(where: { $0.id == id }) else { return nil }
+        var copy = src
+        copy.id = UUID()
+        copy.name = uniqueSavedWorkspaceName(for: src.name)
+        copy.tabs = src.tabs.map { tab in
+            var t = tab
+            if let cid = tab.credentialID {
+                let newCid = UUID()
+                t.credentialID = KeychainStore.shared.copyPassword(from: cid, to: newCid) ? newCid : nil
+            }
+            return t
+        }
+        savedWorkspaces.append(copy)
+        persistSavedWorkspaces()
+        return copy.id
     }
 
     /// A copy of `p`'s connection settings under a fresh id, with its forwards
     /// re-keyed and its snippets / links dropped — the connection identity used to
-    /// seed a workspace profile (mirrors how duplicating a profile is sanitized).
+    /// seed a workspace profile.
+    ///
+    /// The fresh ids keep the clone from sharing (or, on delete, clobbering) the
+    /// source's Keychain secrets, but each saved password is **copied** across to
+    /// the new id so the reproduced connection authenticates exactly like the
+    /// original. Without this a profile made via “Save Workspace as Profile”
+    /// couldn't bring up its SSH tunnel or its MQTT / Redis service tabs, and
+    /// “Mount with FUSE” would fail authentication.
     private func cloneConnection(of p: SSHProfile) -> SSHProfile {
         var c = p
         c.id = UUID()
-        c.forwards = c.forwards.map { var f = $0; f.id = UUID(); return f }
+        c.forwards = c.forwards.map { forward in
+            var f = forward
+            f.id = UUID()
+            KeychainStore.shared.copyPassword(from: forward.id, to: f.id)
+            return f
+        }
+        KeychainStore.shared.copyPassword(from: p.id, to: c.id)
         c.snippets = []
         c.links = []
         return c
@@ -1829,7 +2142,8 @@ final class TerminalSessionManager: ObservableObject {
                                title: s.title,
                                servicePort: s.servicePort,
                                serviceHost: host, serviceUsername: user,
-                               editorBackupID: s.textEditorModel?.id)
+                               editorBackupID: s.textEditorModel?.id,
+                               tabColor: s.tabColor)
     }
 
     /// Snapshot a workspace's side drawers by tab index (matching `snapshotTabs`
@@ -1886,19 +2200,42 @@ final class TerminalSessionManager: ObservableObject {
     /// Force-save the current open workspaces (used on app termination).
     func persistOpenSessions() { writeOpenState() }
 
+    /// Whether `ws` is a throwaway workspace spun up by launching a profile that
+    /// has an assigned **workspace template** — the case the user wants kept out
+    /// of the resume snapshot (it's regenerated from the template on relaunch).
+    /// A workspace the user made themselves, or one from a plain "opens in its own
+    /// workspace" profile (no template), returns false so it still persists.
+    private func isEphemeralTemplateWorkspace(_ ws: Workspace) -> Bool {
+        guard let pid = ws.sourceProfileID,
+              let profile = ProfileStore.shared.profiles.first(where: { $0.id == pid })
+        else { return false }
+        return profile.workspaceTemplateID != nil
+    }
+
     private func writeOpenState() {
         // Flush every editor's unsaved text so the snapshots we take reference an
         // up‑to‑date backup, letting the next launch restore exactly what's open.
         for s in sessions { s.textEditorModel?.flushBackup() }
-        let snaps = workspaces.map { ws -> WorkspaceSnapshot in
+        // Workspaces launched from a **profile that carries a workspace template**
+        // are ephemeral: they're rebuilt from that template every time the profile
+        // is launched, so persisting them here would just pile up a fresh resumed
+        // copy on each start (the clutter the user asked us to avoid). We skip
+        // them — the profile and its template stay, and relaunching the profile
+        // recreates the workspace — and save the user's own workspaces plus any
+        // plain single‑connection profile workspaces as before.
+        let persistable = workspaces.filter { !isEphemeralTemplateWorkspace($0) }
+        let snaps = persistable.map { ws -> WorkspaceSnapshot in
             let liveTabIDs = ws.tabIDs.filter { id in sessions.contains { $0.id == id } }
             let selIndex = ws.selectedSessionID.flatMap { liveTabIDs.firstIndex(of: $0) }
             return WorkspaceSnapshot(name: ws.name, isTiled: ws.isTiled,
                                      tileLayout: ws.tileLayout,
                                      selectedIndex: selIndex, tabs: snapshotTabs(for: ws),
-                                     docks: dockSnapshots(for: ws))
+                                     docks: dockSnapshots(for: ws),
+                                     tabColor: ws.tabColor)
         }
-        let current = workspaces.firstIndex { $0.id == currentWorkspaceID } ?? 0
+        // Keep the current workspace selected if it survived the filter; if the
+        // active one was ephemeral (or there are none), fall back to the first.
+        let current = persistable.firstIndex { $0.id == currentWorkspaceID } ?? 0
         let state = OpenStateSnapshot(workspaces: snaps, currentIndex: current)
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: openStateKey)
@@ -1933,9 +2270,25 @@ final class TerminalSessionManager: ObservableObject {
 
     /// Recreate one saved tab in the current workspace. Profiles that no longer
     /// exist are skipped; a saved blank browser tab reopens blank.
-    private func recreate(_ snap: SessionSnapshot) {
+    private func recreate(_ snap: SessionSnapshot, owningProfileID: UUID? = nil) {
         let store = ProfileStore.shared
         let profile = snap.profileID.flatMap { id in store.profiles.first { $0.id == id } }
+        // A password persisted for an ad-hoc tab when its workspace was saved as a
+        // profile (empty for ordinary resume snapshots, which never store one).
+        let adHocPassword = snap.credentialID.flatMap {
+            KeychainStore.shared.readPassword(for: $0)
+        } ?? ""
+        // A profile-free tab rebuilt inside a profile-launched workspace autofills
+        // from that launching profile's saved password (Touch ID gated) when it has
+        // no captured credential of its own — so its ssh / sftp tabs don't drop to
+        // a manual password prompt.
+        let owningProfile = owningProfileID.flatMap { id in store.profiles.first { $0.id == id } }
+        let autofillSrcID = owningProfile.flatMap {
+            KeychainStore.shared.hasPassword(for: $0.id) ? $0.id : nil
+        }
+        let autofillSrcAuth = owningProfile?.requireAuthForSavedPassword ?? true
+        // Remember how many tabs exist so we can tint the one this call creates.
+        let tabCountBefore = sessions.count
         switch snap.kind {
         case .localShell:
             if let profile { connect(profile: profile) } else { openLocalShell() }
@@ -1943,19 +2296,24 @@ final class TerminalSessionManager: ObservableObject {
             if let profile { connect(profile: profile) }
             else if let host = snap.serviceHost {
                 openAdHocSSH(host: host, port: snap.servicePort ?? 22,
-                             username: snap.serviceUsername ?? "", password: "")
+                             username: snap.serviceUsername ?? "", password: adHocPassword,
+                             autofillSourceProfileID: autofillSrcID,
+                             autofillSourceRequireAuth: autofillSrcAuth)
             }
         case .sftp:
             if let profile { connectSFTP(profile: profile) }
             else if let host = snap.serviceHost {
                 openAdHocSFTP(host: host, port: snap.servicePort ?? 22,
-                              username: snap.serviceUsername ?? "", password: "")
+                              username: snap.serviceUsername ?? "", password: adHocPassword,
+                              credentialID: snap.credentialID,
+                              autofillSourceProfileID: autofillSrcID,
+                              autofillSourceRequireAuth: autofillSrcAuth)
             }
         case .vnc:
             if let profile { connectVNC(profile: profile) }
             else if let host = snap.serviceHost {
                 openAdHocVNC(host: host, port: snap.servicePort ?? 5900,
-                             username: snap.serviceUsername ?? "", password: "")
+                             username: snap.serviceUsername ?? "", password: adHocPassword)
             }
         case .web:
             if let s = snap.webURL, let url = URL(string: s) {
@@ -1975,7 +2333,7 @@ final class TerminalSessionManager: ObservableObject {
                 openService(category, forward: fwd, profile: profile)
             } else if snap.profileID == nil, let host = snap.serviceHost, let port = snap.servicePort {
                 openAdHocService(category: category, host: host, port: port,
-                                 username: snap.serviceUsername ?? "", password: "")
+                                 username: snap.serviceUsername ?? "", password: adHocPassword)
             }
         case .finder:
             openFinder(path: snap.webURL)
@@ -1983,6 +2341,11 @@ final class TerminalSessionManager: ObservableObject {
             openTextEditor(path: snap.webURL, backupID: snap.editorBackupID)
         case .spreadsheet:
             openSpreadsheet(path: snap.webURL)
+        }
+        // Re-apply the saved tab tint to the tab this call just added (skipped if
+        // the open reused an existing tab or created none).
+        if let color = snap.tabColor, sessions.count > tabCountBefore {
+            sessions.last?.tabColor = color
         }
     }
 
@@ -1996,7 +2359,8 @@ final class TerminalSessionManager: ObservableObject {
         guard let state = savedOpenState(), !state.workspaces.isEmpty else { return }
         let built = state.workspaces.map {
             Workspace(name: $0.name, isTiled: $0.isTiled,
-                      tileLayout: $0.tileLayout ?? TileLayout())
+                      tileLayout: $0.tileLayout ?? TileLayout(),
+                      tabColor: $0.tabColor)
         }
         workspaces = built
         suppressWorkspaceRouting = true

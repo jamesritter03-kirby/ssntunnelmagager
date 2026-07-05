@@ -1,5 +1,18 @@
 import Foundation
 
+/// A small fixed palette a user can tint a tab or workspace pill with, chosen
+/// from a right-click menu. Stored by name so it's `Codable` (and this model
+/// file stays free of any SwiftUI dependency — the matching `Color` lives in a
+/// view extension). `nil` everywhere means "use the default accent tint".
+enum TabColor: String, CaseIterable, Codable, Identifiable, Hashable {
+    case red, orange, yellow, green, teal, blue, purple, pink
+
+    var id: String { rawValue }
+
+    /// The menu label, e.g. `red` → "Red".
+    var label: String { rawValue.capitalized }
+}
+
 /// Which edge a docked drawer is pinned to.
 enum DockSide: String, Codable, Equatable, Hashable {
     case left, right, top, bottom
@@ -78,6 +91,10 @@ struct Workspace: Identifiable, Equatable {
     /// A drawer pinned to the bottom edge of the center area, if any.
     var bottomDock: DockColumn?
 
+    /// An optional user-chosen tint for this workspace's pill (nil = default
+    /// accent). Set from the workspace pill's right-click "Tab Color" menu.
+    var tabColor: TabColor?
+
     /// When this workspace was opened as a profile's **dedicated workspace**, the
     /// id of that profile — so reconnecting the profile reuses this workspace
     /// instead of spawning a duplicate. In-memory only (not persisted).
@@ -91,7 +108,8 @@ struct Workspace: Identifiable, Equatable {
          selectedSessionID: UUID? = nil, isTiled: Bool = false,
          tileLayout: TileLayout = TileLayout(),
          leftDock: DockColumn? = nil, rightDock: DockColumn? = nil,
-         topDock: DockColumn? = nil, bottomDock: DockColumn? = nil) {
+         topDock: DockColumn? = nil, bottomDock: DockColumn? = nil,
+         tabColor: TabColor? = nil) {
         self.id = id
         self.name = name
         self.tabIDs = tabIDs
@@ -102,6 +120,7 @@ struct Workspace: Identifiable, Equatable {
         self.rightDock = rightDock
         self.topDock = topDock
         self.bottomDock = bottomDock
+        self.tabColor = tabColor
     }
 }
 
@@ -221,11 +240,22 @@ struct SessionSnapshot: Codable {
     /// tab with unsaved text (or a never‑saved untitled buffer) is restored from
     /// that backup on the next launch. Optional so older snapshots still decode.
     var editorBackupID: UUID? = nil
+    /// For **ad-hoc** (profile-free) connection tabs saved into a *workspace
+    /// profile* template: the Keychain id holding the password typed for this tab,
+    /// so the rebuilt tab (mqtt / redis / ssh / sftp / vnc) can reconnect — and an
+    /// sftp tab can mount — with the same credential. Only populated by “Save
+    /// Workspace as Profile”; the ordinary resume snapshot never persists
+    /// passwords. Optional so older snapshots still decode.
+    var credentialID: UUID? = nil
+    /// The user-chosen tab tint, if any (nil = default). Optional so older
+    /// snapshots still decode.
+    var tabColor: TabColor? = nil
 
     init(kind: TerminalSession.Kind, profileID: UUID? = nil, webURL: String? = nil,
          title: String? = nil, servicePort: Int? = nil,
          serviceHost: String? = nil, serviceUsername: String? = nil,
-         editorBackupID: UUID? = nil) {
+         editorBackupID: UUID? = nil, credentialID: UUID? = nil,
+         tabColor: TabColor? = nil) {
         self.kind = kind
         self.profileID = profileID
         self.webURL = webURL
@@ -234,6 +264,8 @@ struct SessionSnapshot: Codable {
         self.serviceHost = serviceHost
         self.serviceUsername = serviceUsername
         self.editorBackupID = editorBackupID
+        self.credentialID = credentialID
+        self.tabColor = tabColor
     }
 }
 
@@ -241,7 +273,7 @@ struct SessionSnapshot: Codable {
 // (the synthesized one would throw on the missing key and drop the resume state).
 extension SessionSnapshot {
     enum CodingKeys: String, CodingKey {
-        case kind, profileID, webURL, title, servicePort, serviceHost, serviceUsername, editorBackupID
+        case kind, profileID, webURL, title, servicePort, serviceHost, serviceUsername, editorBackupID, credentialID, tabColor
     }
 
     init(from decoder: Decoder) throws {
@@ -254,6 +286,8 @@ extension SessionSnapshot {
         serviceHost = try c.decodeIfPresent(String.self, forKey: .serviceHost)
         serviceUsername = try c.decodeIfPresent(String.self, forKey: .serviceUsername)
         editorBackupID = try c.decodeIfPresent(UUID.self, forKey: .editorBackupID)
+        credentialID = try c.decodeIfPresent(UUID.self, forKey: .credentialID)
+        tabColor = try c.decodeIfPresent(TabColor.self, forKey: .tabColor)
     }
 }
 
@@ -269,6 +303,8 @@ struct WorkspaceSnapshot: Codable {
     var tabs: [SessionSnapshot]
     /// Side drawers, by tab index (optional so older snapshots still decode).
     var docks: [DockSnapshot]? = nil
+    /// The user-chosen pill tint for this workspace, if any (nil = default).
+    var tabColor: TabColor? = nil
 }
 
 /// A codable description of a docked side drawer; its tabs are referenced by
