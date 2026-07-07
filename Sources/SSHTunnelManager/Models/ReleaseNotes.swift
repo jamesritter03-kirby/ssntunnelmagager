@@ -45,6 +45,14 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.30", build: 40, date: "Jul 7, 2026",
+            highlights: [
+                "Right‑click a terminal tab for two new actions: Edit Connection… opens the profile editor for the server behind the tab (host, port, credentials, forwards), and Open SFTP starts an SFTP file‑transfer tab to the same server.",
+                "Both work on ad‑hoc terminals and on tabs inside a workspace launched from a profile — they resolve the connection from the launching profile when the tab itself doesn’t carry one.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.29", build: 39, date: "Jul 4, 2026",
             highlights: [
                 "New: right‑click a terminal tab and choose Duplicate Tab to open an independent copy — browser tabs reopen at the same page, Finder / editor / spreadsheet tabs at the same file, and connection tabs reconnect a fresh session.",
@@ -56,7 +64,7 @@ enum ReleaseCatalog {
                 "MQTT explorer now remembers its expanded topic tree and selection as you switch tabs, reads broker uptime reported as “1234 seconds”, and keeps retrying to connect for up to five minutes while a tunnel comes up.",
                 "When you save a new profile from a generated connection, browser tabs get their host re‑pointed too. Workspaces launched from a profile are now treated as disposable — they’re no longer saved and restored when you quit and reopen the app.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.28", build: 38, date: "Jul 3, 2026",

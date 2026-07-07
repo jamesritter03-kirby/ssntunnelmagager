@@ -1243,6 +1243,37 @@ private struct TerminalTabContextMenu: View {
         return store.profiles.first(where: { $0.id == pid })
     }
 
+    /// The profile whose connection this tab represents: its own, or the profile
+    /// that launched its workspace — so an ad-hoc tab rebuilt inside a launcher
+    /// workspace still resolves the connection behind it. Backs “Edit Connection…”
+    /// and “Open SFTP” for terminal tabs.
+    private var effectiveProfile: SSHProfile? {
+        if let profile { return profile }
+        return sessions.owningProfile(forSession: session.id)
+    }
+
+    /// Whether “Open SFTP” applies to this tab: an ssh terminal can always SFTP to
+    /// the same host; any other tab needs a profile-backed, non-local connection.
+    /// (An SFTP tab itself is excluded.)
+    private var canLaunchSFTP: Bool {
+        guard session.kind != .sftp else { return false }
+        if session.kind == .ssh { return true }
+        return (effectiveProfile.map { !$0.isLocal }) ?? false
+    }
+
+    /// Open an SFTP file-transfer tab to the same server as this connection.
+    private func launchSFTP() {
+        if let profile = effectiveProfile, !profile.isLocal {
+            sessions.connectSFTP(profile: profile)
+        } else if session.kind == .ssh {
+            // A pure ad-hoc ssh tab: SFTP to the same host / port / user.
+            sessions.openAdHocSFTP(host: session.serviceHost,
+                                   port: session.servicePort ?? 22,
+                                   username: session.serviceUsername,
+                                   password: session.presetPassword ?? "")
+        }
+    }
+
     /// "Open Redis (:6379)" style label for a categorized forward.
     private func serviceMenuLabel(_ forward: PortForward) -> String {
         let suffix = forward.localEndpoint.map { " (:\($0.port))" } ?? ""
@@ -1413,6 +1444,15 @@ private struct TerminalTabContextMenu: View {
                 Label("Clear Terminal", systemImage: "clear")
             }
         }
+        // Edit the connection behind a terminal tab — its profile's host, port,
+        // credentials and forwards — in the full profile editor.
+        if (session.kind == .ssh || session.kind == .localShell), let profile = effectiveProfile {
+            Button {
+                ProfileEditCoordinator.shared.profileToEdit = profile
+            } label: {
+                Label("Edit Connection…", systemImage: "pencil")
+            }
+        }
         if session.canEditConnection {
             Button {
                 EditConnectionModel.shared.present(for: session)
@@ -1445,9 +1485,9 @@ private struct TerminalTabContextMenu: View {
         if session.kind == .vnc, let viewer = session.embeddedVNCViewer {
             VNCTabOptionsMenu(viewer: viewer)
         }
-        if let profile, !profile.isLocal, session.kind != .sftp {
+        if canLaunchSFTP {
             Button {
-                sessions.connectSFTP(profile: profile)
+                launchSFTP()
             } label: {
                 Label("Open SFTP", systemImage: "arrow.up.arrow.down")
             }
