@@ -5,9 +5,10 @@ import Foundation
 /// emphasis (**bold**, `code`) is supported in paragraphs and bullets.
 enum HelpContent {
     static let articles: [HelpArticle] = [
-        gettingStarted, profiles, tunnels, passwordless, terminal, snippets,
+        gettingStarted, profiles, organizing, tunnels, advancedOptions, automation,
+        passwordless, terminal, snippets,
         workspaces, tilingDetaching, sftp, finder, textEditor, vnc, zerotier, services, links,
-        paletteAndMenuBar, updates, settings, shortcuts,
+        sshConfig, paletteAndMenuBar, updates, settings, shortcuts,
     ]
 
     // MARK: Getting started
@@ -43,6 +44,21 @@ enum HelpContent {
             .tip("If you try to quit while a profile editor is still open with unsaved changes, the app **asks whether to save** first — so edits are never lost by accident."),
         ])
 
+    // MARK: Organizing profiles
+
+    static let organizing = HelpArticle(
+        id: "organizing", title: "Organizing Profiles", icon: "star",
+        blocks: [
+            .paragraph("As your list of profiles grows, the sidebar helps you keep it tidy and find things fast."),
+            .bullets([
+                "**Search** — the field at the top of the sidebar filters profiles as you type, matching the name and host.",
+                "**Favourites** — star a profile (right‑click ▸ **Add to Favourites**, or the **Favourite** toggle in its editor's **Organization** section) to pin it to a **Favourites** section at the very top of the list.",
+                "**Groups** — give profiles a **Group** name in that same **Organization** section and the sidebar collects them into **collapsible folders**. Click a group's header to fold it away; the collapsed state is remembered.",
+            ]),
+            .paragraph("Each connected profile shows a small **status dot**: **green** for a healthy tunnel, turning **orange** when one of its **local** port forwards stops answering. The app quietly probes the forwarded ports every few seconds, so a dead tunnel stands out without opening its tab."),
+            .tip("Grouping is purely for your own organisation — a profile's **Group** doesn't change how it connects."),
+        ])
+
     // MARK: Tunnels
 
     static let tunnels = HelpArticle(
@@ -55,7 +71,44 @@ enum HelpContent {
                 "**Dynamic / SOCKS (`-D`)** — runs a SOCKS proxy on this Mac; apps pointed at it route through the server.",
             ]),
             .paragraph("Tunnels start as soon as you **Connect** the profile. The connection uses `ExitOnForwardFailure=yes`, so if a port is already taken the tab reports it instead of silently continuing."),
+            .paragraph("**Add or drop a forward without reconnecting**: right‑click a running tunnel's tab ▸ **Port Forwards** ▸ **Add Port Forward…**, or **Cancel** an existing one. This rides SSH's control connection, so the change applies to the live session — tick **Also save to the profile** to keep it for next time."),
+            .bullets([
+                "A **status dot** beside each connected profile in the sidebar turns **orange** if one of its **local** forwards stops answering, so a dead tunnel is easy to spot at a glance.",
+            ]),
             .tip("Tag a **Local** forward with a **category** (Web / MQTT / Redis) to get a one‑click button that opens the right tool against that forwarded port — see **Service Tabs**."),
+        ])
+
+    // MARK: Advanced connection options
+
+    static let advancedOptions = HelpArticle(
+        id: "advanced-options", title: "Advanced Connection Options", icon: "gearshape.2",
+        blocks: [
+            .paragraph("The profile editor's **Advanced** section exposes the `ssh` options power users reach for. Everything here is mirrored live in the **Command Preview** at the foot of the editor, so you can see exactly what each toggle adds."),
+            .bullets([
+                "**Forward SSH agent (`-A`)** — lets a jump chain reuse your local keys without copying them onto intermediate hosts.",
+                "**Add keys to the agent on first use** — caches the key's passphrase in `ssh-agent` so you're only asked once (`AddKeysToAgent=yes`).",
+                "**Host key checking** — choose how strictly the server's key is verified (`StrictHostKeyChecking`): **ask**, **accept new** keys automatically, or refuse outright.",
+                "**Connect timeout** — give up after N seconds rather than hang on an unreachable host (`ConnectTimeout`). Leave it at 0 for the system default.",
+                "**Force a TTY (`-tt`)** — allocate a terminal for an interactive remote command such as `sudo`, `tmux` or a text menu.",
+                "**Remote command** — run a specific command on the server instead of a plain login shell.",
+                "**Environment (`SetEnv`)** — a small key/value editor for variables sent to the server (it must allow them with `AcceptEnv`).",
+            ]),
+            .paragraph("**Mosh (mobile shell)** — turn on **Use mosh** for a resilient session that survives sleep, Wi‑Fi changes and roaming. Install it first (e.g. `brew install mosh`). Note that **port forwards don't apply** to a mosh session, so keep a regular SSH profile for tunnels."),
+        ])
+
+    // MARK: Automation
+
+    static let automation = HelpArticle(
+        id: "automation", title: "Automation", icon: "wand.and.stars",
+        blocks: [
+            .paragraph("The profile editor's **Automation** section lets a connection look after itself."),
+            .bullets([
+                "**Connect automatically at launch** — bring this connection up as soon as the app starts, right after your last session is restored.",
+                "**Reconnect automatically if the connection drops** — after an *unexpected* drop the app retries with a short, increasing backoff (a couple of seconds, then longer). It won't fight you when you disconnect on purpose.",
+                "**Run on connect** — a command typed into the terminal once the shell is ready, e.g. `tmux attach || tmux new`.",
+                "**Log this session to a file** — save a full transcript of the tab. Open it afterwards from the tab's right‑click menu ▸ **Reveal Session Log**; files live under *Application Support/SSHTunnelManager/Logs*.",
+            ]),
+            .tip("Pair **Connect at launch** with a saved **workspace** to have a whole set of tabs and tunnels ready the moment you open the app."),
         ])
 
     // MARK: Passwordless login
@@ -84,6 +137,8 @@ enum HelpContent {
                 "**Right‑click** behavior is configurable in Settings: copy‑then‑paste (Windows/Linux style), paste, or a context menu.",
                 "**Command history** — the tab remembers commands you type. Open the history menu to re‑run one, or **import/export** history (including `.zsh_history`/`.bash_history`).",
                 "**Disconnect / Stop** ends the connection without closing the tab; **Reconnect** brings it back.",
+                "**Broadcast input** (⌃⌘B, or the tab menu ▸ **Broadcast Input to All Terminals**) sends every keystroke to **all** open terminals at once — handy for running the same thing across a fleet. Toggle it off to type in one tab again.",
+                "**Session logging** — enable **Log this session to a file** in a profile's **Automation** options to capture a transcript, then open it from the tab menu ▸ **Reveal Session Log**.",
                 "Drag a file from Finder (or a **Finder tab**) onto the terminal and choose **Paste Path** or **Paste Contents**.",
             ]),
             .shortcuts([
@@ -255,12 +310,24 @@ enum HelpContent {
             ]),
         ])
 
+    // MARK: SSH config & known hosts
+
+    static let sshConfig = HelpArticle(
+        id: "ssh-config", title: "SSH Config & Known Hosts", icon: "doc.plaintext",
+        blocks: [
+            .paragraph("The app plays nicely with your existing OpenSSH setup — import the hosts you already have, and tidy up `known_hosts` without touching the command line."),
+            .paragraph("**Import from `~/.ssh/config`** — choose **File ▸ Import from ~/.ssh/config…** (also in the import/export menu at the foot of the sidebar) to turn each `Host` block into a profile. It reads the host name, user, port, identity file, jump host (`ProxyJump`), agent forwarding, compression, connect timeout and any `LocalForward` / `RemoteForward` / `DynamicForward` lines. Wildcard `Host *` blocks are skipped, and you review the list before anything is added."),
+            .paragraph("**Manage Known Hosts** — choose **File ▸ Manage Known Hosts…** to browse every entry in `~/.ssh/known_hosts`. Filter the list, then remove a stale or changed key so the next connection can re‑learn it. It even removes **hashed** entries that `ssh-keygen -R` can't match by name."),
+            .tip("Removing a known‑hosts entry is the fix for the *“REMOTE HOST IDENTIFICATION HAS CHANGED”* warning after a server is rebuilt — delete its line here and reconnect."),
+        ])
+
     // MARK: Palette & menu bar
 
     static let paletteAndMenuBar = HelpArticle(
         id: "palette", title: "Command Palette & Menu Bar", icon: "command",
         blocks: [
             .paragraph("Press **⌘K** for the **Command Palette** — a fast, searchable list of everything: connect to a profile, open SFTP/VNC, set up passwordless login, run a saved command, re‑run history, and more."),
+            .paragraph("The palette also searches your **command history across every open terminal**, not just the active one — start typing a command you ran earlier, anywhere, and pick it to focus that tab and run it again."),
             .paragraph("The app also lives in the **menu bar**. From there you can show the main window, open a local terminal, connect profiles, and disconnect tunnels — even when the window is closed. In Settings you can launch **into the menu bar only** (no Dock icon or window at startup)."),
         ])
 
@@ -322,6 +389,7 @@ enum HelpContent {
                 ("⌃⌘ [  /  ⌃⌘ ]", "Dock tab left / right"),
                 ("⌃⌘ ↑  /  ⌃⌘ ↓", "Dock tab top / bottom"),
                 ("⇧⌘ D", "Disconnect all tunnels"),
+                ("⌃⌘ B", "Broadcast input to all terminals"),
                 ("⌘ +  /  ⌘ −  /  ⌘ 0", "Terminal text bigger / smaller / actual size"),
                 ("⌃⌘ S", "Show/Hide sidebar"),
                 ("F5", "Refresh an SFTP tab"),

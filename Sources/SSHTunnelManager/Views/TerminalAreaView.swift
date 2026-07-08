@@ -1443,6 +1443,21 @@ private struct TerminalTabContextMenu: View {
             } label: {
                 Label("Clear Terminal", systemImage: "clear")
             }
+            if session.hasSessionLog {
+                Button {
+                    session.revealSessionLog()
+                } label: {
+                    Label("Reveal Session Log", systemImage: "doc.text.magnifyingglass")
+                }
+            }
+            Button {
+                sessions.broadcastInput.toggle()
+            } label: {
+                Label(sessions.broadcastInput ? "Stop Broadcasting Input"
+                                              : "Broadcast Input to All Terminals",
+                      systemImage: sessions.broadcastInput ? "dot.radiowaves.left.and.right"
+                                                          : "dot.radiowaves.right")
+            }
         }
         // Edit the connection behind a terminal tab — its profile's host, port,
         // credentials and forwards — in the full profile editor.
@@ -1451,6 +1466,29 @@ private struct TerminalTabContextMenu: View {
                 ProfileEditCoordinator.shared.profileToEdit = profile
             } label: {
                 Label("Edit Connection…", systemImage: "pencil")
+            }
+        }
+        // Add or cancel port forwards on the live tunnel (ssh -O forward), no
+        // reconnect needed. Only for a running, profile-backed ssh tunnel.
+        if sessions.liveForwardSupported(session), let profile = effectiveProfile {
+            Menu {
+                Button {
+                    AddForwardModel.shared.present(for: session)
+                } label: {
+                    Label("Add Port Forward…", systemImage: "plus")
+                }
+                if !profile.forwards.isEmpty {
+                    Divider()
+                    ForEach(profile.forwards) { forward in
+                        Button {
+                            sessions.cancelLiveForward(forward, on: session, persist: true)
+                        } label: {
+                            Label("Cancel \(forward.summary)", systemImage: "minus.circle")
+                        }
+                    }
+                }
+            } label: {
+                Label("Port Forwards", systemImage: "arrow.left.arrow.right")
             }
         }
         if session.canEditConnection {

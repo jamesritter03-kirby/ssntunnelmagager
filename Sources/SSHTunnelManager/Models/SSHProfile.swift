@@ -188,6 +188,53 @@ struct CommandSnippet: Codable, Identifiable, Hashable {
     var command: String = ""
 }
 
+/// One environment variable sent to the server for a session (ssh `SetEnv`).
+struct EnvVar: Codable, Identifiable, Hashable {
+    var id: UUID = UUID()
+    var name: String = ""
+    var value: String = ""
+
+    /// A trimmed `NAME=VALUE` token, or nil when the name is blank.
+    var setEnvToken: String? {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return nil }
+        return "\(n)=\(value)"
+    }
+}
+
+/// How `ssh` verifies the server's host key when connecting a profile.
+enum StrictHostKeyChecking: String, Codable, CaseIterable, Identifiable {
+    /// ssh's own default: prompt to confirm a new host, refuse a changed one.
+    case ask
+    /// Trust an unseen host automatically, still refuse a changed key.
+    case acceptNew
+    /// Refuse to connect unless the host key is already known.
+    case yes
+    /// Disable host-key checking entirely (insecure — use only on trusted nets).
+    case no
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .ask:       return "Ask (default)"
+        case .acceptNew: return "Accept new hosts automatically"
+        case .yes:       return "Refuse unknown hosts"
+        case .no:        return "Disable checking (insecure)"
+        }
+    }
+
+    /// The value for `-o StrictHostKeyChecking=…`, or nil to leave ssh's default.
+    var optionValue: String? {
+        switch self {
+        case .ask:       return nil
+        case .acceptNew: return "accept-new"
+        case .yes:       return "yes"
+        case .no:        return "no"
+        }
+    }
+}
+
 /// A saved web link the user can open in an in-app browser tab. Handy for the
 /// web UI a tunnel exposes (e.g. `localhost:8080`) or any related page.
 struct ProfileLink: Codable, Identifiable, Hashable {
@@ -247,6 +294,43 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     var jumpHost: String = ""
     /// Extra raw ssh options appended verbatim, e.g. `-o StrictHostKeyChecking=accept-new`.
     var extraOptions: String = ""
+    /// Forward the SSH agent to the server (`ssh -A`) — lets a jump chain reuse
+    /// your local keys without copying them onto the intermediate hosts.
+    var forwardAgent: Bool = false
+    /// Add the profile's key to the local ssh-agent on first use so its passphrase
+    /// is only asked once (`-o AddKeysToAgent=yes`).
+    var addKeysToAgent: Bool = false
+    /// Force a TTY even when running a remote command (`ssh -tt`) — needed for
+    /// interactive remote programs (e.g. `sudo`, `tmux`) launched via a command.
+    var requestTTY: Bool = false
+    /// Seconds before giving up on establishing the connection (`ConnectTimeout`).
+    /// 0 = ssh's default (no explicit timeout).
+    var connectTimeout: Int = 0
+    /// How ssh verifies the server's host key.
+    var strictHostKeyChecking: StrictHostKeyChecking = .ask
+    /// A command to run on the server instead of (or before) an interactive shell.
+    /// Appended after the destination; empty = a normal login shell.
+    var remoteCommand: String = ""
+    /// Environment variables sent to the server (`SetEnv NAME=VALUE`).
+    var environment: [EnvVar] = []
+    /// Use **mosh** (mobile shell) instead of plain ssh for a resilient,
+    /// roaming-friendly session. Port forwards don't apply to a mosh session.
+    var useMosh: Bool = false
+    /// A command automatically typed and run in the terminal right after the
+    /// shell is ready (e.g. `tmux attach`, `cd /var/log && tail -f syslog`).
+    var runOnConnect: String = ""
+    /// Record this session's output to a timestamped log file under Application
+    /// Support/SSHTunnelManager/Logs, revealable from the tab's menu.
+    var logSession: Bool = false
+    /// Automatically reconnect this session (with backoff) if the connection
+    /// drops unexpectedly — not when you disconnect it yourself.
+    var autoReconnect: Bool = false
+    /// Connect this profile automatically when the app launches.
+    var autoConnectOnLaunch: Bool = false
+    /// Mark as a favourite — favourites sort into their own sidebar section.
+    var isFavorite: Bool = false
+    /// Optional group/folder name for organising the sidebar. Empty = ungrouped.
+    var group: String = ""
     /// The terminal color theme id (see `TerminalTheme`).
     var theme: String = TerminalTheme.defaultID
     /// The terminal text size in points (adjustable live with ⌘+ / ⌘−).
@@ -334,6 +418,15 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     var categorizedForwards: [PortForward] {
         forwards.filter { $0.category.isLaunchable && $0.localEndpoint != nil }
     }
+
+    /// The trimmed group/folder name, empty when the profile is ungrouped.
+    var trimmedGroup: String { group.trimmingCharacters(in: .whitespaces) }
+
+    /// This profile's `.local` forwards that open a port on this Mac, used by the
+    /// tunnel-health probe to check the forwarded ports are actually listening.
+    var localForwardEndpoints: [(host: String, port: Int)] {
+        forwards.compactMap { $0.localEndpoint }
+    }
 }
 
 // Defining `init(from:)` in an extension keeps the synthesized memberwise
@@ -350,6 +443,10 @@ extension SSHProfile {
         case opensInOwnWorkspace, workspaceTemplateID
         case workspaceTabColor
         case isWorkspaceLauncher
+        case forwardAgent, addKeysToAgent, requestTTY, connectTimeout
+        case strictHostKeyChecking, remoteCommand, environment
+        case useMosh, runOnConnect, logSession, autoReconnect, autoConnectOnLaunch
+        case isFavorite, group
     }
 
     init(from decoder: Decoder) throws {
@@ -370,6 +467,20 @@ extension SSHProfile {
         verbose = try c.decodeIfPresent(Bool.self, forKey: .verbose) ?? false
         jumpHost = try c.decodeIfPresent(String.self, forKey: .jumpHost) ?? ""
         extraOptions = try c.decodeIfPresent(String.self, forKey: .extraOptions) ?? ""
+        forwardAgent = try c.decodeIfPresent(Bool.self, forKey: .forwardAgent) ?? false
+        addKeysToAgent = try c.decodeIfPresent(Bool.self, forKey: .addKeysToAgent) ?? false
+        requestTTY = try c.decodeIfPresent(Bool.self, forKey: .requestTTY) ?? false
+        connectTimeout = try c.decodeIfPresent(Int.self, forKey: .connectTimeout) ?? 0
+        strictHostKeyChecking = try c.decodeIfPresent(StrictHostKeyChecking.self, forKey: .strictHostKeyChecking) ?? .ask
+        remoteCommand = try c.decodeIfPresent(String.self, forKey: .remoteCommand) ?? ""
+        environment = try c.decodeIfPresent([EnvVar].self, forKey: .environment) ?? []
+        useMosh = try c.decodeIfPresent(Bool.self, forKey: .useMosh) ?? false
+        runOnConnect = try c.decodeIfPresent(String.self, forKey: .runOnConnect) ?? ""
+        logSession = try c.decodeIfPresent(Bool.self, forKey: .logSession) ?? false
+        autoReconnect = try c.decodeIfPresent(Bool.self, forKey: .autoReconnect) ?? false
+        autoConnectOnLaunch = try c.decodeIfPresent(Bool.self, forKey: .autoConnectOnLaunch) ?? false
+        isFavorite = try c.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        group = try c.decodeIfPresent(String.self, forKey: .group) ?? ""
         theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? TerminalTheme.defaultID
         snippets = try c.decodeIfPresent([CommandSnippet].self, forKey: .snippets) ?? []
         links = try c.decodeIfPresent([ProfileLink].self, forKey: .links) ?? []

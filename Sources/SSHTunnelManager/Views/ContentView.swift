@@ -17,6 +17,8 @@ struct ContentView: View {
     @ObservedObject private var zerotier = ZeroTierBrowserModel.shared
     @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
     @ObservedObject private var editConnection = EditConnectionModel.shared
+    @ObservedObject private var knownHosts = KnownHostsModel.shared
+    @ObservedObject private var addForward = AddForwardModel.shared
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebar.columnVisibility) {
@@ -93,6 +95,13 @@ struct ContentView: View {
         }
         .sheet(isPresented: $zerotier.isPresented) {
             ZeroTierBrowserView()
+                .environmentObject(sessions)
+        }
+        .sheet(isPresented: $knownHosts.isPresented) {
+            KnownHostsView()
+        }
+        .sheet(isPresented: $addForward.isPresented) {
+            AddForwardView(model: addForward)
                 .environmentObject(sessions)
         }
         .alert("Save changes to this profile before quitting?",

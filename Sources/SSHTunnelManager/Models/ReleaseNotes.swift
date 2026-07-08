@@ -45,12 +45,30 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.31", build: 41, date: "Jul 7, 2026",
+            highlights: [
+                "Import your existing servers: File ▸ Import from ~/.ssh/config… turns each Host block into a profile — host, user, port, identity file, jump host, agent forwarding, timeouts and every Local/Remote/Dynamic forward.",
+                "Tidy the sidebar: search profiles by name or host, star the ones you use most into a Favourites section, and sort the rest into collapsible group folders — all set from a profile’s new Organization options.",
+                "See tunnel health at a glance: a connected profile shows a status dot that turns orange when one of its local forwards stops answering.",
+                "New Advanced options in the profile editor: forward the SSH agent (‑A), add keys to the agent, choose host‑key checking, set a connect timeout, force a TTY, run a remote command, and send environment variables (SetEnv).",
+                "Use mosh (mobile shell) for a session that survives sleep and network changes — turn on Use mosh in a profile’s Advanced options (install mosh first).",
+                "New Automation options: connect automatically at launch, reconnect automatically after an unexpected drop, run a command on connect, and log the whole session to a file (reveal it from the tab menu).",
+                "Broadcast input (⌃⌘B) types the same keystrokes into every open terminal at once — great for running one thing across a fleet.",
+                "Add or cancel port forwards on a live tunnel without reconnecting: right‑click a tab ▸ Port Forwards ▸ Add Port Forward… (or Cancel one), optionally saving it to the profile.",
+                "Manage Known Hosts: browse, filter and remove ~/.ssh/known_hosts entries — including hashed ones — to clear the “host identification has changed” warning after a server rebuild.",
+                "The command palette now searches command history across every open terminal, not just the active one.",
+                "Fixed: dragging files from Finder into an SFTP browser no longer occasionally drops one, and Finder tabs now refresh automatically to show files that changed outside the app.",
+                "Fixed: copying from the terminal no longer includes stray formatting characters.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.30", build: 40, date: "Jul 7, 2026",
             highlights: [
                 "Right‑click a terminal tab for two new actions: Edit Connection… opens the profile editor for the server behind the tab (host, port, credentials, forwards), and Open SFTP starts an SFTP file‑transfer tab to the same server.",
                 "Both work on ad‑hoc terminals and on tabs inside a workspace launched from a profile — they resolve the connection from the launching profile when the tab itself doesn’t carry one.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.29", build: 39, date: "Jul 4, 2026",

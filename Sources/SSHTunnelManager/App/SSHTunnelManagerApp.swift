@@ -52,10 +52,15 @@ struct SSHTunnelManagerApp: App {
                 Button("Import Profiles…") {
                     ProfileTransfer.importFlow(into: store)
                 }
+                Button("Import from ~/.ssh/config…") {
+                    SSHConfigImporter.importFlow(into: store)
+                }
                 Button("Export All Profiles…") {
                     ProfileTransfer.exportFlow(store.profiles, suggestedName: "SSH Tunnels.json")
                 }
                 .disabled(store.profiles.isEmpty)
+                Divider()
+                Button("Manage Known Hosts…") { KnownHostsModel.shared.present() }
             }
             CommandMenu("Commands") {
                 Button("Command Palette…") { CommandPaletteModel.shared.show() }
@@ -65,6 +70,11 @@ struct SSHTunnelManagerApp: App {
                     .disabled(sessions.selectedSession == nil)
                 Button("Disconnect All Tunnels") { sessions.disconnectAllTunnels() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
+                Divider()
+                Toggle("Broadcast Input to All Terminals", isOn: Binding(
+                    get: { sessions.broadcastInput },
+                    set: { sessions.broadcastInput = $0 }))
+                    .keyboardShortcut("b", modifiers: [.command, .control])
                 Divider()
                 Button("Set Up Passwordless Login…") { sessions.setUpKeyLoginPrompt() }
                 Divider()
@@ -223,6 +233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // open set so the next launch can resume exactly where we left off.
         TerminalSessionManager.shared.restoreLastSessionIfEnabled()
         TerminalSessionManager.shared.beginPersistingOpenSessions()
+        // Bring up any profiles the user asked to auto-connect at launch.
+        TerminalSessionManager.shared.autoConnectProfilesOnLaunch()
 
         if !AppSettings.shared.startInMenuBarOnly {
             NSApp.setActivationPolicy(.regular)

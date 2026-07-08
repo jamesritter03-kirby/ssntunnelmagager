@@ -164,24 +164,28 @@ struct CommandPaletteView: View {
             }
         }
 
-        // Active session's snippets + history
-        if let session = sessions.selectedSession {
-            if let pid = session.profileID,
-               let profile = store.profiles.first(where: { $0.id == pid }) {
-                for snippet in profile.snippets where !snippet.command.isEmpty {
-                    let label = snippet.label.isEmpty ? snippet.command : snippet.label
-                    items.append(PaletteItem(title: "Run snippet: \(label)",
-                                             subtitle: snippet.command,
-                                             systemImage: "text.badge.plus") {
-                        session.run(snippet.command)
-                    })
-                }
+        // Active session's snippets
+        if let session = sessions.selectedSession,
+           let pid = session.profileID,
+           let profile = store.profiles.first(where: { $0.id == pid }) {
+            for snippet in profile.snippets where !snippet.command.isEmpty {
+                let label = snippet.label.isEmpty ? snippet.command : snippet.label
+                items.append(PaletteItem(title: "Run snippet: \(label)",
+                                         subtitle: snippet.command,
+                                         systemImage: "text.badge.plus") {
+                    session.run(snippet.command)
+                })
             }
-            for command in session.commandHistory.reversed().prefix(50) {
+        }
+
+        // Command history across every open terminal tab (not just the active one).
+        for tab in sessions.sessions where tab.supportsCommandHistory {
+            for command in tab.commandHistory.reversed().prefix(30) {
                 items.append(PaletteItem(title: "Run: \(command)",
-                                         subtitle: "History · \(session.title)",
+                                         subtitle: "History · \(tab.title)",
                                          systemImage: "clock.arrow.circlepath") {
-                    session.run(command)
+                    sessions.focusSession(tab)
+                    tab.run(command)
                 })
             }
         }

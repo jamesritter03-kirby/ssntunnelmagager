@@ -526,19 +526,61 @@ struct SFTPBrowserView: View {
     }
 
     /// Resolve the file URLs from a set of drag providers, on the main queue.
+    ///
+    /// Each provider writes into its own indexed slot behind a lock: the
+    /// `loadObject` completions fire on arbitrary background queues, so when
+    /// several items are dropped at once, appending to one shared array would
+    /// race and occasionally drop an item or crash — the cause of uploads that
+    /// “every so often” didn't happen. Slots also preserve the drop order.
     private func loadFileURLs(from providers: [NSItemProvider],
                              completion: @escaping ([URL]) -> Void) {
-        var urls: [URL] = []
+        let lock = NSLock()
+        var slots = [URL?](repeating: nil, count: providers.count)
         let group = DispatchGroup()
-        for provider in providers {
+        for (index, provider) in providers.enumerated() {
             group.enter()
-            provider.loadObject(ofClass: NSURL.self) { object, _ in
-                if let url = object as? URL { urls.append(url) }
-                else if let nsurl = object as? NSURL { urls.append(nsurl as URL) }
+            Self.loadFileURL(from: provider) { url in
+                if let url {
+                    lock.lock()
+                    slots[index] = url
+                    lock.unlock()
+                }
                 group.leave()
             }
         }
-        group.notify(queue: .main) { completion(urls.filter { $0.isFileURL }) }
+        group.notify(queue: .main) {
+            completion(slots.compactMap { $0 }.filter { $0.isFileURL })
+        }
+    }
+
+    /// Resolve a single drag provider to a local file URL. Tries the modern
+    /// object load first, then falls back to the legacy typed-item load, so a
+    /// provider that only advertises `public.file-url` as raw data (some Finder
+    /// drags do) still resolves instead of being silently skipped.
+    private static func loadFileURL(from provider: NSItemProvider,
+                                    completion: @escaping (URL?) -> Void) {
+        provider.loadObject(ofClass: NSURL.self) { object, _ in
+            if let url = object as? URL { completion(url); return }
+            if let nsurl = object as? NSURL { completion(nsurl as URL); return }
+            guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else {
+                completion(nil); return
+            }
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier,
+                              options: nil) { item, _ in
+                switch item {
+                case let url as URL:     completion(url)
+                case let nsurl as NSURL: completion(nsurl as URL)
+                case let data as Data:
+                    if let text = String(data: data, encoding: .utf8),
+                       let url = URL(string: text), url.isFileURL {
+                        completion(url)
+                    } else {
+                        completion(nil)
+                    }
+                default:                 completion(nil)
+                }
+            }
+        }
     }
 
     private func chooseAndUpload() {

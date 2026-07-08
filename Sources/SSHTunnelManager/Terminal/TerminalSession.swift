@@ -10,6 +10,13 @@ private enum LineEscapeState {
     case csi
 }
 
+/// Live reachability of a profile's forwarded local ports (the tunnel-health dot).
+enum TunnelHealth: Equatable {
+    case unknown    // not probed yet, or the session has no local forwards
+    case healthy    // every forwarded local port accepts a connection
+    case degraded   // at least one forwarded local port refused a connection
+}
+
 /// One terminal tab: owns a SwiftTerm process-backed view and tracks its lifecycle.
 final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProcessTerminalViewDelegate {
     let id = UUID()
@@ -36,6 +43,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     @Published var tabColor: TabColor? = nil
     /// Commands typed in this tab, oldest first. Re-runnable from the history menu.
     @Published private(set) var commandHistory: [String] = []
+    /// Live reachability of this session's forwarded local ports (sidebar dot).
+    @Published var tunnelHealth: TunnelHealth = .unknown
+    /// Set when the user deliberately stopped this session (Disconnect / close /
+    /// quit), so the manager's auto-reconnect doesn't treat it as a dropped link.
+    var userInitiatedStop = false
+    /// Invoked with the raw bytes the user types, when broadcast-input is on, so
+    /// the manager can mirror them to every other live terminal. Nil = no relay.
+    var onUserTypedForBroadcast: ((ArraySlice<UInt8>) -> Void)?
 
     /// The command used to launch this session (for display / reconnect).
     let executable: String
@@ -66,6 +81,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     let autofillSourceRequireAuth: Bool
     /// For local-shell sessions: the folder the shell should start in (nil = default).
     let startDirectory: String?
+
+    /// A command typed and run automatically once the shell is ready
+    /// (`profile.runOnConnect`). Nil / empty = nothing is auto-run.
+    let runOnConnectCommand: String?
+    /// Whether this session's output is being recorded to a log file.
+    let sessionLoggingEnabled: Bool
+    /// For profile-backed ssh tunnels: the ControlMaster socket path, so forwards
+    /// can be added/removed live via `ssh -O forward`. Nil for other tabs.
+    let controlSocketPath: String?
 
     let terminalView: HistoryTerminalView
 
@@ -205,7 +229,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// pending start runs once `startIfPending()` sees the view attached.
     private var pendingStart = false
 
-    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true, startDirectory: String? = nil, editorBackupID: UUID? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", presetPassword: String? = nil, sftpMountCredentialID: UUID? = nil, extraEnvironment: [String: String] = [:], vncScaling: Bool = true, vncViewOnly: Bool = false, vncColorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor) {
+    /// Run-on-connect bookkeeping: the command still to fire, and whether it has
+    /// already been scheduled/sent for this connection.
+    private var runOnConnectFired = false
+    /// Session-log file handle (opened lazily on start when logging is enabled).
+    private var logHandle: FileHandle?
+    /// The on-disk location of this session's transcript log, if logging.
+    private(set) var sessionLogURL: URL?
+
+    init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true, startDirectory: String? = nil, editorBackupID: UUID? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", presetPassword: String? = nil, sftpMountCredentialID: UUID? = nil, extraEnvironment: [String: String] = [:], vncScaling: Bool = true, vncViewOnly: Bool = false, vncColorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor, runOnConnectCommand: String? = nil, logSession: Bool = false, controlSocketPath: String? = nil) {
         self.kind = kind
         self.title = title
         self.executable = executable
@@ -219,6 +251,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         self.autofillSourceProfileID = autofillSourceProfileID
         self.autofillSourceRequireAuth = autofillSourceRequireAuth
         self.startDirectory = startDirectory
+        let trimmedRunOnConnect = runOnConnectCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.runOnConnectCommand = (trimmedRunOnConnect?.isEmpty == false) ? trimmedRunOnConnect : nil
+        self.sessionLoggingEnabled = logSession && (kind == .ssh || kind == .localShell)
+        self.controlSocketPath = controlSocketPath
         self.servicePort = servicePort
         self.serviceHost = serviceHost
         self.serviceUsername = serviceUsername
@@ -371,6 +407,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         applyAppearance()
     }
 
+    deinit { try? logHandle?.close() }
+
     private func applyAppearance() {
         terminalView.font = TerminalSession.font(ofSize: fontSize)
         theme.apply(to: terminalView)
@@ -454,6 +492,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         autofillAttempts = 0
         cachedAutofillSecret = nil
         secretPromptActive = false
+        userInitiatedStop = false
+        runOnConnectFired = false
+        openSessionLogIfNeeded()
         terminalView.startProcess(executable: executable,
                                   args: args,
                                   environment: TerminalSession.environment(extra: extraEnvironment),
@@ -535,6 +576,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         if kind == .web || kind == .finder || kind == .editor || kind == .spreadsheet {
             return
         }
+        userInitiatedStop = true
         if kind == .sftp {
             sftpMounter?.unmountQuietly()
             sftpClient?.disconnect()
@@ -566,6 +608,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// closing a tab or quitting. Unlike `disconnect()`, this does not depend on the
     /// `isRunning` flag, so it still reaps a process whose state got out of sync.
     func shutDown() {
+        userInitiatedStop = true
+        closeSessionLog()
         switch kind {
         case .web:
             return
@@ -597,7 +641,22 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// Reconstruct typed command lines from the raw bytes sent to the shell.
     private func handleInput(_ data: ArraySlice<UInt8>) {
         guard !isInjecting else { return }
+        // Mirror the keystrokes to every other terminal when broadcast is on.
+        onUserTypedForBroadcast?(data)
         for byte in data { process(byte) }
+    }
+
+    /// Type broadcast keystrokes coming **from another terminal** into this one,
+    /// without recording them to history or re-broadcasting them onward.
+    func injectBroadcast(_ data: [UInt8]) {
+        guard isRunning, kind == .ssh || kind == .localShell else { return }
+        guard let text = String(bytes: data, encoding: .utf8) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.isInjecting = true
+            self.terminalView.send(txt: text)
+            self.isInjecting = false
+        }
     }
 
     private func process(_ byte: UInt8) {
@@ -653,6 +712,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     /// Watch output to spot password prompts so the next submitted line isn't recorded.
     private func handleOutput(_ data: ArraySlice<UInt8>) {
+        appendToSessionLog(data)
         recentOutputTail = String((recentOutputTail + String(decoding: data, as: UTF8.self)).suffix(400))
         // Strip ANSI colours / cursor moves first: a styled prompt like
         // "Password: \u{1b}[0m" would otherwise not end in ":" and slip past.
@@ -665,6 +725,74 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         if secretPromptActive && !wasActive {
             maybeAutofillPassword()
         }
+        maybeFireRunOnConnect()
+    }
+
+    /// Fire the profile's run-on-connect command once the shell looks ready: after
+    /// the first output that isn't a password prompt, with a short settle delay so
+    /// the login banner / shell prompt has landed. Re-arms if a prompt appears.
+    private func maybeFireRunOnConnect() {
+        guard let command = runOnConnectCommand, !runOnConnectFired, !secretPromptActive else { return }
+        runOnConnectFired = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self, self.isRunning else { return }
+            if self.secretPromptActive {
+                self.runOnConnectFired = false   // a prompt is up — wait for it to clear
+                return
+            }
+            self.run(command)
+        }
+    }
+
+    // MARK: - Session logging
+
+    private static let logDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd-HHmmss"
+        return f
+    }()
+
+    /// Open this session's transcript log (once) when logging is enabled.
+    private func openSessionLogIfNeeded() {
+        guard sessionLoggingEnabled, logHandle == nil else { return }
+        let fm = FileManager.default
+        let base = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                appropriateFor: nil, create: true))
+            ?? fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        let dir = base.appendingPathComponent("SSHTunnelManager/Logs", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let stamp = TerminalSession.logDateFormatter.string(from: Date())
+        let safe = title.components(separatedBy: CharacterSet(charactersIn: "/:"))
+            .joined(separator: "-").trimmingCharacters(in: .whitespaces)
+        let url = dir.appendingPathComponent("\(safe.isEmpty ? "session" : safe)-\(stamp).log")
+        fm.createFile(atPath: url.path, contents: nil)
+        guard let handle = try? FileHandle(forWritingTo: url) else { return }
+        logHandle = handle
+        sessionLogURL = url
+        let header = "# \(title) — \(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium))\n# \(commandPreview)\n\n"
+        if let data = header.data(using: .utf8) { handle.write(data) }
+    }
+
+    /// Append output to the transcript log (escape sequences stripped for reading).
+    private func appendToSessionLog(_ data: ArraySlice<UInt8>) {
+        guard let handle = logHandle else { return }
+        let text = TerminalSession.strippingTerminalControls(String(decoding: data, as: UTF8.self))
+        guard !text.isEmpty, let out = text.data(using: .utf8) else { return }
+        handle.write(out)
+    }
+
+    private func closeSessionLog() {
+        try? logHandle?.close()
+        logHandle = nil
+    }
+
+    /// Whether a transcript log file exists for this session (drives the menu item).
+    var hasSessionLog: Bool { sessionLogURL != nil }
+
+    /// Reveal this session's transcript log in Finder.
+    func revealSessionLog() {
+        guard let url = sessionLogURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     /// On a password prompt, fetch the saved password (gated by Touch ID) and type
@@ -1015,9 +1143,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
+        closeSessionLog()
         DispatchQueue.main.async {
             self.isRunning = false
             self.exitCode = exitCode
+            self.tunnelHealth = .unknown
         }
     }
 }

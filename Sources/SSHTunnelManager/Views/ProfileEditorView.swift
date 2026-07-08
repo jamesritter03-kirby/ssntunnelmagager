@@ -76,6 +76,8 @@ struct ProfileEditorView: View {
                 }
                 if profile.isLocal {
                     localSection
+                    organizationSection
+                    automationSection
                     terminalSection
                     workspaceSection
                     snippetsSection
@@ -85,6 +87,9 @@ struct ProfileEditorView: View {
                     authenticationSection
                     forwardsSection
                     optionsSection
+                    advancedSection
+                    automationSection
+                    organizationSection
                     terminalSection
                     workspaceSection
                     snippetsSection
@@ -465,6 +470,121 @@ struct ProfileEditorView: View {
             }
         } header: {
             Label("SSH Options", systemImage: "slider.horizontal.3")
+        }
+    }
+
+    /// SSH power-user options: agent, host-key policy, timeout, environment and a
+    /// remote command. Only shown for SSH profiles.
+    private var advancedSection: some View {
+        Section {
+            Toggle("Forward SSH agent (-A)", isOn: $profile.forwardAgent)
+                .help("Lets a jump chain reuse your local keys without copying them onto intermediate hosts.")
+            Toggle("Add keys to the agent on first use", isOn: $profile.addKeysToAgent)
+                .help("Caches the key's passphrase in ssh-agent so it's only asked once (AddKeysToAgent=yes).")
+            Toggle("Use mosh (mobile shell)", isOn: $profile.useMosh)
+                .help(MoshCommandBuilder.isAvailable
+                      ? "A resilient session that survives sleep and network changes. Port forwards don't apply to mosh."
+                      : "Install mosh (e.g. brew install mosh) to use this. Port forwards don't apply to mosh.")
+            Picker(selection: $profile.strictHostKeyChecking) {
+                ForEach(StrictHostKeyChecking.allCases) { Text($0.title).tag($0) }
+            } label: {
+                Label("Host key checking", systemImage: "checkmark.shield")
+            }
+            LabeledContent {
+                HStack(spacing: 6) {
+                    TextField("0", value: $profile.connectTimeout, format: .number)
+                        .frame(width: 60)
+                        .multilineTextAlignment(.center)
+                    Text("seconds (0 = default)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } label: {
+                Label("Connect timeout", systemImage: "timer")
+            }
+            Toggle("Force a TTY for the remote command", isOn: $profile.requestTTY)
+                .help("Adds ssh -tt so an interactive remote command (sudo, tmux…) gets a terminal.")
+            LabeledContent {
+                TextField("tail -f /var/log/syslog (optional)", text: $profile.remoteCommand)
+                    .font(.system(.callout, design: .monospaced))
+                    .autocorrectionDisabled()
+            } label: {
+                Label("Remote command", systemImage: "terminal")
+            }
+            environmentEditor
+        } header: {
+            Label("Advanced", systemImage: "gearshape.2")
+        } footer: {
+            Text("Agent forwarding, host-key policy, environment variables sent to the server (SetEnv), and a command to run instead of a plain login shell.")
+        }
+    }
+
+    /// A small key/value editor for the profile's SetEnv environment variables.
+    private var environmentEditor: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Environment (SetEnv)", systemImage: "character.textbox")
+            ForEach($profile.environment) { $env in
+                HStack(spacing: 6) {
+                    TextField("NAME", text: $env.name)
+                        .autocorrectionDisabled()
+                        .frame(maxWidth: 150)
+                    Text("=").foregroundStyle(.secondary)
+                    TextField("value", text: $env.value)
+                        .autocorrectionDisabled()
+                    Button(role: .destructive) {
+                        profile.environment.removeAll { $0.id == env.id }
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            Button {
+                profile.environment.append(EnvVar())
+            } label: {
+                Label("Add Variable", systemImage: "plus.circle.fill")
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    /// Automation options shared by local and SSH profiles.
+    private var automationSection: some View {
+        Section {
+            Toggle("Connect automatically at launch", isOn: $profile.autoConnectOnLaunch)
+                .help("Bring this connection up when the app starts.")
+            if !profile.isLocal {
+                Toggle("Reconnect automatically if the connection drops",
+                       isOn: $profile.autoReconnect)
+                    .help("Retries with a short backoff after an unexpected drop — not when you disconnect it yourself.")
+            }
+            LabeledContent {
+                TextField("tmux attach || tmux new (optional)", text: $profile.runOnConnect)
+                    .font(.system(.callout, design: .monospaced))
+                    .autocorrectionDisabled()
+            } label: {
+                Label("Run on connect", systemImage: "play.circle")
+            }
+            Toggle("Log this session to a file", isOn: $profile.logSession)
+                .help("Records a transcript under Application Support/SSHTunnelManager/Logs; reveal it from the tab's menu.")
+        } header: {
+            Label("Automation", systemImage: "wand.and.stars")
+        } footer: {
+            Text("“Run on connect” is typed into the terminal once the shell is ready.")
+        }
+    }
+
+    /// Sidebar organisation: favourite + group/folder. Shared by local and SSH.
+    private var organizationSection: some View {
+        Section {
+            Toggle("Favourite", isOn: $profile.isFavorite)
+                .help("Favourites appear in their own section at the top of the sidebar.")
+            labeledField("Group", systemImage: "folder",
+                         placeholder: "e.g. Production (optional)",
+                         text: $profile.group)
+        } header: {
+            Label("Organization", systemImage: "square.stack.3d.up")
+        } footer: {
+            Text("Star the profiles you use most, and group the rest into collapsible sidebar folders.")
         }
     }
 
@@ -880,6 +1000,9 @@ struct ProfileEditorView: View {
             return p.isEmpty ? "\(shell) -l"
                 : "cd \(SSHCommandBuilder.shellQuote(p)) && \(shell) -l"
         }
+        if profile.useMosh {
+            return MoshCommandBuilder.commandPreview(for: profile)
+        }
         return SSHCommandBuilder.commandPreview(for: profile)
     }
 
@@ -974,7 +1097,12 @@ struct ProfileEditorView: View {
         p.startPath = p.startPath.trimmingCharacters(in: .whitespaces)
         p.host = p.host.trimmingCharacters(in: .whitespaces)
         p.username = p.username.trimmingCharacters(in: .whitespaces)
+        p.group = p.group.trimmingCharacters(in: .whitespaces)
+        p.runOnConnect = p.runOnConnect.trimmingCharacters(in: .whitespacesAndNewlines)
+        p.remoteCommand = p.remoteCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         if !p.isLocal, p.port.trimmingCharacters(in: .whitespaces).isEmpty { p.port = "22" }
+        // Drop environment rows with a blank name (nothing to send).
+        p.environment.removeAll { $0.name.trimmingCharacters(in: .whitespaces).isEmpty }
         p.links.removeAll {
             $0.label.trimmingCharacters(in: .whitespaces).isEmpty
                 && $0.url.trimmingCharacters(in: .whitespaces).isEmpty

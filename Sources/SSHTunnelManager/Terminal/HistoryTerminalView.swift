@@ -341,4 +341,73 @@ final class HistoryTerminalView: LocalProcessTerminalView {
     @objc private func contextCopy() { copy(self) }
     @objc private func contextPaste() { paste(self) }
     @objc private func contextSelectAll() { selectAll(self) }
+
+    /// Copy the selection, sanitized so ANSI colour / control sequences never
+    /// reach the clipboard. SwiftTerm's own copy reads the character stored in
+    /// each cell, so an ordinary selection is already plain text and the strip is
+    /// a harmless no-op — this defends against escape bytes that end up in the
+    /// buffer as literal characters (output that force-emits colour codes, a
+    /// `cat` of a file with embedded escapes, …), which otherwise paste elsewhere
+    /// as unreadable "␛[0m" gibberish. Overriding `copy(_:)` covers every copy
+    /// path: ⌘C, the right-click Copy item, and smart copy-on-right-click all
+    /// funnel through here.
+    @objc override func copy(_ sender: Any) {
+        super.copy(sender)     // let SwiftTerm put the selected text on the pasteboard
+        let pb = NSPasteboard.general
+        guard let raw = pb.string(forType: .string) else { return }
+        let clean = HistoryTerminalView.strippingANSISequences(raw)
+        if clean != raw {
+            pb.clearContents()
+            pb.setString(clean, forType: .string)
+        }
+    }
+
+    /// Remove ANSI/CSI/OSC escape sequences and stray C0 control bytes from text,
+    /// keeping printable characters plus tab, newline and carriage return so
+    /// copied multi-line / tabular output stays intact.
+    static func strippingANSISequences(_ s: String) -> String {
+        // Fast path: nothing to strip when there's no ESC and no other control
+        // byte beyond the whitespace we keep.
+        if !s.unicodeScalars.contains(where: { $0.value == 0x1b
+            || ($0.value < 0x20 && $0.value != 0x09 && $0.value != 0x0a && $0.value != 0x0d)
+            || $0.value == 0x7f }) {
+            return s
+        }
+        let scalars = Array(s.unicodeScalars)
+        var out = String.UnicodeScalarView()
+        out.reserveCapacity(scalars.count)
+        var i = 0
+        while i < scalars.count {
+            let u = scalars[i].value
+            if u == 0x1b {                       // ESC — start of an escape sequence
+                i += 1
+                guard i < scalars.count else { break }
+                let next = scalars[i].value
+                if next == 0x5b {                // '[' → CSI: params… then a final @–~
+                    i += 1
+                    while i < scalars.count, !(0x40...0x7e).contains(scalars[i].value) { i += 1 }
+                    if i < scalars.count { i += 1 }
+                } else if next == 0x5d {         // ']' → OSC: … ended by BEL or ESC '\'
+                    i += 1
+                    while i < scalars.count, scalars[i].value != 0x07, scalars[i].value != 0x1b { i += 1 }
+                    if i < scalars.count, scalars[i].value == 0x1b { i += 1 }
+                    if i < scalars.count { i += 1 }
+                } else {
+                    i += 1                       // a two-character ESC sequence
+                }
+                continue
+            }
+            if u < 0x20, u != 0x09, u != 0x0a, u != 0x0d {   // drop C0 except TAB/NL/CR
+                i += 1
+                continue
+            }
+            if u == 0x7f {                       // drop DEL
+                i += 1
+                continue
+            }
+            out.append(scalars[i])
+            i += 1
+        }
+        return String(out)
+    }
 }

@@ -127,6 +127,13 @@ final class LocalFileBrowser: ObservableObject {
     private let resourceKeys: Set<URLResourceKey> =
         [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
 
+    /// Drives the live auto-refresh: a low-frequency timer re-reads the current
+    /// folder and republishes only when a cheap content signature changes, so
+    /// files added, removed or edited by other apps appear on their own without
+    /// a manual Refresh.
+    private var refreshTimer: Timer?
+    private var folderSignature: Int = 0
+
     init(startPath: String?) {
         let fm = FileManager.default
         if let raw = startPath?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
@@ -141,7 +148,10 @@ final class LocalFileBrowser: ObservableObject {
             currentURL = fm.homeDirectoryForCurrentUser
         }
         listContents()
+        startAutoRefresh()
     }
+
+    deinit { stopAutoRefresh() }
 
     // MARK: - Navigation
 
@@ -238,20 +248,76 @@ final class LocalFileBrowser: ObservableObject {
     // MARK: - Listing
 
     private func listContents() {
-        let fm = FileManager.default
-        var options: FileManager.DirectoryEnumerationOptions = [.skipsSubdirectoryDescendants]
-        if !showHidden { options.insert(.skipsHiddenFiles) }
         do {
-            let urls = try fm.contentsOfDirectory(at: currentURL,
-                                                  includingPropertiesForKeys: Array(resourceKeys),
-                                                  options: options)
-            allEntries = urls.map { LocalFileEntry(url: $0, keys: resourceKeys) }
+            allEntries = try readCurrentFolder()
             errorMessage = nil
         } catch {
             allEntries = []
             errorMessage = error.localizedDescription
         }
+        folderSignature = LocalFileBrowser.signature(of: allEntries)
         applyView()
+    }
+
+    /// One disk read of the current folder, mapped to entries. Shared by the
+    /// initial/manual listing and the auto-refresh poll so both observe the
+    /// exact same values (and therefore compute matching content signatures).
+    private func readCurrentFolder() throws -> [LocalFileEntry] {
+        let fm = FileManager.default
+        var options: FileManager.DirectoryEnumerationOptions = [.skipsSubdirectoryDescendants]
+        if !showHidden { options.insert(.skipsHiddenFiles) }
+        let urls = try fm.contentsOfDirectory(at: currentURL,
+                                              includingPropertiesForKeys: Array(resourceKeys),
+                                              options: options)
+        return urls.map { LocalFileEntry(url: $0, keys: resourceKeys) }
+    }
+
+    // MARK: - Live auto-refresh
+
+    /// Start (or restart) the background folder watch. The timer runs in the
+    /// common run-loop modes so it keeps firing during menus and scrolling, and
+    /// reads whatever `currentURL` points at each tick — so it transparently
+    /// follows navigation without needing a restart.
+    private func startAutoRefresh() {
+        stopAutoRefresh()
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.pollForExternalChanges()
+        }
+        timer.tolerance = 0.5
+        RunLoop.main.add(timer, forMode: .common)
+        refreshTimer = timer
+    }
+
+    private func stopAutoRefresh() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+    }
+
+    /// Re-read the current folder and republish only if its content signature
+    /// changed. Folders we currently can't read are left to a manual retry, and
+    /// an unchanged folder never touches published state — so an idle tab stays
+    /// completely quiet.
+    private func pollForExternalChanges() {
+        guard errorMessage == nil, let fresh = try? readCurrentFolder() else { return }
+        let signature = LocalFileBrowser.signature(of: fresh)
+        guard signature != folderSignature else { return }
+        allEntries = fresh
+        folderSignature = signature
+        applyView()
+    }
+
+    /// A cheap, order-independent fingerprint of a folder's contents — each
+    /// item's name, size and modified date. Additions, removals, renames and
+    /// in-place edits (which don't change the folder's own timestamp) all
+    /// produce a different value.
+    private static func signature(of entries: [LocalFileEntry]) -> Int {
+        var hasher = Hasher()
+        for entry in entries.sorted(by: { $0.name < $1.name }) {
+            hasher.combine(entry.name)
+            hasher.combine(entry.size)
+            hasher.combine(entry.modified ?? .distantPast)
+        }
+        return hasher.finalize()
     }
 
     /// Re-derive the visible `entries` by applying the active filter and sort to

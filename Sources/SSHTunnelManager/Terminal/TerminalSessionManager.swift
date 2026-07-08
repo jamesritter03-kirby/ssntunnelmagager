@@ -19,6 +19,16 @@ final class TerminalSessionManager: ObservableObject {
 
     static let shared = TerminalSessionManager()
 
+    /// When on, keystrokes typed in one terminal are mirrored to every other live
+    /// terminal (multi-server "type once, run everywhere").
+    @Published var broadcastInput = false
+
+    /// Per-session auto-reconnect backoff bookkeeping.
+    private var reconnectAttempts: [UUID: Int] = [:]
+    private var reconnectWorkItems: [UUID: DispatchWorkItem] = [:]
+    /// Drives the periodic tunnel-health probe.
+    private var healthTimer: Timer?
+
     private init() {
         let tiled = UserDefaults.standard.bool(forKey: "tileTerminals")
         let first = Workspace(name: "Workspace 1", isTiled: tiled)
@@ -27,6 +37,7 @@ final class TerminalSessionManager: ObservableObject {
         loadSavedWorkspaces()
         loadRecentlyClosed()
         observeRunningState()
+        startHealthMonitoring()
     }
 
     /// Forwards each open session's `isRunning` changes to this manager's own
@@ -41,13 +52,118 @@ final class TerminalSessionManager: ObservableObject {
         stateRelayCancellable = $sessions
             .sink { [weak self] list in
                 guard let self else { return }
+                // Wire broadcast-input relay on every ssh / local shell tab.
+                for session in list { self.wireBroadcast(for: session) }
                 self.runningStateCancellables = list.map { session in
                     session.$isRunning
                         .dropFirst()
                         .receive(on: RunLoop.main)
-                        .sink { [weak self] _ in self?.objectWillChange.send() }
+                        .sink { [weak self] running in
+                            self?.handleRunningChange(session, isRunning: running)
+                        }
                 }
             }
+    }
+
+    /// Mirror one terminal's keystrokes to every other live terminal when
+    /// broadcast-input is enabled.
+    private func wireBroadcast(for session: TerminalSession) {
+        guard session.kind == .ssh || session.kind == .localShell else { return }
+        session.onUserTypedForBroadcast = { [weak self, weak session] data in
+            guard let self, let session, self.broadcastInput else { return }
+            let bytes = Array(data)
+            for other in self.sessions where other.id != session.id {
+                other.injectBroadcast(bytes)
+            }
+        }
+    }
+
+    /// React to a session starting/stopping: refresh dependent views, reset (or
+    /// schedule) auto-reconnect, and clear stale health.
+    private func handleRunningChange(_ session: TerminalSession, isRunning: Bool) {
+        objectWillChange.send()
+        if isRunning {
+            reconnectAttempts[session.id] = 0
+            reconnectWorkItems[session.id]?.cancel()
+            reconnectWorkItems[session.id] = nil
+            return
+        }
+        session.tunnelHealth = .unknown
+        // A dropped connection: auto-reconnect if the profile opted in and the
+        // user didn't stop it on purpose.
+        guard !session.userInitiatedStop,
+              session.kind == .ssh,
+              let pid = session.profileID,
+              let profile = ProfileStore.shared.profiles.first(where: { $0.id == pid }),
+              profile.autoReconnect else { return }
+        scheduleAutoReconnect(session, profile: profile)
+    }
+
+    /// Schedule an auto-reconnect for a dropped session using exponential backoff
+    /// (2, 4, 8, 16 s, capped at 30 s).
+    private func scheduleAutoReconnect(_ session: TerminalSession, profile: SSHProfile) {
+        let attempt = (reconnectAttempts[session.id] ?? 0) + 1
+        reconnectAttempts[session.id] = attempt
+        let delay = min(30.0, pow(2.0, Double(min(attempt, 5))))
+        reconnectWorkItems[session.id]?.cancel()
+        let work = DispatchWorkItem { [weak self, weak session] in
+            guard let self, let session else { return }
+            // Bail if the tab was closed, reconnected, or stopped in the meantime.
+            guard self.sessions.contains(where: { $0.id == session.id }),
+                  !session.isRunning, !session.userInitiatedStop else { return }
+            self.reapStrayTunnel(for: profile)
+            session.restart()
+        }
+        reconnectWorkItems[session.id] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    // MARK: - Tunnel health
+
+    /// Start the periodic probe that checks each running tunnel's forwarded local
+    /// ports are actually listening (drives the sidebar health dot).
+    private func startHealthMonitoring() {
+        let timer = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.probeTunnelHealth()
+        }
+        timer.tolerance = 1.0
+        RunLoop.main.add(timer, forMode: .common)
+        healthTimer = timer
+    }
+
+    private func probeTunnelHealth() {
+        for session in sessions where session.kind == .ssh && session.isRunning {
+            guard let pid = session.profileID,
+                  let profile = ProfileStore.shared.profiles.first(where: { $0.id == pid }) else { continue }
+            let endpoints = profile.localForwardEndpoints
+            guard !endpoints.isEmpty else { continue }
+            TCPProbe.allReachable(endpoints, timeout: 2.0) { healthy in
+                let newHealth: TunnelHealth = healthy ? .healthy : .degraded
+                if session.tunnelHealth != newHealth { session.tunnelHealth = newHealth }
+            }
+        }
+    }
+
+    /// The live tunnel health for a profile (its running ssh tab), or `.unknown`.
+    func tunnelHealth(for profile: SSHProfile) -> TunnelHealth {
+        sessions.first { $0.profileID == profile.id && $0.kind == .ssh && $0.isRunning }?
+            .tunnelHealth ?? .unknown
+    }
+
+    // MARK: - Auto-connect on launch
+
+    /// Connect every profile flagged **auto-connect on launch**. Called once at
+    /// startup (after any resume-last-session restore).
+    func autoConnectProfilesOnLaunch() {
+        let toConnect = ProfileStore.shared.profiles.filter { $0.autoConnectOnLaunch }
+        guard !toConnect.isEmpty else { return }
+        // Stagger slightly so several tunnels don't all spawn on the same runloop
+        // turn (and so each lands after the window/workspace is ready).
+        for (index, profile) in toConnect.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3 + Double(index) * 0.2) { [weak self] in
+                self?.connect(profile: profile)
+            }
+        }
     }
 
     // MARK: - Current workspace
@@ -407,20 +523,85 @@ final class TerminalSessionManager: ObservableObject {
             reveal(existing)
             return
         }
-        let args = SSHCommandBuilder.arguments(for: profile)
+        // Use mosh when the profile asks for it and a mosh client is installed;
+        // otherwise fall back to plain ssh. (mosh doesn't do port forwards.)
+        let useMosh = profile.useMosh && MoshCommandBuilder.isAvailable
+        // A ControlMaster socket for plain-ssh tunnels enables live add/remove of
+        // port forwards (ssh -O forward). mosh sessions don't get one.
+        let controlPath = useMosh ? nil : TerminalSessionManager.controlSocketPath(for: profile.id)
         let session = TerminalSession(
             kind: .ssh,
             title: profile.name,
-            executable: SSHCommandBuilder.sshPath,
-            args: args,
-            commandPreview: SSHCommandBuilder.commandPreview(for: profile),
+            executable: useMosh ? MoshCommandBuilder.executablePath : SSHCommandBuilder.sshPath,
+            args: useMosh ? MoshCommandBuilder.arguments(for: profile)
+                          : SSHCommandBuilder.arguments(for: profile, controlPath: controlPath),
+            commandPreview: useMosh ? MoshCommandBuilder.commandPreview(for: profile)
+                                    : SSHCommandBuilder.commandPreview(for: profile),
             profileID: profile.id,
             theme: TerminalTheme.theme(id: profile.theme),
             fontSize: profile.fontSize,
             autofillPassword: KeychainStore.shared.hasPassword(for: profile.id),
-            requireAuthForPassword: profile.requireAuthForSavedPassword
+            requireAuthForPassword: profile.requireAuthForSavedPassword,
+            runOnConnectCommand: profile.runOnConnect,
+            logSession: profile.logSession,
+            controlSocketPath: controlPath
         )
         addAndStart(session)
+    }
+
+    /// A short, unique ControlMaster socket path for a profile's tunnel. Kept in
+    /// `/tmp` so the path stays well under the ~104-char unix-socket limit.
+    static func controlSocketPath(for profileID: UUID) -> String {
+        "/tmp/sshtm-\(profileID.uuidString.prefix(8)).sock"
+    }
+
+    // MARK: - Live port forwarding (ControlMaster)
+
+    /// Whether live add/remove of forwards is available for a session (a running,
+    /// profile-backed ssh tunnel with a control socket).
+    func liveForwardSupported(_ session: TerminalSession) -> Bool {
+        session.kind == .ssh && session.isRunning && session.controlSocketPath != nil
+    }
+
+    /// Add a port forward to a live tunnel via `ssh -O forward`, optionally saving
+    /// it to the profile so it comes back on the next connect.
+    func addLiveForward(_ forward: PortForward, to session: TerminalSession, persist: Bool) {
+        runControlForward("forward", forward, on: session)
+        guard persist, let pid = session.profileID,
+              var profile = ProfileStore.shared.profiles.first(where: { $0.id == pid }) else { return }
+        profile.forwards.append(forward)
+        ProfileStore.shared.update(profile)
+    }
+
+    /// Cancel a forward on a live tunnel via `ssh -O cancel`, optionally removing
+    /// it from the profile too.
+    func cancelLiveForward(_ forward: PortForward, on session: TerminalSession, persist: Bool) {
+        runControlForward("cancel", forward, on: session)
+        guard persist, let pid = session.profileID,
+              var profile = ProfileStore.shared.profiles.first(where: { $0.id == pid }) else { return }
+        profile.forwards.removeAll { $0.id == forward.id }
+        ProfileStore.shared.update(profile)
+    }
+
+    /// Run `ssh -S <socket> -O <op> <flag> <spec> <dest>` to add or cancel a
+    /// forward on the running master, off the main thread.
+    private func runControlForward(_ op: String, _ forward: PortForward, on session: TerminalSession) {
+        guard let socket = session.controlSocketPath,
+              let pid = session.profileID,
+              let profile = ProfileStore.shared.profiles.first(where: { $0.id == pid }),
+              let option = SSHCommandBuilder.forwardOption(forward) else { return }
+        let dest = SSHCommandBuilder.destination(for: profile)
+        guard !dest.isEmpty else { return }
+        let args = ["-S", socket, "-O", op, option.flag, option.spec, dest]
+        DispatchQueue.global(qos: .userInitiated).async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: SSHCommandBuilder.sshPath)
+            process.arguments = args
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try? process.run()
+            process.waitUntilExit()
+        }
     }
 
     /// Open a local login shell for a `isLocal` profile, starting in `startPath`.
@@ -439,7 +620,9 @@ final class TerminalSessionManager: ObservableObject {
             profileID: profile.id,
             theme: TerminalTheme.theme(id: profile.theme),
             fontSize: profile.fontSize,
-            startDirectory: dir
+            startDirectory: dir,
+            runOnConnectCommand: profile.runOnConnect,
+            logSession: profile.logSession
         )
         addAndStart(session)
     }
@@ -699,6 +882,9 @@ final class TerminalSessionManager: ObservableObject {
             selectedSessionID = session.id
         }
     }
+
+    /// Bring a session's tab to the front (public wrapper over `reveal`).
+    func focusSession(_ session: TerminalSession) { reveal(session) }
 
     private func addAndStart(_ session: TerminalSession) {
         sessions.append(session)
