@@ -93,6 +93,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     let terminalView: HistoryTerminalView
 
+    /// Intercepts ⌘‑clicked web links in the terminal so they open in an in‑app
+    /// browser tab. Retained here because `terminalView.terminalDelegate` is weak.
+    private var linkDelegate: TerminalLinkDelegate?
+
     /// For `.sftp` sessions: the headless driver behind the graphical browser.
     let sftpClient: SFTPClient?
 
@@ -365,6 +369,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         }
         super.init()
         terminalView.processDelegate = self
+        // Detect URLs in the output and, when the user ⌘‑clicks one, open it in an
+        // in‑app browser tab instead of the external browser. The proxy forwards
+        // every other delegate message to the terminal's built‑in handling.
+        terminalView.linkReporting = .implicit
+        terminalView.linkHighlightMode = .hoverWithModifier
+        let linkProxy = TerminalLinkDelegate(inner: terminalView)
+        linkProxy.onOpenWebLink = { url in
+            DispatchQueue.main.async {
+                TerminalSessionManager.shared.openWeb(url: url, title: url.host ?? "Web")
+            }
+        }
+        terminalView.terminalDelegate = linkProxy
+        self.linkDelegate = linkProxy
         terminalView.onUserInput = { [weak self] data in self?.handleInput(data) }
         terminalView.onProcessOutput = { [weak self] data in self?.handleOutput(data) }
         terminalView.onZoom = { [weak self] direction in self?.zoom(direction) }

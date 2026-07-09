@@ -45,6 +45,14 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.32", build: 42, date: "Jul 8, 2026",
+            highlights: [
+                "Clickable links: when a web address appears in a terminal, ⌘‑click it to open it in an in‑app browser tab (hold ⌘ and the link underlines). Non‑web links open in their usual app.",
+                "Fixed: dragging several files at once onto an SFTP browser — from macOS Finder or an in‑app Finder tab — now uploads all of them, not just one.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.31", build: 41, date: "Jul 7, 2026",
             highlights: [
                 "Import your existing servers: File ▸ Import from ~/.ssh/config… turns each Host block into a profile — host, user, port, identity file, jump host, agent forwarding, timeouts and every Local/Remote/Dynamic forward.",
@@ -60,7 +68,7 @@ enum ReleaseCatalog {
                 "Fixed: dragging files from Finder into an SFTP browser no longer occasionally drops one, and Finder tabs now refresh automatically to show files that changed outside the app.",
                 "Fixed: copying from the terminal no longer includes stray formatting characters.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.30", build: 40, date: "Jul 7, 2026",

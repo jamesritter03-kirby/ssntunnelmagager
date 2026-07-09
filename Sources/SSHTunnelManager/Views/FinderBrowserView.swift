@@ -597,10 +597,18 @@ struct FinderBrowserView: View {
                         // delay every single click (which felt sluggish).
                         .onTapGesture { selectOnClick(entry) }
                         .onDrag {
-                            // Vend the file URL (public.file-url) so it can be
-                            // dropped onto a terminal to paste its path, onto an
-                            // SFTP tab to upload, or into the real Finder.
-                            NSItemProvider(object: entry.url as NSURL)
+                            // Vend the grabbed file URL (public.file-url) so it can
+                            // be dropped onto a terminal to paste its path, onto an
+                            // SFTP tab to upload, or into the real Finder. SwiftUI's
+                            // .onDrag can vend only ONE provider, so also record the
+                            // whole selection: dragging a selected row drags them
+                            // all (Finder behaviour), and an in-app SFTP drop expands
+                            // the single pasteboard file back to the full set.
+                            let dragURLs = (selection.contains(entry.id) && selectedEntries.count > 1)
+                                ? selectedEntries.map(\.url)
+                                : [entry.url]
+                            InAppFileDrag.shared.begin(dragURLs)
+                            return NSItemProvider(object: entry.url as NSURL)
                         }
                         .contextMenu { rowMenu(entry) }
                 }

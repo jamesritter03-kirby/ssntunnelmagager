@@ -21,6 +21,9 @@ struct SFTPBrowserView: View {
     @State private var isDropTargeted = false
     /// The id of the folder row a drag is currently hovering over (drop‑into).
     @State private var dropTargetFolder: String?
+    /// On‑screen frame of each folder row (in the drop coordinate space), used to
+    /// map an AppKit drop point to the folder it landed on.
+    @State private var folderFrames: [String: CGRect] = [:]
     @State private var showLog = false
     @State private var showNewFolder = false
     @State private var showNewFile = false
@@ -225,47 +228,61 @@ struct SFTPBrowserView: View {
 
     // MARK: - Browser
 
+    /// SwiftUI coordinate space shared by the drop container and the folder‑row
+    /// frame reporters, so a drop point maps to the right folder.
+    private static let dropSpace = "sftpDropSpace"
+
     private var browser: some View {
-        ZStack {
-            List(selection: $selection) {
-                ForEach(client.entries) { entry in
-                    entryRow(entry)
+        // Host the list inside an AppKit drop destination: SwiftUI's own
+        // `.onDrop` only ever surfaces the first file of a multi‑file Finder
+        // drag, whereas the AppKit `draggingPasteboard` lists them all.
+        FileDropContainer(
+            onFiles: { urls, point in handleDroppedFiles(urls, at: point) },
+            onHover: { point in updateDropHighlight(point) }
+        ) {
+            ZStack {
+                List(selection: $selection) {
+                    ForEach(client.entries) { entry in
+                        entryRow(entry)
+                    }
+                }
+                .listStyle(.inset)
+                // Let the Delete key remove whatever is selected (one row or many).
+                .onDeleteCommand { confirmDelete(selectedEntries) }
+                // Right-click in empty space → folder-wide actions (incl. Refresh).
+                .contextMenu { listBackgroundMenu }
+
+                if client.entries.isEmpty && !client.isBusy {
+                    EmptyStateView(icon: "folder",
+                                   title: "This folder is empty",
+                                   message: "Drag files here to upload")
+                }
+
+                if isDropTargeted {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .background(Color.accentColor.opacity(0.08).clipShape(RoundedRectangle(cornerRadius: 10)))
+                        .overlay(
+                            Label("Drop to upload to \(client.currentPath)", systemImage: "arrow.down.doc.fill")
+                                .font(.title3.weight(.semibold))
+                                .padding(14)
+                                .background(.regularMaterial, in: Capsule())
+                        )
+                        .padding(6)
+                        .allowsHitTesting(false)
                 }
             }
-            .listStyle(.inset)
-            // Let the Delete key remove whatever is selected (one row or many).
-            .onDeleteCommand { confirmDelete(selectedEntries) }
-            // Right-click in empty space → folder-wide actions (incl. Refresh).
-            .contextMenu { listBackgroundMenu }
-
-            if client.entries.isEmpty && !client.isBusy {
-                EmptyStateView(icon: "folder",
-                               title: "This folder is empty",
-                               message: "Drag files here to upload")
-            }
-
-            if isDropTargeted {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color.accentColor, lineWidth: 3)
-                    .background(Color.accentColor.opacity(0.08).clipShape(RoundedRectangle(cornerRadius: 10)))
-                    .overlay(
-                        Label("Drop to upload to \(client.currentPath)", systemImage: "arrow.down.doc.fill")
-                            .font(.title3.weight(.semibold))
-                            .padding(14)
-                            .background(.regularMaterial, in: Capsule())
-                    )
-                    .padding(6)
-                    .allowsHitTesting(false)
-            }
+            .coordinateSpace(name: Self.dropSpace)
+            // Collect the on‑screen frame of each folder row so a dropped point
+            // can be matched to the folder it landed on.
+            .onPreferenceChange(FolderFramesKey.self) { folderFrames = $0 }
         }
-        .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
-            handleDrop(providers)
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// One file/folder row. Folder rows also act as a drop target so a drag can
-    /// upload straight **into** that folder; other rows fall through to the
-    /// whole‑list drop (upload to the current folder).
+    /// One file/folder row. Folder rows report their frame so a drag can upload
+    /// straight **into** that folder; a drop anywhere else uploads to the current
+    /// folder. (The actual drop is handled by the AppKit `FileDropContainer`.)
     @ViewBuilder
     private func entryRow(_ entry: SFTPEntry) -> some View {
         let row = SFTPRow(entry: entry, isDropTarget: dropTargetFolder == entry.id)
@@ -285,28 +302,16 @@ struct SFTPBrowserView: View {
             .onDrag { dragProvider(for: entry) }
             .contextMenu { rowMenu(entry) }
         if entry.isDirectory {
-            row.onDrop(of: [UTType.fileURL],
-                       isTargeted: folderTargetBinding(entry)) { providers in
-                handleDrop(providers, into: entry)
-            }
+            row.background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: FolderFramesKey.self,
+                        value: [entry.id: geo.frame(in: .named(Self.dropSpace))])
+                }
+            )
         } else {
-            // A drop landing on a file row still uploads to the current folder,
-            // so the whole list — not just the empty area — accepts external
-            // files. (The List's rows otherwise swallow the drag before it can
-            // reach the container's drop handler.)
-            row.onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
-                handleDrop(providers)
-            }
+            row
         }
-    }
-
-    private func folderTargetBinding(_ entry: SFTPEntry) -> Binding<Bool> {
-        Binding(
-            get: { dropTargetFolder == entry.id },
-            set: { targeted in
-                if targeted { dropTargetFolder = entry.id }
-                else if dropTargetFolder == entry.id { dropTargetFolder = nil }
-            })
     }
 
     @ViewBuilder
@@ -507,80 +512,40 @@ struct SFTPBrowserView: View {
             .disabled(sessions.selectedSessionID != session.id)
     }
 
-    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard client.isConnected else { return false }
-        loadFileURLs(from: providers) { urls in
-            if !urls.isEmpty { client.upload(urls) }
+    private func handleDroppedFiles(_ urls: [URL], at point: CGPoint) {
+        // A drag from an in-app Finder tab only carries the one grabbed file on
+        // the pasteboard; expand it back to the full multi-selection if that's
+        // what was dragged. External drags pass through unchanged.
+        let files = InAppFileDrag.shared.expand(urls)
+        guard client.isConnected, !files.isEmpty else { return }
+        if let folder = folderEntry(at: point) {
+            client.upload(files, into: folder.name)
+        } else {
+            client.upload(files)
         }
-        return true
-    }
-
-    /// Drop onto a folder row — upload into that folder.
-    private func handleDrop(_ providers: [NSItemProvider], into folder: SFTPEntry) -> Bool {
-        guard client.isConnected, folder.isDirectory else { return false }
+        isDropTargeted = false
         dropTargetFolder = nil
-        loadFileURLs(from: providers) { urls in
-            if !urls.isEmpty { client.upload(urls, into: folder.name) }
-        }
-        return true
     }
 
-    /// Resolve the file URLs from a set of drag providers, on the main queue.
-    ///
-    /// Each provider writes into its own indexed slot behind a lock: the
-    /// `loadObject` completions fire on arbitrary background queues, so when
-    /// several items are dropped at once, appending to one shared array would
-    /// race and occasionally drop an item or crash — the cause of uploads that
-    /// “every so often” didn't happen. Slots also preserve the drop order.
-    private func loadFileURLs(from providers: [NSItemProvider],
-                             completion: @escaping ([URL]) -> Void) {
-        let lock = NSLock()
-        var slots = [URL?](repeating: nil, count: providers.count)
-        let group = DispatchGroup()
-        for (index, provider) in providers.enumerated() {
-            group.enter()
-            Self.loadFileURL(from: provider) { url in
-                if let url {
-                    lock.lock()
-                    slots[index] = url
-                    lock.unlock()
-                }
-                group.leave()
-            }
+    /// Drive the drop highlight from the AppKit drag hover: light up the folder
+    /// under the pointer, or the whole list otherwise. `nil` clears it.
+    private func updateDropHighlight(_ point: CGPoint?) {
+        guard let point else {
+            isDropTargeted = false
+            dropTargetFolder = nil
+            return
         }
-        group.notify(queue: .main) {
-            completion(slots.compactMap { $0 }.filter { $0.isFileURL })
-        }
+        isDropTargeted = true
+        dropTargetFolder = folderEntry(at: point)?.id
     }
 
-    /// Resolve a single drag provider to a local file URL. Tries the modern
-    /// object load first, then falls back to the legacy typed-item load, so a
-    /// provider that only advertises `public.file-url` as raw data (some Finder
-    /// drags do) still resolves instead of being silently skipped.
-    private static func loadFileURL(from provider: NSItemProvider,
-                                    completion: @escaping (URL?) -> Void) {
-        provider.loadObject(ofClass: NSURL.self) { object, _ in
-            if let url = object as? URL { completion(url); return }
-            if let nsurl = object as? NSURL { completion(nsurl as URL); return }
-            guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else {
-                completion(nil); return
-            }
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier,
-                              options: nil) { item, _ in
-                switch item {
-                case let url as URL:     completion(url)
-                case let nsurl as NSURL: completion(nsurl as URL)
-                case let data as Data:
-                    if let text = String(data: data, encoding: .utf8),
-                       let url = URL(string: text), url.isFileURL {
-                        completion(url)
-                    } else {
-                        completion(nil)
-                    }
-                default:                 completion(nil)
-                }
-            }
+    /// The folder row (if any) whose on‑screen frame contains `point`, in the
+    /// browser's drop coordinate space.
+    private func folderEntry(at point: CGPoint) -> SFTPEntry? {
+        guard let match = folderFrames.first(where: { $0.value.contains(point) }) else {
+            return nil
         }
+        return client.entries.first { $0.id == match.key && $0.isDirectory }
     }
 
     private func chooseAndUpload() {
@@ -884,5 +849,14 @@ private struct SFTPMountHelpSheet: View {
     private func copyCommands() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(brewCommands, forType: .string)
+    }
+}
+
+/// Collects each folder row's on‑screen frame, keyed by entry id, so a drop
+/// point from the AppKit drop container can be matched to a folder to upload into.
+private struct FolderFramesKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] { [:] }
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }

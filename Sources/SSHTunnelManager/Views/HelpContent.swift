@@ -139,6 +139,7 @@ enum HelpContent {
                 "**Disconnect / Stop** ends the connection without closing the tab; **Reconnect** brings it back.",
                 "**Broadcast input** (⌃⌘B, or the tab menu ▸ **Broadcast Input to All Terminals**) sends every keystroke to **all** open terminals at once — handy for running the same thing across a fleet. Toggle it off to type in one tab again.",
                 "**Session logging** — enable **Log this session to a file** in a profile's **Automation** options to capture a transcript, then open it from the tab menu ▸ **Reveal Session Log**.",
+                "**Clickable links** — when a web address appears in the terminal, **⌘‑click** it to open it in an in‑app browser tab (hold ⌘ and the link underlines). Non‑web links (mail, files…) open in their usual app.",
                 "Drag a file from Finder (or a **Finder tab**) onto the terminal and choose **Paste Path** or **Paste Contents**.",
             ]),
             .shortcuts([
