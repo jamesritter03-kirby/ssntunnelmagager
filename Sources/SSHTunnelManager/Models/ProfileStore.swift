@@ -90,10 +90,20 @@ final class ProfileStore: ObservableObject {
     func duplicate(_ profile: SSHProfile) -> SSHProfile {
         var copy = profile
         copy.id = UUID()
-        // Give the copy's forwards fresh ids too, so it doesn't share (or, on
-        // delete, clobber) the original's Keychain service passwords. Like the
-        // SSH password, saved service passwords aren't carried into the copy.
-        copy.forwards = copy.forwards.map { var f = $0; f.id = UUID(); return f }
+        // Copy the SSH password to the new id so the duplicate connects like the
+        // original (Touch ID gating, if enabled, still applies at use time).
+        KeychainStore.shared.copyPassword(from: profile.id, to: copy.id)
+        // Give the copy's forwards fresh ids so it doesn't share (or, on delete,
+        // clobber) the original's Keychain items — but COPY each forward's saved
+        // service password (MQTT / Redis) across to the new id so those tabs still
+        // authenticate. Otherwise a duplicated profile's MQTT/Redis tab launched
+        // with no password and never connected until the user re-entered it.
+        copy.forwards = profile.forwards.map { original in
+            var f = original
+            f.id = UUID()
+            KeychainStore.shared.copyPassword(from: original.id, to: f.id)
+            return f
+        }
         copy.name += " copy"
         if let idx = profiles.firstIndex(where: { $0.id == profile.id }) {
             profiles.insert(copy, at: idx + 1)
@@ -101,6 +111,24 @@ final class ProfileStore: ObservableObject {
             profiles.append(copy)
         }
         return copy
+    }
+
+    /// Move the profile with id `draggingID` to the slot currently held by
+    /// `targetID` (used by the sidebar's drag-to-reorder). Removing then
+    /// re-inserting at the target's *current* index places the dragged profile
+    /// where the target was, shifting the rest — the standard reorder-on-hover
+    /// behaviour. Manual order is the array's own order, so it persists via the
+    /// autosave subscription. No-op if either id is missing or they're equal.
+    func move(id draggingID: UUID, before targetID: UUID) {
+        guard draggingID != targetID,
+              let from = profiles.firstIndex(where: { $0.id == draggingID }) else { return }
+        let moved = profiles.remove(at: from)
+        if let target = profiles.firstIndex(where: { $0.id == targetID }) {
+            profiles.insert(moved, at: target)
+        } else {
+            // Target vanished (shouldn't happen) — put it back where it was.
+            profiles.insert(moved, at: min(from, profiles.count))
+        }
     }
 
     /// Append imported profiles, giving each a unique display name so they don't

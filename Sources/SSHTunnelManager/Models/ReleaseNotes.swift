@@ -45,11 +45,24 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.34", build: 44, date: "Jul 9, 2026",
+            highlights: [
+                "ZeroTier at a glance: a profile whose host is one of your ZeroTier device IPs (picked with the globe button next to the host field) now shows a green “online” or grey “offline” dot in the sidebar and on the welcome screen.",
+                "Favourites without the shuffle: starring a profile now keeps it in its group **and** lists it under Favourites, instead of moving it out of the group.",
+                "Reorder profiles by dragging them up and down within a section of the sidebar — your order is saved.",
+                "Manage ZeroTier members in‑app: authorize or deauthorize a device straight from the ZeroTier browser, which is now resizable.",
+                "Fixed: the window no longer nudges down a few pixels when you open or close the profile editor (on both Save and Cancel).",
+                "Fixed: MQTT and Redis service tabs saved in a workspace now remember their passwords, so they reconnect on the next launch without asking again.",
+                "Fixed: tabs in a shared workspace launcher now connect to the launcher’s own host, and duplicating a profile also copies its saved workspace.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.33", build: 43, date: "Jul 8, 2026",
             highlights: [
                 "New name: the app formerly known as SSH Tunnel Manager is now **Remote Stuff** — same app, just a friendlier name. Your saved profiles, passwords and preferences carry over untouched.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.32", build: 42, date: "Jul 8, 2026",

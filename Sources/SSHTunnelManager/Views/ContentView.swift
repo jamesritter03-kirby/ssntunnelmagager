@@ -24,19 +24,22 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $sidebar.columnVisibility) {
             SidebarView(
                 selectedProfileID: $selectedProfileID,
-                onConnect: { sessions.connect(profile: $0) },
+                onConnect: { profile in
+                    // Always connect using the live store copy so a stale row/menu
+                    // value can never connect to the wrong host.
+                    let live = store.profiles.first(where: { $0.id == profile.id }) ?? profile
+                    sessions.connect(profile: live)
+                },
                 onEdit: { duplicatedFromName = nil; editingProfile = $0 },
                 onNew: { duplicatedFromName = nil; editingProfile = SSHProfile() },
                 onDuplicate: { original in
-                    var copy = store.duplicate(original)
-                    // A duplicated workspace profile gets its **own** template copy
-                    // so re-pointing its tabs at a new host (in the editor) doesn't
-                    // also change the original's workspace.
-                    if let tid = copy.workspaceTemplateID,
-                       let newTid = sessions.duplicateTemplate(tid) {
-                        copy.workspaceTemplateID = newTid
-                        store.update(copy)
-                    }
+                    // The duplicate shares the source's saved-workspace template
+                    // (if any). Templates are read-only at connect time — each
+                    // profile builds its *own* live workspace from it — so sharing
+                    // is safe and avoids creating a stray duplicate workspace here.
+                    // The template is forked lazily on save, and only if the copy's
+                    // host actually changes (see ProfileEditorView.commitSave).
+                    let copy = store.duplicate(original)
                     duplicatedFromName = original.name
                     editingProfile = copy
                 }
@@ -47,8 +50,21 @@ struct ContentView: View {
             TerminalAreaView()
                 .navigationTitle("Remote Stuff")
                 .modifier(ReliableSidebarToggleToolbar())
+                // Keep the window's unified toolbar permanently present. Presenting
+                // or dismissing a sheet (e.g. the profile editor) otherwise lets
+                // AppKit briefly collapse the toolbar, which re-measures the
+                // titlebar and nudges *all* window content down a few pixels — the
+                // shift seen on both Save and Cancel. Pinning it visible removes the
+                // collapse, so the content never moves.
+                .toolbar(.visible, for: .windowToolbar)
         }
         .background(WindowAccessor())
+        .task {
+            // Load ZeroTier devices (if an account exists) so profiles whose host
+            // is a ZeroTier IP can show an online/offline glyph in the sidebar and
+            // on the welcome screen. No-op when no ZeroTier account is configured.
+            await ZeroTierStore.shared.loadIfNeeded()
+        }
         .sheet(item: $editingProfile) { profile in
             ProfileEditorView(
                 profile: profile,
@@ -71,6 +87,19 @@ struct ContentView: View {
             duplicatedFromName = nil
             editingProfile = requested
             editCoordinator.profileToEdit = nil
+        }
+        .onChange(of: editingProfile) { profile in
+            // Presenting or dismissing the editor sheet lets the unified toolbar
+            // re-measure, which nudges the whole window down a few points — seen on
+            // both Save and Cancel. Snapshot the frame while the sheet is open and,
+            // as it closes, actively hold the window there for the length of the
+            // dismiss so the shift never reaches the screen (instead of a delayed
+            // one-shot restore, which just bounced).
+            if profile != nil {
+                WindowManager.shared.rememberFrame()
+            } else {
+                WindowManager.shared.beginFrameGuard()
+            }
         }
         .sheet(isPresented: $palette.isPresented) {
             CommandPaletteView(palette: palette)

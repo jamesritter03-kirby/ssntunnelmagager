@@ -29,10 +29,10 @@ struct ProfileEditorView: View {
     /// prompt).
     @State private var originalProfile: SSHProfile
     @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
-    /// A save awaiting the “also update the workspace's tab addresses?” answer, and
-    /// the flag that presents that prompt.
-    @State private var pendingSaveProfile: SSHProfile?
-    @State private var isConfirmingTabHostSync = false
+    /// Observe the session manager so the Workspace section's “tabs point at a
+    /// different address” notice refreshes live when the assigned template's tabs
+    /// are re-pointed (or the host field is edited).
+    @ObservedObject private var sessions = TerminalSessionManager.shared
 
     init(profile: SSHProfile,
          duplicatedFromName: String? = nil,
@@ -114,24 +114,17 @@ struct ProfileEditorView: View {
         .onChange(of: editCoordinator.commitRequested) { requested in
             guard requested else { return }
             editCoordinator.commitRequested = false
-            // Run the editor's normal save (or, if the profile is incomplete and
-            // can't be saved, just dismiss) so a "Save" from the quit prompt does
-            // exactly what the Save button would.
+            // A "Save" from the quit prompt. Persist **synchronously and directly**
+            // here rather than through `onSave` — the interactive Save defers its
+            // work until after the sheet's dismiss animation (to avoid a titlebar
+            // shift), and that deferral would race app termination and lose the
+            // edit. Writing straight to the store (and Keychain) keeps quit-save
+            // immediate and safe.
             if canSave {
                 applyPasswordChanges()
-                onSave(normalized())
-            } else {
-                onCancel()
+                ProfileStore.shared.update(normalized())
             }
             editCoordinator.editorDidFinishCommit()
-        }
-        .alert("Point Workspace Tabs at This Host?", isPresented: $isConfirmingTabHostSync,
-               presenting: pendingSaveProfile) { saved in
-            Button("Update Tabs") { commitSave(saved, syncTabHosts: true) }
-            Button("Keep Their Addresses") { commitSave(saved, syncTabHosts: false) }
-            Button("Cancel", role: .cancel) { pendingSaveProfile = nil }
-        } message: { saved in
-            Text("This profile opens a workspace whose tabs point at a different address. Update those tabs to use “\(saved.host)” so they all connect to this server?")
         }
     }
 
@@ -1025,27 +1018,8 @@ struct ProfileEditorView: View {
     /// moment the final host is known (a profile made from a workspace, or a
     /// duplicated workspace profile, whose tabs still point at the source address).
     private func attemptSave() {
-        let final = normalized()
-        if !final.isLocal,
-           let tid = final.workspaceTemplateID,
-           !final.host.isEmpty,
-           TerminalSessionManager.shared.templateHasTabsWithDifferentHost(tid, than: final.host) {
-            pendingSaveProfile = final
-            isConfirmingTabHostSync = true
-            return
-        }
-        commitSave(final, syncTabHosts: false)
-    }
-
-    /// Persist the profile (optionally re-pointing its template's tabs at the
-    /// profile host), then hand back to the caller.
-    private func commitSave(_ final: SSHProfile, syncTabHosts: Bool) {
-        pendingSaveProfile = nil
-        if syncTabHosts, let tid = final.workspaceTemplateID {
-            TerminalSessionManager.shared.normalizeTemplateTabHosts(tid, to: final.host)
-        }
         applyPasswordChanges()
-        onSave(final)
+        onSave(normalized())
     }
 
     // MARK: - Field helpers

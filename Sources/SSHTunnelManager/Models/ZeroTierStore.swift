@@ -249,6 +249,20 @@ struct ZeroTierAPI {
         try await get("/org/\(orgId)/network/\(networkId)/member")
     }
 
+    // MARK: Member authorization (write)
+
+    /// Authorize or deauthorize a member on a Central / personal network.
+    func setMemberAuthorized(networkId: String, nodeId: String, authorized: Bool) async throws {
+        try await post("/network/\(networkId)/member/\(nodeId)",
+                       body: ["authorized": authorized, "config": ["authorized": authorized]])
+    }
+
+    /// Authorize or deauthorize a member on a self-hosted (ZTNET) org network.
+    func setMemberAuthorized(orgId: String, networkId: String, nodeId: String, authorized: Bool) async throws {
+        try await post("/org/\(orgId)/network/\(networkId)/member/\(nodeId)",
+                       body: ["authorized": authorized, "config": ["authorized": authorized]])
+    }
+
     private func get<T: Decodable>(_ path: String) async throws -> T {
         guard !token.isEmpty else { throw ZeroTierError.notConfigured }
         guard let url = URL(string: baseURL + path) else { throw ZeroTierError.transport("bad URL") }
@@ -270,6 +284,30 @@ struct ZeroTierAPI {
         } catch {
             throw ZeroTierError.decoding
         }
+    }
+
+    /// Send a JSON body to `path` and validate the status; the response body is
+    /// ignored. Used for member updates (authorize / deauthorize), which both
+    /// ZeroTier Central and ZTNET expose as a `POST` to the member endpoint.
+    private func post(_ path: String, body: [String: Any]) async throws {
+        guard !token.isEmpty else { throw ZeroTierError.notConfigured }
+        guard let url = URL(string: baseURL + path) else { throw ZeroTierError.transport("bad URL") }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 20
+        req.setValue("token \(token)", forHTTPHeaderField: "Authorization")  // ZeroTier Central
+        req.setValue(token, forHTTPHeaderField: "x-ztnet-auth")              // self-hosted (ZTNET)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        let response: URLResponse
+        do {
+            (_, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw ZeroTierError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else { throw ZeroTierError.decoding }
+        guard (200..<300).contains(http.statusCode) else { throw ZeroTierError.http(http.statusCode) }
     }
 }
 
@@ -394,6 +432,8 @@ final class ZeroTierStore: ObservableObject {
     @Published private(set) var isLoadingNetworks = false
     @Published private(set) var loadingMembers: Set<String> = []
     @Published private(set) var lastError: String?
+    /// Member ids currently being authorized / deauthorized (drives per-row spinners).
+    @Published private(set) var authorizingMembers: Set<String> = []
 
     // This Mac's own ZeroTier client (the local service on loopback:9993),
     // separate from the account/API view above.
@@ -614,6 +654,67 @@ final class ZeroTierStore: ObservableObject {
             }
         } catch {
             lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    // MARK: Lookups
+
+    /// The ZeroTier device (member) currently assigned the given IP address, if
+    /// one is known across all loaded accounts/networks. Used to show a profile's
+    /// ZeroTier online/offline status when its host is a ZeroTier IP. Returns nil
+    /// when the IP isn't a known ZeroTier address, or the device list hasn't been
+    /// loaded yet (so non-ZeroTier hosts are simply left unmarked).
+    func member(forIP ip: String) -> ZeroTierMember? {
+        let needle = ip.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return nil }
+        for members in membersByNetwork.values {
+            if let match = members.first(where: { $0.ipAssignments.contains(needle) }) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    // MARK: Member authorization
+
+    /// Whether an authorize / deauthorize request is in flight for this member.
+    func isAuthorizing(_ member: ZeroTierMember) -> Bool {
+        authorizingMembers.contains(member.id)
+    }
+
+    /// Authorize or deauthorize a member on its network via the account's API,
+    /// then refresh that network so IP assignments (granted on authorization)
+    /// show up. Updates the local cache optimistically so the UI flips at once.
+    func setAuthorization(_ member: ZeroTierMember, authorized: Bool) async {
+        guard let accountId = member.accountId,
+              let account = accounts.first(where: { $0.id == accountId }),
+              let token = token(for: accountId), !token.isEmpty else {
+            lastError = "No API token saved for this account."
+            return
+        }
+        let network = networks.first(where: { $0.id == member.networkId })
+        authorizingMembers.insert(member.id)
+        defer { authorizingMembers.remove(member.id) }
+        let api = ZeroTierAPI(token: token, baseURL: account.baseURL)
+        do {
+            if let orgId = network?.orgId {
+                try await api.setMemberAuthorized(orgId: orgId, networkId: member.networkId,
+                                                  nodeId: member.nodeId, authorized: authorized)
+            } else {
+                try await api.setMemberAuthorized(networkId: member.networkId,
+                                                  nodeId: member.nodeId, authorized: authorized)
+            }
+            // Optimistic local flip so the badge/button update immediately.
+            if var list = membersByNetwork[member.networkId],
+               let idx = list.firstIndex(where: { $0.id == member.id }) {
+                list[idx].authorized = authorized
+                membersByNetwork[member.networkId] = list
+            }
+            lastError = nil
+            // Re-fetch to pick up server-side effects (e.g. a newly assigned IP).
+            if let network { await refreshMembers(network) }
+        } catch {
+            lastError = friendly(error, account: account)
         }
     }
 

@@ -204,3 +204,34 @@ private struct ZeroTierIPPickerPopover: View {
         }
     }
 }
+
+/// A small online/offline indicator shown when a host is a known ZeroTier device
+/// IP (e.g. one chosen from the ZeroTier picker next to a host field). A green
+/// globe means the device has checked in recently; a grey globe means it's
+/// offline. Renders nothing when the host isn't a ZeroTier IP — or the device
+/// list hasn't loaded — so ordinary hosts are left unmarked.
+struct ZeroTierStatusGlyph: View {
+    let host: String
+    @ObservedObject private var store = ZeroTierStore.shared
+
+    var body: some View {
+        if let member = store.member(forIP: host) {
+            Image(systemName: "globe.americas.fill")
+                .foregroundStyle(member.isOnline ? Color.green : Color.secondary)
+                .help(helpText(for: member))
+                .accessibilityLabel(member.isOnline
+                                    ? "ZeroTier device online"
+                                    : "ZeroTier device offline")
+        }
+    }
+
+    private func helpText(for member: ZeroTierMember) -> String {
+        if member.isOnline {
+            return "ZeroTier device “\(member.displayName)” is online"
+        }
+        if let seen = member.lastSeenText {
+            return "ZeroTier device “\(member.displayName)” is offline — last seen \(seen)"
+        }
+        return "ZeroTier device “\(member.displayName)” is offline"
+    }
+}

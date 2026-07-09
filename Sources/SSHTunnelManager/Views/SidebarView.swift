@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SidebarView: View {
     @EnvironmentObject var store: ProfileStore
@@ -13,6 +14,8 @@ struct SidebarView: View {
     @State private var searchText = ""
     /// Group names the user has collapsed in the sidebar.
     @State private var collapsedGroups: Set<String> = []
+    /// The profile currently being dragged to reorder, if any.
+    @State private var draggingProfileID: UUID?
 
     /// Profiles matching the current search text (name / host / user / group).
     private var filteredProfiles: [SSHProfile] {
@@ -30,11 +33,12 @@ struct SidebarView: View {
         filteredProfiles.filter { $0.isFavorite }
     }
 
-    /// Non-favourite profiles grouped by their group name; named groups sorted
-    /// alphabetically, the ungrouped bucket ("") last.
+    /// Profiles grouped by their group name; named groups sorted alphabetically,
+    /// the ungrouped bucket ("") last. Favourites are included here too — they
+    /// appear in the Favourites section *as well as* their group, not moved out
+    /// of it.
     private var groupedProfiles: [(group: String, profiles: [SSHProfile])] {
-        let nonFav = filteredProfiles.filter { !$0.isFavorite }
-        let groups = Dictionary(grouping: nonFav) { $0.trimmedGroup }
+        let groups = Dictionary(grouping: filteredProfiles) { $0.trimmedGroup }
         let orderedKeys = groups.keys.sorted { a, b in
             if a.isEmpty != b.isEmpty { return !a.isEmpty }   // ungrouped last
             return a.localizedStandardCompare(b) == .orderedAscending
@@ -61,13 +65,17 @@ struct SidebarView: View {
                 } else {
                     if !favoriteProfiles.isEmpty {
                         Section("Favourites") {
-                            ForEach(favoriteProfiles) { profileRow($0) }
+                            ForEach(favoriteProfiles.map { SectionedProfile(profile: $0, section: "★") }) { item in
+                                reorderableRow(item.profile, in: favoriteProfiles)
+                            }
                         }
                     }
                     ForEach(groupedProfiles, id: \.group) { entry in
                         Section {
                             if !collapsedGroups.contains(entry.group) {
-                                ForEach(entry.profiles) { profileRow($0) }
+                                ForEach(entry.profiles.map { SectionedProfile(profile: $0, section: entry.group) }) { item in
+                                    reorderableRow(item.profile, in: entry.profiles)
+                                }
                             }
                         } header: {
                             groupHeader(entry.group, count: entry.profiles.count)
@@ -76,6 +84,17 @@ struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+            // Attach the row menu at the List level, keyed by the *actually*
+            // right-clicked id, and look the profile up fresh from the store when
+            // the menu opens. A per-row `.contextMenu` is memoized by SwiftUI and
+            // gets recycled with stale data — which made right-click ▸ Connect use
+            // the last-edited profile's values instead of the clicked row's.
+            .contextMenu(forSelectionType: UUID.self) { ids in
+                if let id = ids.first,
+                   let profile = store.profiles.first(where: { $0.id == id }) {
+                    profileContextMenu(profile)
+                }
+            }
 
             Divider()
 
@@ -147,7 +166,6 @@ struct SidebarView: View {
             onDisconnect: { sessions.disconnect(profile: profile) }
         )
         .tag(profile.id)
-        .contextMenu { profileContextMenu(profile) }
     }
 
     @ViewBuilder
@@ -245,6 +263,30 @@ struct SidebarView: View {
         var updated = profile
         updated.isFavorite.toggle()
         store.update(updated)
+    }
+
+    /// A profile row wrapped with drag-to-reorder support. Dragging a row and
+    /// dropping it onto another row in the **same section** reorders them (and
+    /// persists the order). `.onMove` is unreliable on a macOS `.sidebar` List, so
+    /// this uses explicit drag sources + a drop delegate, which the source-list
+    /// backing honours. Reordering is disabled while a search filter is active
+    /// (the visible rows are only a subset) — clear the search to reorder.
+    @ViewBuilder
+    private func reorderableRow(_ profile: SSHProfile, in section: [SSHProfile]) -> some View {
+        if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+            profileRow(profile)
+                .onDrag {
+                    draggingProfileID = profile.id
+                    return NSItemProvider(object: profile.id.uuidString as NSString)
+                }
+                .onDrop(of: [.text], delegate: ProfileReorderDropDelegate(
+                    target: profile,
+                    sectionIDs: section.map(\.id),
+                    draggingID: $draggingProfileID,
+                    store: store))
+        } else {
+            profileRow(profile)
+        }
     }
 
     private var bottomBar: some View {
@@ -351,6 +393,18 @@ struct SidebarView: View {
         }
     }
 
+/// Pairs a profile with the sidebar section it's rendered in, giving each row a
+/// unique List identity. A favourited profile appears in BOTH the Favourites
+/// section and its group; without a section-scoped id the List would see two
+/// rows of identical identity (the one profile id) and mis-render or mis-animate
+/// them. The `.tag(profile.id)` inside the row still drives selection, so both
+/// copies highlight together when their profile is selected.
+private struct SectionedProfile: Identifiable {
+    let profile: SSHProfile
+    let section: String
+    var id: String { "\(section)\u{1F}\(profile.id.uuidString)" }
+}
+
 struct ProfileRow: View {
     let profile: SSHProfile
     var isConnected: Bool = false
@@ -391,6 +445,8 @@ struct ProfileRow: View {
                     Text(profile.name)
                         .fontWeight(.medium)
                         .lineLimit(1)
+                    ZeroTierStatusGlyph(host: profile.host)
+                        .font(.caption2)
                 }
                 Text(profile.rowSubtitle)
                     .font(.caption)
@@ -414,6 +470,43 @@ struct ProfileRow: View {
         }
         .padding(.vertical, 3)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: onConnect)
+        // Use a *simultaneous* double-tap so it coexists with the List's own
+        // single-click selection. A plain `.onTapGesture` on a List row steals the
+        // click and can leave the selection stuck on the previously-selected row.
+        .simultaneousGesture(TapGesture(count: 2).onEnded { onConnect() })
+    }
+}
+
+/// Reorders profiles by drag-and-drop within a single sidebar section. As the
+/// dragged row hovers over another row in the same section, the dragged profile
+/// is moved to that row's slot live; the drop just ends the gesture. Restricted
+/// to the section the drop target belongs to, so a favourite can't be dragged
+/// into a group (or vice-versa) — matching how the sections are built.
+private struct ProfileReorderDropDelegate: DropDelegate {
+    let target: SSHProfile
+    /// The ids of every row in the target's section, in display order.
+    let sectionIDs: [UUID]
+    @Binding var draggingID: UUID?
+    let store: ProfileStore
+
+    /// Only accept a drop from a row in the same section.
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let draggingID else { return false }
+        return sectionIDs.contains(draggingID)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingID, draggingID != target.id,
+              sectionIDs.contains(draggingID) else { return }
+        store.move(id: draggingID, before: target.id)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingID = nil
+        return true
     }
 }

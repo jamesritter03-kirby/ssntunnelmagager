@@ -1078,13 +1078,53 @@ final class TerminalSessionManager: ObservableObject {
         // every tab keeps its original profile and reconnects as itself, and the
         // launcher opens no connection of its own — so skip the duplicate-profile
         // re-pointing entirely.
-        let isLauncher = ProfileStore.shared.profiles
-            .first(where: { $0.id == profileID })?.isWorkspaceLauncher ?? false
+        let launchingProfile = ProfileStore.shared.profiles.first(where: { $0.id == profileID })
+        let isLauncher = launchingProfile?.isWorkspaceLauncher ?? false
+
+        // The launching device profile's own address. Ad-hoc (profile-less)
+        // connection tabs in a *shared* saved workspace are re-pointed at this so
+        // every device profile that reuses the same “edge” workspace opens its
+        // service / web tabs on its **own** box — not the IP baked into the template
+        // when it was first saved (the “profile shows .34 but the tab connects to
+        // .33” bug). Done per-launch, in memory; the shared template is never
+        // mutated, so one workspace can safely back many device profiles at once.
+        let launchingHost: String? = {
+            guard let p = launchingProfile, !p.isLocal else { return nil }
+            let h = p.host.trimmingCharacters(in: .whitespaces)
+            return h.isEmpty ? nil : h
+        }()
+        // The device the template was built around: a web tab that pointed at that
+        // box follows the launching profile, while an external/cloud URL is left
+        // alone.
+        let originHost: String? = {
+            if let oid = originProfileID,
+               let p = ProfileStore.shared.profiles.first(where: { $0.id == oid }) {
+                let h = p.host.trimmingCharacters(in: .whitespaces).lowercased()
+                if !h.isEmpty { return h }
+            }
+            if let h = template.tabs.first(where: {
+                $0.profileID == nil && ($0.kind == .ssh || $0.kind == .sftp)
+                    && !($0.serviceHost ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+            })?.serviceHost {
+                return h.trimmingCharacters(in: .whitespaces).lowercased()
+            }
+            return nil
+        }()
 
         var keptTemplateIndices: [Int] = []
         for (i, tab) in template.tabs.enumerated() {
             var tab = tab
             if isLauncher {
+                // A launcher rebuilds its saved workspace as-is. But a launcher
+                // that carries its **own host** — a per-device workspace profile
+                // (e.g. many devices sharing one "edge" layout, each on its own IP)
+                // — re-points the layout's ad-hoc tabs at that host, so the device
+                // opens the shared workspace on its own box instead of the address
+                // baked into the template. A hostless multi-profile launcher has
+                // `launchingHost == nil`, so it keeps every tab exactly as saved.
+                if tab.profileID == nil, let host = launchingHost {
+                    tab = repointingAdHocTab(tab, to: host, originHost: originHost)
+                }
                 keptTemplateIndices.append(i)
                 recreate(tab, owningProfileID: profileID)
                 continue
@@ -1104,6 +1144,12 @@ final class TerminalSessionManager: ObservableObject {
                 tab.profileID = profileID
                 tab.title = nil     // let the launching profile's name drive the title
             }
+            // Re-point ad-hoc (profile-less) connection tabs at the launching device
+            // so a shared workspace opens each profile's services on its own host
+            // instead of the address baked into the template.
+            if tab.profileID == nil, let host = launchingHost {
+                tab = repointingAdHocTab(tab, to: host, originHost: originHost)
+            }
             keptTemplateIndices.append(i)
             recreate(tab, owningProfileID: profileID)
         }
@@ -1121,6 +1167,34 @@ final class TerminalSessionManager: ObservableObject {
                                 collapsed: dock.collapsed, panes: panes)
         }
         applyDockSnapshots(docks, toWorkspaceAt: index)
+    }
+
+    /// A copy of an ad-hoc (profile-less) template tab re-addressed to `host`, so a
+    /// shared saved workspace opens each launching device profile's tabs on its own
+    /// box. Service tabs (ssh / sftp / vnc / mqtt / redis) always follow the
+    /// launching host; a **web** tab follows only when it pointed at the template's
+    /// origin device (`originHost`) so an external/cloud dashboard is left as-is.
+    /// Tabs with no stored host are returned unchanged.
+    private func repointingAdHocTab(_ tab: SessionSnapshot, to host: String,
+                                    originHost: String?) -> SessionSnapshot {
+        var t = tab
+        switch t.kind {
+        case .ssh, .sftp, .vnc, .mqtt, .redis:
+            let current = (t.serviceHost ?? "").trimmingCharacters(in: .whitespaces)
+            if !current.isEmpty, current.lowercased() != host.lowercased() {
+                t.serviceHost = host
+            }
+        case .web:
+            if let s = t.webURL,
+               let h = TerminalSessionManager.urlHost(of: s)?.lowercased(),
+               let origin = originHost, h == origin,
+               let swapped = TerminalSessionManager.replacingHost(in: s, with: host) {
+                t.webURL = swapped
+            }
+        default:
+            break
+        }
+        return t
     }
 
     /// Move a session into the current workspace if it lives elsewhere, then
@@ -1410,12 +1484,48 @@ final class TerminalSessionManager: ObservableObject {
         switch old.kind {
         case .mqtt, .redis:
             let category: ForwardCategory = old.kind == .redis ? .redis : .mqtt
+            // If this tab is backed by a profile forward, persist the typed
+            // password to that forward (Keychain, keyed by the forward id) and
+            // keep the tab tied to its profile. This is what stops the endless
+            // "Edit Connection → retype the password" loop: on the next launch the
+            // workspace rebuilds this tab from the profile and reads the now-saved
+            // password, so the user doesn't have to enter it again. A blank
+            // password clears any saved one.
+            let backingProfile = old.profileID.flatMap { pid in
+                ProfileStore.shared.profiles.first { $0.id == pid }
+            }
+            let backingForward = backingProfile?.forwards.first {
+                $0.localEndpoint?.port == old.servicePort
+            }
+            if let forward = backingForward {
+                if password.isEmpty {
+                    KeychainStore.shared.deletePassword(for: forward.id)
+                } else {
+                    KeychainStore.shared.setPassword(password, for: forward.id)
+                }
+            } else {
+                // Ad-hoc service tab (no profile forward) launched from a saved
+                // workspace — e.g. a shared “edge” layout opened by many device
+                // profiles. Persist the typed password into that workspace's tab so
+                // every future launch reconnects without re-entering it.
+                persistAdHocServicePassword(for: old, password: password)
+            }
+            let serviceTitle: String = {
+                if let forward = backingForward, !forward.trimmedName.isEmpty {
+                    return forward.trimmedName
+                }
+                if let p = backingProfile { return "\(p.name) — \(category.title)" }
+                return "\(category.title) — \(cleanHost):\(port)"
+            }()
             new = TerminalSession(
                 kind: old.kind,
-                title: "\(category.title) — \(cleanHost):\(port)",
+                title: serviceTitle,
                 executable: "",
                 args: [],
                 commandPreview: "\(category.title) \(cleanHost):\(port)",
+                profileID: old.profileID,
+                theme: backingProfile.map { TerminalTheme.theme(id: $0.theme) } ?? .default,
+                fontSize: backingProfile?.fontSize ?? TerminalFontMetrics.default,
                 servicePort: port,
                 serviceHost: cleanHost,
                 serviceUsername: cleanUser,
@@ -1505,6 +1615,61 @@ final class TerminalSessionManager: ObservableObject {
         sessions.removeAll { $0.id == old.id }
         // Start once the view has mounted at a real size.
         DispatchQueue.main.async { new.start() }
+    }
+
+    /// Locate the saved-workspace tab an **ad-hoc** service tab was launched from,
+    /// so its password can be stored (and read again next launch). Resolves the
+    /// live tab → its workspace → the launching profile → that profile's template,
+    /// then matches the tab by kind + forwarded port (the host may have been
+    /// re-pointed to this device, so it isn't a reliable key). Returns nil for a
+    /// tab that isn't backed by a saved workspace (nothing to persist into).
+    private func savedWorkspaceTabLocation(for old: TerminalSession) -> (ws: Int, tab: Int)? {
+        guard let wi = workspaces.firstIndex(where: { $0.tabIDs.contains(old.id) }),
+              let pid = workspaces[wi].sourceProfileID,
+              let profile = ProfileStore.shared.profiles.first(where: { $0.id == pid }),
+              let tid = profile.workspaceTemplateID,
+              let ti = savedWorkspaces.firstIndex(where: { $0.id == tid }),
+              let tabIdx = savedWorkspaces[ti].tabs.firstIndex(where: {
+                  $0.profileID == nil && $0.kind == old.kind
+                      && $0.servicePort == old.servicePort
+              })
+        else { return nil }
+        return (ti, tabIdx)
+    }
+
+    /// Save (or clear) the password typed into an ad-hoc service tab's **Edit
+    /// Connection** back onto the saved workspace tab it came from, keyed by a
+    /// per-tab Keychain credential. A shared workspace stores it once, so every
+    /// device profile that reuses the layout reconnects automatically — ending the
+    /// “edit connection and retype the password” loop for profile-free service tabs.
+    private func persistAdHocServicePassword(for old: TerminalSession, password: String) {
+        guard let loc = savedWorkspaceTabLocation(for: old) else { return }
+        let existing = savedWorkspaces[loc.ws].tabs[loc.tab].credentialID
+        if password.isEmpty {
+            if let cid = existing { KeychainStore.shared.deletePassword(for: cid) }
+            savedWorkspaces[loc.ws].tabs[loc.tab].credentialID = nil
+        } else {
+            let cid = existing ?? UUID()
+            if KeychainStore.shared.setPassword(password, for: cid) {
+                savedWorkspaces[loc.ws].tabs[loc.tab].credentialID = cid
+            }
+        }
+        persistSavedWorkspaces()
+    }
+
+    /// Whether reconnecting the given MQTT / Redis tab will **remember** its
+    /// password for the next launch — either it's backed by a profile forward, or
+    /// it's an ad-hoc tab launched from a saved workspace we can store the
+    /// credential on. Drives the Edit Connection sheet's hint text.
+    func serviceTabRemembersPassword(_ id: UUID) -> Bool {
+        guard let s = sessions.first(where: { $0.id == id }),
+              s.kind == .mqtt || s.kind == .redis else { return false }
+        if let pid = s.profileID,
+           let p = ProfileStore.shared.profiles.first(where: { $0.id == pid }),
+           p.forwards.contains(where: { $0.localEndpoint?.port == s.servicePort }) {
+            return true
+        }
+        return savedWorkspaceTabLocation(for: s) != nil
     }
 
     /// **Redis** tab — pointed at the forward's local port. Brings the profile's
@@ -1920,6 +2085,16 @@ final class TerminalSessionManager: ObservableObject {
             for tab in ws.tabs where tab.credentialID != nil {
                 KeychainStore.shared.deletePassword(for: tab.credentialID!)
             }
+        }
+        // Any profile that launched this saved workspace as its template would
+        // otherwise silently fall back to "current workspace" — looking like it
+        // "lost its assignment". Preserve the intent by switching those profiles
+        // to their own name-based dedicated workspace instead.
+        for profile in ProfileStore.shared.profiles where profile.workspaceTemplateID == id {
+            var updated = profile
+            updated.workspaceTemplateID = nil
+            updated.opensInOwnWorkspace = true
+            ProfileStore.shared.update(updated)
         }
         savedWorkspaces.removeAll { $0.id == id }
         persistSavedWorkspaces()

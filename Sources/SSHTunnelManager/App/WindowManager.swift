@@ -66,4 +66,71 @@ final class WindowManager {
         }
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    // MARK: Sheet frame stability
+    //
+    // Presenting or dismissing a sheet on a `.unified`-toolbar window lets AppKit
+    // re-measure the titlebar/toolbar and nudge the whole window down a few
+    // points — visible on both Save and Cancel of the profile editor. A one-shot
+    // restore *after* the move has already painted just produces a visible
+    // shift-then-snap-back bounce. Instead we hold the window at its pre-sheet
+    // frame for the length of the transition, correcting *synchronously* the
+    // instant AppKit moves or resizes it (via the window's own notifications), so
+    // the shifted position never reaches the screen.
+
+    /// The main window's frame captured just before a modal sheet is shown.
+    private var lockedFrame: NSRect?
+    /// Active observers holding the window still during a sheet transition.
+    private var frameGuardObservers: [NSObjectProtocol] = []
+    /// Fires when the guard period ends.
+    private var frameGuardTimer: Timer?
+
+    /// Snapshot the main window's frame before a sheet (e.g. the profile editor)
+    /// is presented, so `beginFrameGuard()` can hold it there on dismiss.
+    func rememberFrame() {
+        lockedFrame = mainWindow?.frame
+    }
+
+    /// Actively hold the window at the remembered frame for a short period,
+    /// restoring it the instant AppKit tries to move or resize it. This absorbs
+    /// the unified-toolbar re-measure that otherwise drifts the window on sheet
+    /// dismiss, without the visible bounce a delayed one-shot restore caused.
+    func beginFrameGuard(duration: TimeInterval = 0.8) {
+        guard let window = mainWindow, lockedFrame != nil else { return }
+        // Correct immediately, then on every move/resize for the guard period.
+        holdFrame(window)
+        endFrameGuard(clearFrame: false)   // tear down any prior guard, keep frame
+        let restore: (Notification) -> Void = { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            self.holdFrame(window)
+        }
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            let token = NotificationCenter.default.addObserver(
+                forName: name, object: window, queue: .main, using: restore)
+            frameGuardObservers.append(token)
+        }
+        frameGuardTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            self?.endFrameGuard(clearFrame: true)
+        }
+    }
+
+    /// Snap the window back to the locked frame if it has drifted. The guard
+    /// (`window.frame != target`) both avoids needless work and stops the
+    /// `setFrame`-triggered notification from recursing.
+    private func holdFrame(_ window: NSWindow) {
+        guard let target = lockedFrame, window.frame != target else { return }
+        window.setFrame(target, display: true)
+    }
+
+    /// Stop guarding. `clearFrame` also forgets the remembered frame (done when
+    /// the transition is fully over).
+    private func endFrameGuard(clearFrame: Bool) {
+        frameGuardTimer?.invalidate()
+        frameGuardTimer = nil
+        for token in frameGuardObservers {
+            NotificationCenter.default.removeObserver(token)
+        }
+        frameGuardObservers.removeAll()
+        if clearFrame { lockedFrame = nil }
+    }
 }

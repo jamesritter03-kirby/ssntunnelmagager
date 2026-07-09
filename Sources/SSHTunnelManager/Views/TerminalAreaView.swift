@@ -2636,9 +2636,13 @@ private struct ProfileLaunchButton: View {
                     .foregroundStyle(.tint)
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(profile.name)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(profile.name)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                        ZeroTierStatusGlyph(host: profile.host)
+                            .font(.caption)
+                    }
                     Text(profile.rowSubtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)

@@ -81,6 +81,14 @@ struct EditConnectionView: View {
     }
     private var canReconnect: Bool { !trimmedHost.isEmpty && parsedPort != nil }
 
+    /// True when reconnecting the tab being edited will remember the typed
+    /// password for next launch — either it's backed by a profile forward, or it's
+    /// an ad-hoc service tab launched from a saved workspace we can store it on.
+    private var passwordWillPersist: Bool {
+        guard let id = model.sessionID else { return false }
+        return sessions.serviceTabRemembersPassword(id)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
@@ -157,9 +165,13 @@ struct EditConnectionView: View {
     private var hint: String {
         switch model.kind {
         case .redis:
-            return "Reconnects this Redis tab to the new details. Credentials are sent with AUTH and aren’t saved."
+            return passwordWillPersist
+                ? "Reconnects this Redis tab to the new details. The password is saved, so it's used automatically next time you launch."
+                : "Reconnects this Redis tab to the new details. Credentials are sent with AUTH and aren’t saved."
         case .mqtt:
-            return "Reconnects this MQTT tab to the new details. Credentials are sent in the MQTT CONNECT packet and aren’t saved."
+            return passwordWillPersist
+                ? "Reconnects this MQTT tab to the new details. The password is saved, so it's used automatically next time you launch."
+                : "Reconnects this MQTT tab to the new details. Credentials are sent in the MQTT CONNECT packet and aren’t saved."
         case .vnc:
             return "Reconnects this VNC tab directly to the new details. Display options (scaling, colour depth, view‑only) are kept."
         case .sftp:

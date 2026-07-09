@@ -43,6 +43,9 @@ struct ZeroTierBrowserView: View {
     @State private var lastAction: String?
     /// Whether the “This Mac” local-networks details popover is showing.
     @State private var showLocalPopover = false
+    /// A member awaiting confirmation before being deauthorized (kicked off the
+    /// network). Authorizing happens immediately; deauthorizing asks first.
+    @State private var memberPendingDeauth: ZeroTierMember?
 
     // New-account form (in the accounts manager).
     @State private var newLabel = ""
@@ -71,8 +74,27 @@ struct ZeroTierBrowserView: View {
         // down to the mins) instead of locking at the ideal size.
         .frame(minWidth: 780, idealWidth: 900, maxWidth: .infinity,
                minHeight: 540, idealHeight: 660, maxHeight: .infinity)
+        // SwiftUI sheets are fixed-size on macOS; this makes the hosting sheet
+        // window user-resizable so the frame's flexible max actually applies.
+        .background(ResizableSheet())
         .task { await store.loadIfNeeded() }
         .task { await store.refreshLocalNode() }
+        .confirmationDialog(
+            memberPendingDeauth.map { "Deauthorize “\($0.displayName)”?" } ?? "Deauthorize device?",
+            isPresented: Binding(get: { memberPendingDeauth != nil },
+                                 set: { if !$0 { memberPendingDeauth = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Deauthorize", role: .destructive) {
+                if let m = memberPendingDeauth {
+                    Task { await store.setAuthorization(m, authorized: false) }
+                }
+                memberPendingDeauth = nil
+            }
+            Button("Cancel", role: .cancel) { memberPendingDeauth = nil }
+        } message: {
+            Text("This removes the device from the network — it will lose its managed IP and can no longer reach other members until re-authorized.")
+        }
     }
 
     // MARK: - Browser
@@ -451,6 +473,7 @@ struct ZeroTierBrowserView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                authorizeControl(member)
             }
 
             if member.ipAssignments.isEmpty {
@@ -497,6 +520,34 @@ struct ZeroTierBrowserView: View {
         .buttonStyle(.bordered)
         .controlSize(.small)
         .help(help)
+    }
+
+    /// Authorize (or, with confirmation, deauthorize) a member on its network.
+    @ViewBuilder
+    private func authorizeControl(_ member: ZeroTierMember) -> some View {
+        if store.isAuthorizing(member) {
+            ProgressView().controlSize(.small)
+        } else if member.authorized {
+            Button {
+                memberPendingDeauth = member
+            } label: {
+                Label("Deauthorize", systemImage: "lock.slash")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(.orange)
+            .help("Revoke this device's access to the network")
+        } else {
+            Button {
+                Task { await store.setAuthorization(member, authorized: true) }
+            } label: {
+                Label("Authorize", systemImage: "checkmark.shield")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(.green)
+            .help("Allow this device onto the network")
+        }
     }
 
     private var footer: some View {
@@ -835,5 +886,26 @@ struct ZeroTierBrowserView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(Color.orange.opacity(0.12))
+    }
+}
+
+/// Makes the hosting **sheet** window user-resizable. SwiftUI presents sheets on
+/// macOS at their ideal size with no resize handles even when the content has a
+/// flexible frame; inserting `.resizable` into the sheet window's style mask lets
+/// the user drag its edges (bounded by the content's min/max frame).
+private struct ResizableSheet: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { Self.makeResizable(from: view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { Self.makeResizable(from: nsView) }
+    }
+
+    private static func makeResizable(from view: NSView) {
+        guard let window = view.window else { return }
+        window.styleMask.insert(.resizable)
     }
 }
