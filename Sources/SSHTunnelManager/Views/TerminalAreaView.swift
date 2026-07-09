@@ -2369,7 +2369,7 @@ private struct WelcomeView: View {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
                     .font(.system(size: 52))
                     .foregroundStyle(.tint)
-                Text("SSH Tunnel Manager")
+                Text("Remote Stuff")
                     .font(.largeTitle.bold())
                 Text("Resume your last session, open a local terminal, connect to a server, or click a profile.")
                     .foregroundStyle(.secondary)

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Builds SSHTunnelManager and assembles a runnable "SSH Tunnel Manager.app".
+# Builds SSHTunnelManager and assembles a runnable "Remote Stuff.app".
 #
 #   ./build-app.sh           # release build
 #   ./build-app.sh debug     # debug build
@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 CONFIG="${1:-release}"
-APP_NAME="SSH Tunnel Manager"
+APP_NAME="Remote Stuff"
 BUNDLE="${APP_NAME}.app"
 EXE="SSHTunnelManager"
 

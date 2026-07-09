@@ -23,7 +23,7 @@ final class HelpWindowController: NSObject, NSWindowDelegate {
         }
 
         let window = NSWindow(contentViewController: hosting)
-        window.title = "SSH Tunnel Manager Help"
+        window.title = "Remote Stuff Help"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed

@@ -46,7 +46,7 @@ enum InstallLocationGuard {
         guard status.shouldOfferMove else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Move SSH Tunnel Manager to Applications?"
+        alert.messageText = "Move Remote Stuff to Applications?"
         alert.informativeText = """
         The app is running from a temporary or read-only location, so automatic \
         updates can't replace it in place (that's what leaves extra copies behind).
@@ -116,7 +116,7 @@ enum InstallLocationGuard {
             let alert = NSAlert()
             alert.messageText = "Couldn't move the app automatically"
             alert.informativeText = """
-            Please drag “SSH Tunnel Manager” into your Applications folder yourself, \
+            Please drag “Remote Stuff” into your Applications folder yourself, \
             then open it from there. (\(error.localizedDescription))
             """
             alert.addButton(withTitle: "Reveal in Finder")

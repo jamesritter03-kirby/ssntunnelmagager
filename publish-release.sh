@@ -19,9 +19,9 @@ REPO="jamesritter03-kirby/ssntunnelmagager"
 RELEASE_TAG="updates"
 ARCHIVES="sparkle-updates"
 DOCS_DIR="docs"
-APP_NAME="SSH Tunnel Manager"
+APP_NAME="Remote Stuff"
 DMG_SRC="dist/${APP_NAME}.dmg"
-DMG_ASSET="dist/SSH-Tunnel-Manager.dmg"   # hyphenated → clean, space-free URL
+DMG_ASSET="dist/SSH-Tunnel-Manager.dmg"   # hyphenated → clean, space-free URL (kept stable across the rename)
 
 manual_steps() {
     cat <<EOF

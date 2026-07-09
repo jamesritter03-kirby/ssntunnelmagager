@@ -22,11 +22,11 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
 
         if let button = statusItem.button {
             let symbol = NSImage(systemSymbolName: "point.3.connected.trianglepath.dotted",
-                                 accessibilityDescription: "SSH Tunnel Manager")
-                ?? NSImage(systemSymbolName: "network", accessibilityDescription: "SSH Tunnel Manager")
+                                 accessibilityDescription: "Remote Stuff")
+                ?? NSImage(systemSymbolName: "network", accessibilityDescription: "Remote Stuff")
             symbol?.isTemplate = true   // adapts to light/dark menu bar
             button.image = symbol
-            button.toolTip = "SSH Tunnel Manager"
+            button.toolTip = "Remote Stuff"
         }
 
         let menu = NSMenu()
@@ -66,11 +66,11 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         if active > 0 {
             button.title = " \(active)"
             button.contentTintColor = .systemGreen
-            button.toolTip = "SSH Tunnel Manager — \(active) active tunnel\(active == 1 ? "" : "s")"
+            button.toolTip = "Remote Stuff — \(active) active tunnel\(active == 1 ? "" : "s")"
         } else {
             button.title = ""
             button.contentTintColor = nil
-            button.toolTip = "SSH Tunnel Manager"
+            button.toolTip = "Remote Stuff"
         }
     }
 
@@ -83,7 +83,7 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private func rebuild(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        addDisabled("SSH Tunnel Manager", to: menu)
+        addDisabled("Remote Stuff", to: menu)
         menu.addItem(.separator())
 
         addAction("Show Main Window", #selector(showWindow), to: menu)
@@ -151,9 +151,9 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         menu.addItem(.separator())
         let updates = addAction("Check for Updates…", #selector(checkForUpdates), to: menu)
         updates.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
-        updates.toolTip = "Check for a newer version of SSH Tunnel Manager"
+        updates.toolTip = "Check for a newer version of Remote Stuff"
 
-        let quit = NSMenuItem(title: "Quit SSH Tunnel Manager",
+        let quit = NSMenuItem(title: "Quit Remote Stuff",
                               action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
     }

@@ -45,12 +45,19 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.33", build: 43, date: "Jul 8, 2026",
+            highlights: [
+                "New name: the app formerly known as SSH Tunnel Manager is now **Remote Stuff** — same app, just a friendlier name. Your saved profiles, passwords and preferences carry over untouched.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.32", build: 42, date: "Jul 8, 2026",
             highlights: [
                 "Clickable links: when a web address appears in a terminal, ⌘‑click it to open it in an in‑app browser tab (hold ⌘ and the link underlines). Non‑web links open in their usual app.",
                 "Fixed: dragging several files at once onto an SFTP browser — from macOS Finder or an in‑app Finder tab — now uploads all of them, not just one.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.31", build: 41, date: "Jul 7, 2026",

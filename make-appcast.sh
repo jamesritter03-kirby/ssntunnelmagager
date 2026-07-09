@@ -6,7 +6,7 @@
 #   ./make-appcast.sh
 #
 # What it does:
-#   1. Builds "SSH Tunnel Manager.app" (via build-app.sh).
+#   1. Builds "Remote Stuff.app" (via build-app.sh).
 #   2. Zips it into  sparkle-updates/SSH-Tunnel-Manager-<version>.zip
 #   3. Runs Sparkle's generate_appcast, which signs every archive in that
 #      folder with your EdDSA private key (stored in your login Keychain by
@@ -24,7 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_NAME="SSH Tunnel Manager"
+APP_NAME="Remote Stuff"
 BUNDLE="${APP_NAME}.app"
 ARCHIVES="sparkle-updates"
 

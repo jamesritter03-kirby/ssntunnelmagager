@@ -151,7 +151,7 @@ struct SSHTunnelManagerApp: App {
                 .disabled(sessions.selectedSession == nil)
             }
             CommandGroup(replacing: .help) {
-                Button("SSH Tunnel Manager Help") {
+                Button("Remote Stuff Help") {
                     HelpWindowController.shared.show(.article("getting-started"))
                 }
                 .keyboardShortcut("?", modifiers: .command)

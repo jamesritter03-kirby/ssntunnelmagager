@@ -94,7 +94,7 @@ enum ProfileTransfer {
     static func importFlow(into store: ProfileStore) {
         let panel = NSOpenPanel()
         panel.title = "Import Profiles"
-        panel.message = "Choose a profiles file exported from SSH Tunnel Manager."
+        panel.message = "Choose a profiles file exported from Remote Stuff."
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -197,7 +197,7 @@ enum ProfileTransfer {
     static func importSnippets() -> [CommandSnippet] {
         let panel = NSOpenPanel()
         panel.title = "Import Commands"
-        panel.message = "Choose a commands file exported from SSH Tunnel Manager."
+        panel.message = "Choose a commands file exported from Remote Stuff."
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true

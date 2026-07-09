@@ -16,7 +16,7 @@ enum HelpContent {
     static let gettingStarted = HelpArticle(
         id: "getting-started", title: "Getting Started", icon: "sparkles",
         blocks: [
-            .paragraph("**SSH Tunnel Manager** keeps your SSH connections, port‑forwarding tunnels and remote tools one click away. Save each server as a **profile**, then connect, forward ports, browse files over SFTP, share screens over VNC, and open web/MQTT/Redis tools — all in tabs."),
+            .paragraph("**Remote Stuff** keeps your SSH connections, port‑forwarding tunnels and remote tools one click away. Save each server as a **profile**, then connect, forward ports, browse files over SFTP, share screens over VNC, and open web/MQTT/Redis tools — all in tabs."),
             .steps([
                 "Click **+** in the sidebar (or **New Profile**) and enter a name and host.",
                 "Add a username, an SSH key or password, and any port forwards you need.",
@@ -339,7 +339,7 @@ enum HelpContent {
         blocks: [
             .paragraph("The app updates itself automatically using Sparkle. Updates are downloaded from the project's release feed and **verified with a cryptographic signature** before installing."),
             .bullets([
-                "Check manually any time with **SSH Tunnel Manager ▸ Check for Updates…**.",
+                "Check manually any time with **Remote Stuff ▸ Check for Updates…**.",
                 "Toggle automatic checks in **Settings ▸ Updates**.",
                 "See what changed in **Help ▸ Release Notes**, and grab an earlier build from **Help ▸ Download Older Versions**.",
             ]),

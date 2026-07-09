@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Packages "SSH Tunnel Manager.app" into a shareable zip for another
+# Packages "Remote Stuff.app" into a shareable zip for another
 # Apple Silicon Mac.
 #
 #   ./package-dist.sh
 #
-# Produces:  dist/SSH Tunnel Manager (Apple Silicon).zip
+# Produces:  dist/Remote Stuff (Apple Silicon).zip
 #
 # Note: the app is ad-hoc signed (not notarized — that requires a paid Apple
 # Developer account). On the receiving Mac, macOS Gatekeeper will quarantine it,
@@ -15,7 +15,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_NAME="SSH Tunnel Manager"
+APP_NAME="Remote Stuff"
 BUNDLE="${APP_NAME}.app"
 ZIP_NAME="${APP_NAME} (Apple Silicon).zip"
 DIST_DIR="dist"
@@ -40,15 +40,15 @@ mkdir -p "$STAGE_DIR"
 cp -R "$BUNDLE" "$STAGE_DIR/"
 
 cat > "${STAGE_DIR}/READ ME FIRST.txt" <<'EOF'
-SSH Tunnel Manager — first launch on a new Mac
-==============================================
+Remote Stuff — first launch on a new Mac
+========================================
 
 Requirements: an Apple Silicon Mac (M1 or newer), macOS 13 or later.
 
 Because this app isn't notarized with a paid Apple Developer ID, macOS
 quarantines it after you copy it. Opening it the first time (no Terminal needed):
 
-  1. Drag "SSH Tunnel Manager.app" into your Applications folder.
+  1. Drag "Remote Stuff.app" into your Applications folder.
   2. Right-click (or Control-click) the app -> Open -> Open.
   3. If macOS still refuses, open System Settings -> Privacy & Security,
      scroll down, and click "Open Anyway", then confirm.

@@ -45,7 +45,7 @@ struct ContentView: View {
             .modifier(RemoveDefaultSidebarToggle())
         } detail: {
             TerminalAreaView()
-                .navigationTitle("SSH Tunnel Manager")
+                .navigationTitle("Remote Stuff")
                 .modifier(ReliableSidebarToggleToolbar())
         }
         .background(WindowAccessor())

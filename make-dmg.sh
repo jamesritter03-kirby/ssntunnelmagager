@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Builds a drag-to-Applications disk image:  dist/SSH Tunnel Manager.dmg
+# Builds a drag-to-Applications disk image:  dist/Remote Stuff.dmg
 #
 #   ./make-dmg.sh
 #
@@ -15,7 +15,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_NAME="SSH Tunnel Manager"
+APP_NAME="Remote Stuff"
 BUNDLE="${APP_NAME}.app"
 VOL_NAME="${APP_NAME}"
 DIST_DIR="dist"

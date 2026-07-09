@@ -1,4 +1,4 @@
-# SSH Tunnel Manager
+# Remote Stuff
 
 [![Verify appcast](https://github.com/jamesritter03-kirby/ssntunnelmagager/actions/workflows/verify-appcast.yml/badge.svg)](https://github.com/jamesritter03-kirby/ssntunnelmagager/actions/workflows/verify-appcast.yml)
 
@@ -111,7 +111,7 @@ Built with **SwiftUI** + [**SwiftTerm**](https://github.com/migueldeicaza/SwiftT
 ```bash
 # Build a double‑clickable app bundle:
 ./build-app.sh
-open "SSH Tunnel Manager.app"
+open "Remote Stuff.app"
 ```
 
 Or, for quick development iteration:
@@ -123,7 +123,7 @@ swift run
 To install it like a normal app:
 
 ```bash
-mv "SSH Tunnel Manager.app" /Applications/
+mv "Remote Stuff.app" /Applications/
 ```
 
 > The build script ad‑hoc code‑signs the app so macOS will launch it locally. The first
@@ -141,7 +141,7 @@ The app is built for **Apple Silicon (arm64)** — it runs on any M‑series Mac
 ./make-dmg.sh
 ```
 
-This produces **`dist/SSH Tunnel Manager.dmg`**. The recipient:
+This produces **`dist/Remote Stuff.dmg`**. The recipient:
 
 1. Double‑clicks the `.dmg` and **drags the app onto the Applications folder**.
 2. **First launch only:** right‑click (Control‑click) the app in Applications → **Open** →
@@ -167,13 +167,13 @@ This produces **`dist/SSH Tunnel Manager.dmg`**. The recipient:
 If an earlier version was run from the `.dmg` window or Downloads (not Applications), macOS
 may have **translocated** it (run it from a random read‑only path). Sparkle installs each
 update next to wherever the app is currently running, so from a translocated/read‑only spot
-it can't replace the app and you can end up with several copies (e.g. “SSH Tunnel
-Manager 2.app”). Newer versions self‑correct by offering to move into Applications on launch,
+it can't replace the app and you can end up with several copies (e.g. “Remote
+Stuff 2.app”). Newer versions self‑correct by offering to move into Applications on launch,
 but to clean up an already‑affected Mac:
 
-1. **Quit** SSH Tunnel Manager.
+1. **Quit** Remote Stuff.
 2. In **Applications** (and anywhere else copies landed, like **Downloads**), drag **every**
-   copy of *SSH Tunnel Manager* to the Trash.
+   copy of *Remote Stuff* to the Trash.
 3. Open the latest **`.dmg`** and **drag the app into Applications** (replace if asked).
 4. Open it from **Applications** (right‑click → **Open** the first time). If it offers to move
    itself to Applications, click **Move to Applications Folder**.
@@ -193,7 +193,7 @@ copies.
 ./package-dist.sh
 ```
 
-Produces **`dist/SSH Tunnel Manager (Apple Silicon).zip`** with the app and a
+Produces **`dist/Remote Stuff (Apple Silicon).zip`** with the app and a
 `READ ME FIRST.txt`. Same first‑launch step as above.
 
 > **Requirements on the other Mac:** Apple Silicon, macOS 13+. No Swift/Xcode needed — the

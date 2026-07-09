@@ -23,7 +23,7 @@ let titleAttrs: [NSAttributedString.Key: Any] = [
     .foregroundColor: NSColor(calibratedWhite: 0.20, alpha: 1),
     .paragraphStyle: title
 ]
-NSAttributedString(string: "Install SSH Tunnel Manager", attributes: titleAttrs)
+NSAttributedString(string: "Install Remote Stuff", attributes: titleAttrs)
     .draw(in: NSRect(x: 0, y: h - 64, width: w, height: 28))
 
 // Subtitle / instruction.
