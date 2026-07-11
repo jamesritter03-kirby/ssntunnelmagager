@@ -100,11 +100,56 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
                 let item = addAction(profile.name, #selector(connectProfile(_:)), to: menu)
                 item.representedObject = profile.id
                 item.indentationLevel = 1
-                item.image = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
+                item.image = NSImage(systemSymbolName: profile.isWorkspaceLauncher
+                                     ? "square.stack.3d.up.fill" : "network",
+                                     accessibilityDescription: nil)
                 if isActive(profile) {
                     item.state = .on            // checkmark = a tunnel is live
                     item.toolTip = "Connected — click to open another session"
                 }
+
+                // A submenu of per-profile actions (edit / SFTP / VNC), so the
+                // menu bar can do more than just connect.
+                let submenu = NSMenu()
+                let connect = NSMenuItem(title: "Connect", action: #selector(connectProfile(_:)), keyEquivalent: "")
+                connect.target = self
+                connect.representedObject = profile.id
+                submenu.addItem(connect)
+
+                let edit = NSMenuItem(title: "Edit…", action: #selector(editProfile(_:)), keyEquivalent: "")
+                edit.target = self
+                edit.representedObject = profile.id
+                submenu.addItem(edit)
+
+                if !profile.isLocal {
+                    let sftp = NSMenuItem(title: "Open SFTP", action: #selector(openSFTP(_:)), keyEquivalent: "")
+                    sftp.target = self
+                    sftp.representedObject = profile.id
+                    submenu.addItem(sftp)
+
+                    let vnc = NSMenuItem(title: "Open VNC", action: #selector(openVNC(_:)), keyEquivalent: "")
+                    vnc.target = self
+                    vnc.representedObject = profile.id
+                    submenu.addItem(vnc)
+                }
+                item.submenu = submenu
+            }
+        }
+        let newProfile = addAction("New Profile…", #selector(newProfile), to: menu)
+        newProfile.indentationLevel = 1
+        newProfile.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+
+        // MARK: Workspaces
+        if !sessions.savedWorkspaces.isEmpty {
+            menu.addItem(.separator())
+            addDisabled("Open Workspace", to: menu)
+            for saved in sessions.savedWorkspaces {
+                let item = addAction("\(saved.name) (\(saved.tabs.count))",
+                                     #selector(openWorkspace(_:)), to: menu)
+                item.representedObject = saved.id
+                item.indentationLevel = 1
+                item.image = NSImage(systemSymbolName: "square.stack.3d.up.fill",
+                                     accessibilityDescription: nil)
             }
         }
 
@@ -158,6 +203,59 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         menu.addItem(quit)
     }
 
+    // MARK: - Dock menu
+
+    /// Builds the menu shown when the user right-clicks (or Control-clicks) the
+    /// app's Dock icon. Mirrors the quick actions of the status-bar menu, with
+    /// submenus to connect a **profile** or open a saved **workspace**. Rebuilt on
+    /// every request (AppKit calls `applicationDockMenu` each time), so it always
+    /// reflects the current profiles and saved workspaces.
+    func buildDockMenu() -> NSMenu {
+        let menu = NSMenu()
+
+        // Profiles — inline if only a few, otherwise still inline (Dock menus are
+        // fine with a modest list). Each connects the profile.
+        if store.profiles.isEmpty {
+            addDisabled("No profiles yet", to: menu)
+        } else {
+            let header = NSMenuItem(title: "Connect Profile", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for profile in store.profiles {
+                let item = addAction("  " + profile.name, #selector(connectProfile(_:)), to: menu)
+                item.representedObject = profile.id
+                item.image = NSImage(systemSymbolName: profile.isWorkspaceLauncher
+                                     ? "square.stack.3d.up.fill" : "network",
+                                     accessibilityDescription: nil)
+                if isActive(profile) { item.state = .on }
+            }
+        }
+
+        // Saved workspaces — each reopens its tabs.
+        if !sessions.savedWorkspaces.isEmpty {
+            menu.addItem(.separator())
+            let header = NSMenuItem(title: "Open Workspace", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for saved in sessions.savedWorkspaces {
+                let item = addAction("  \(saved.name) (\(saved.tabs.count))",
+                                     #selector(openWorkspace(_:)), to: menu)
+                item.representedObject = saved.id
+                item.image = NSImage(systemSymbolName: "square.stack.3d.up.fill",
+                                     accessibilityDescription: nil)
+            }
+        }
+
+        return menu
+    }
+
+    @objc private func openWorkspace(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let saved = sessions.savedWorkspaces.first(where: { $0.id == id }) else { return }
+        WindowManager.shared.showMainWindow()
+        sessions.openSavedWorkspace(saved)
+    }
+
     // MARK: - Menu builders
 
     @discardableResult
@@ -194,6 +292,32 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
               let profile = store.profiles.first(where: { $0.id == id }) else { return }
         WindowManager.shared.showMainWindow()
         sessions.connect(profile: profile)
+    }
+
+    @objc private func editProfile(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let profile = store.profiles.first(where: { $0.id == id }) else { return }
+        WindowManager.shared.showMainWindow()
+        ProfileEditCoordinator.shared.profileToEdit = profile
+    }
+
+    @objc private func newProfile() {
+        WindowManager.shared.showMainWindow()
+        ProfileEditCoordinator.shared.profileToEdit = SSHProfile()
+    }
+
+    @objc private func openSFTP(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let profile = store.profiles.first(where: { $0.id == id }) else { return }
+        WindowManager.shared.showMainWindow()
+        sessions.connectSFTP(profile: profile)
+    }
+
+    @objc private func openVNC(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let profile = store.profiles.first(where: { $0.id == id }) else { return }
+        WindowManager.shared.showMainWindow()
+        sessions.connectVNC(profile: profile)
     }
 
     @objc private func focusSession(_ sender: NSMenuItem) {

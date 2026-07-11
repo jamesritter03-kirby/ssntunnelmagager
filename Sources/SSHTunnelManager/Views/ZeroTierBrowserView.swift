@@ -46,6 +46,8 @@ struct ZeroTierBrowserView: View {
     /// A member awaiting confirmation before being deauthorized (kicked off the
     /// network). Authorizing happens immediately; deauthorizing asks first.
     @State private var memberPendingDeauth: ZeroTierMember?
+    /// The network id just copied to the clipboard, to briefly show a checkmark.
+    @State private var copiedNetworkID: String?
 
     // New-account form (in the accounts manager).
     @State private var newLabel = ""
@@ -320,6 +322,31 @@ struct ZeroTierBrowserView: View {
                 Spacer(minLength: 4)
                 localBadge(for: network.id)
             }
+            // The 16-hex-digit network id, click (or right-click ▸ Copy) to copy.
+            Button {
+                copyNetworkID(network.id)
+            } label: {
+                HStack(spacing: 3) {
+                    Text(network.id)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Image(systemName: copiedNetworkID == network.id
+                          ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 8))
+                        .foregroundStyle(copiedNetworkID == network.id ? Color.green : Color.secondary.opacity(0.6))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Click to copy this network ID (\(network.id))")
+            .contextMenu {
+                Button {
+                    copyNetworkID(network.id)
+                } label: {
+                    Label("Copy Network ID", systemImage: "doc.on.doc")
+                }
+            }
             HStack(spacing: 4) {
                 Circle()
                     .fill(onlineCount(for: network.id) > 0 ? Color.green : Color.secondary.opacity(0.5))
@@ -331,6 +358,17 @@ struct ZeroTierBrowserView: View {
         }
         .padding(.vertical, 2)
     }
+
+    /// Copy a network id to the clipboard and briefly show a checkmark on its row.
+    private func copyNetworkID(_ id: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(id, forType: .string)
+        copiedNetworkID = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            if copiedNetworkID == id { copiedNetworkID = nil }
+        }
+    }
+
 
     /// A small marker on a network row showing this Mac's own relationship to it:
     /// a green check when actively connected, a dashed ring when it's joined but

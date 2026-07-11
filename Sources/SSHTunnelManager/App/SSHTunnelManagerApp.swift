@@ -62,6 +62,59 @@ struct SSHTunnelManagerApp: App {
                 Divider()
                 Button("Manage Known Hosts…") { KnownHostsModel.shared.present() }
             }
+            CommandMenu("Profiles") {
+                Button("New Profile…") {
+                    WindowManager.shared.showMainWindow()
+                    ProfileEditCoordinator.shared.profileToEdit = SSHProfile()
+                }
+                Divider()
+                Menu("Connect") {
+                    if store.profiles.isEmpty {
+                        Button("No profiles yet") {}.disabled(true)
+                    } else {
+                        ForEach(store.profiles) { profile in
+                            Button(profile.name) {
+                                WindowManager.shared.showMainWindow()
+                                sessions.connect(profile: profile)
+                            }
+                        }
+                    }
+                }
+                .disabled(store.profiles.isEmpty)
+                Menu("Edit") {
+                    ForEach(store.profiles) { profile in
+                        Button(profile.name) {
+                            WindowManager.shared.showMainWindow()
+                            ProfileEditCoordinator.shared.profileToEdit = profile
+                        }
+                    }
+                }
+                .disabled(store.profiles.isEmpty)
+                Menu("Open SFTP") {
+                    ForEach(store.profiles.filter { !$0.isLocal }) { profile in
+                        Button(profile.name) {
+                            WindowManager.shared.showMainWindow()
+                            sessions.connectSFTP(profile: profile)
+                        }
+                    }
+                }
+                .disabled(store.profiles.allSatisfy { $0.isLocal })
+                Menu("Open VNC") {
+                    ForEach(store.profiles.filter { !$0.isLocal }) { profile in
+                        Button(profile.name) {
+                            WindowManager.shared.showMainWindow()
+                            sessions.connectVNC(profile: profile)
+                        }
+                    }
+                }
+                .disabled(store.profiles.allSatisfy { $0.isLocal })
+                Divider()
+                Button("Import Profiles…") { ProfileTransfer.importFlow(into: store) }
+                Button("Export All Profiles…") {
+                    ProfileTransfer.exportFlow(store.profiles, suggestedName: "SSH Tunnels.json")
+                }
+                .disabled(store.profiles.isEmpty)
+            }
             CommandMenu("Commands") {
                 Button("Command Palette…") { CommandPaletteModel.shared.show() }
                     .keyboardShortcut("k", modifiers: .command)
@@ -102,6 +155,36 @@ struct SSHTunnelManagerApp: App {
                 Button("Previous Workspace") { sessions.selectPreviousWorkspace() }
                     .keyboardShortcut("[", modifiers: [.command, .shift])
                     .disabled(sessions.workspaces.count < 2)
+                Divider()
+                Button("Save Current Workspace…") {
+                    WorkspacePrompt.saveCurrentWorkspace(using: sessions)
+                }
+                .disabled(sessions.centerSessions.isEmpty)
+                Button("Save Current Workspace as Profile…") {
+                    WorkspacePrompt.saveWorkspaceAsProfile(using: sessions)
+                }
+                .disabled(sessions.centerSessions.isEmpty)
+                Menu("Open Saved Workspace") {
+                    if sessions.savedWorkspaces.isEmpty {
+                        Button("No saved workspaces") {}
+                            .disabled(true)
+                    } else {
+                        ForEach(sessions.savedWorkspaces) { saved in
+                            Button("\(saved.name) (\(saved.tabs.count))") {
+                                sessions.openSavedWorkspace(saved)
+                            }
+                        }
+                    }
+                }
+                .disabled(sessions.savedWorkspaces.isEmpty)
+                Menu("Delete Saved Workspace") {
+                    ForEach(sessions.savedWorkspaces) { saved in
+                        Button("\(saved.name) (\(saved.tabs.count))") {
+                            sessions.deleteSavedWorkspace(saved.id)
+                        }
+                    }
+                }
+                .disabled(sessions.savedWorkspaces.isEmpty)
             }
             CommandGroup(after: .windowArrangement) {
                 Button("Detach Tab into New Window") {
@@ -282,4 +365,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return true
     }
+
+    // The menu shown when the user right-/Control-clicks the Dock icon: quick
+    // actions to connect a profile or open a saved workspace. Built fresh each
+    // time by the menu-bar controller so it reflects the current lists.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        menuBarController?.buildDockMenu()
+    }
 }
+
+/// Helpers for the Workspace menu-bar commands that need a modal prompt (which
+/// SwiftUI menu buttons can't show directly). Kept here so the `App`'s
+/// `.commands` closures stay small.
+enum WorkspacePrompt {
+    /// Ask for a name, then save the current workspace's tabs under it. Pre-fills
+    /// the current workspace's name so re-saving keeps it stable.
+    @MainActor
+    static func saveCurrentWorkspace(using sessions: TerminalSessionManager) {
+        WindowManager.shared.showMainWindow()
+
+        let alert = NSAlert()
+        alert.messageText = "Save Current Workspace"
+        alert.informativeText = "Give this set of tabs a name so you can reopen them later."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "Workspace name"
+        field.stringValue = sessions.currentWorkspace?.name ?? ""
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return }
+            sessions.saveCurrentWorkspace(name: name)
+        }
+    }
+
+    /// Ask for a name, then turn the current workspace into a launcher profile
+    /// that reopens its tabs, and open the new profile's editor to finish setup.
+    @MainActor
+    static func saveWorkspaceAsProfile(using sessions: TerminalSessionManager) {
+        WindowManager.shared.showMainWindow()
+        guard let current = sessions.currentWorkspace else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Save Workspace as Profile"
+        alert.informativeText = "Create a profile that reopens this workspace's tabs. It appears in the sidebar and welcome screen."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "Profile name"
+        field.stringValue = current.name
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return }
+            if let profile = sessions.saveWorkspaceAsProfile(current.id, name: name) {
+                ProfileEditCoordinator.shared.profileToEdit = profile
+            }
+        }
+    }
+}
+

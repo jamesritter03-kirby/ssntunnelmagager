@@ -1261,6 +1261,27 @@ private struct TerminalTabContextMenu: View {
         return (effectiveProfile.map { !$0.isLocal }) ?? false
     }
 
+    /// The host / IP address this tab connects to, for "Copy IP Address". Prefers
+    /// the backing profile's host (the real server), falling back to the tab's
+    /// own service host for ad-hoc connections. Empty (menu item hidden) for a
+    /// local shell or a tab that reaches nothing over the network.
+    private var copyableHost: String {
+        if session.kind == .localShell { return "" }
+        if let profile = effectiveProfile, !profile.isLocal {
+            let h = profile.host.trimmingCharacters(in: .whitespaces)
+            if !h.isEmpty { return h }
+        }
+        return session.serviceHost.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Copy the tab's host / IP address to the clipboard.
+    private func copyIPAddress() {
+        let host = copyableHost
+        guard !host.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(host, forType: .string)
+    }
+
     /// Open an SFTP file-transfer tab to the same server as this connection.
     private func launchSFTP() {
         if let profile = effectiveProfile, !profile.isLocal {
@@ -1401,6 +1422,15 @@ private struct TerminalTabContextMenu: View {
            (!profile.snippets.isEmpty && (session.kind == .ssh || session.kind == .localShell))
            || !profile.links.isEmpty || !profile.categorizedForwards.isEmpty {
             Divider()
+        }
+        // Copy the tab's server host / IP to the clipboard (any network-backed
+        // tab: ssh, sftp, vnc, mqtt, redis, web — anything but a local shell).
+        if !copyableHost.isEmpty {
+            Button {
+                copyIPAddress()
+            } label: {
+                Label("Copy IP Address", systemImage: "network")
+            }
         }
         if session.kind != .web && session.kind != .finder && session.kind != .editor
             && session.kind != .spreadsheet {

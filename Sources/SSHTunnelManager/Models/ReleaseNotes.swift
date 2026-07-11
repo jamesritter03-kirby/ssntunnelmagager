@@ -45,6 +45,16 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.35", build: 45, date: "Jul 11, 2026",
+            highlights: [
+                "Quick access everywhere: the macOS menu-bar icon and the Dock-icon menu now list your profiles (with Connect / Edit / SFTP / VNC) and let you reopen a saved workspace — even while you're in another app.",
+                "New Profiles and richer Workspace menus in the menu bar: connect, edit, open SFTP/VNC, import/export, save the current workspace (or save it as a profile), and open or delete a saved workspace.",
+                "Right-click a terminal tab ▸ Copy IP Address to put the server's host/IP on the clipboard.",
+                "ZeroTier browser: each network now shows its network ID — click (or right-click ▸ Copy) to copy it.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.34", build: 44, date: "Jul 9, 2026",
             highlights: [
                 "ZeroTier at a glance: a profile whose host is one of your ZeroTier device IPs (picked with the globe button next to the host field) now shows a green “online” or grey “offline” dot in the sidebar and on the welcome screen.",
@@ -55,7 +65,7 @@ enum ReleaseCatalog {
                 "Fixed: MQTT and Redis service tabs saved in a workspace now remember their passwords, so they reconnect on the next launch without asking again.",
                 "Fixed: tabs in a shared workspace launcher now connect to the launcher’s own host, and duplicating a profile also copies its saved workspace.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.33", build: 43, date: "Jul 8, 2026",
