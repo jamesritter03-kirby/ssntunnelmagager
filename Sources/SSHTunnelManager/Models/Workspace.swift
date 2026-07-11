@@ -250,12 +250,17 @@ struct SessionSnapshot: Codable {
     /// The user-chosen tab tint, if any (nil = default). Optional so older
     /// snapshots still decode.
     var tabColor: TabColor? = nil
+    /// A command this tab auto-runs on launch, set from the tab's “Run on
+    /// Launch…” menu. For profile-backed tabs the profile's own runOnConnect is
+    /// used instead; this carries the per-tab override for ad-hoc / workspace
+    /// tabs. Optional so older snapshots still decode.
+    var runOnConnect: String? = nil
 
     init(kind: TerminalSession.Kind, profileID: UUID? = nil, webURL: String? = nil,
          title: String? = nil, servicePort: Int? = nil,
          serviceHost: String? = nil, serviceUsername: String? = nil,
          editorBackupID: UUID? = nil, credentialID: UUID? = nil,
-         tabColor: TabColor? = nil) {
+         tabColor: TabColor? = nil, runOnConnect: String? = nil) {
         self.kind = kind
         self.profileID = profileID
         self.webURL = webURL
@@ -266,6 +271,7 @@ struct SessionSnapshot: Codable {
         self.editorBackupID = editorBackupID
         self.credentialID = credentialID
         self.tabColor = tabColor
+        self.runOnConnect = runOnConnect
     }
 }
 
@@ -273,7 +279,7 @@ struct SessionSnapshot: Codable {
 // (the synthesized one would throw on the missing key and drop the resume state).
 extension SessionSnapshot {
     enum CodingKeys: String, CodingKey {
-        case kind, profileID, webURL, title, servicePort, serviceHost, serviceUsername, editorBackupID, credentialID, tabColor
+        case kind, profileID, webURL, title, servicePort, serviceHost, serviceUsername, editorBackupID, credentialID, tabColor, runOnConnect
     }
 
     init(from decoder: Decoder) throws {
@@ -288,6 +294,7 @@ extension SessionSnapshot {
         editorBackupID = try c.decodeIfPresent(UUID.self, forKey: .editorBackupID)
         credentialID = try c.decodeIfPresent(UUID.self, forKey: .credentialID)
         tabColor = try c.decodeIfPresent(TabColor.self, forKey: .tabColor)
+        runOnConnect = try c.decodeIfPresent(String.self, forKey: .runOnConnect)
     }
 }
 

@@ -45,6 +45,15 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.36", build: 46, date: "Jul 11, 2026",
+            highlights: [
+                "Run a command when a tab launches: right-click a terminal tab ▸ Run Command on Launch… to auto-run something each time it connects. It's saved to the profile (or the workspace, for ad-hoc tabs) and carried through Save Workspace as Profile.",
+                "A tab running a launch command is named after that command's program (e.g. “tmux” or “htop”), so it's easy to tell apart at a glance.",
+                "Terminal tabs now show a terminal icon instead of the network globe.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.35", build: 45, date: "Jul 11, 2026",
             highlights: [
                 "Quick access everywhere: the macOS menu-bar icon and the Dock-icon menu now list your profiles (with Connect / Edit / SFTP / VNC) and let you reopen a saved workspace — even while you're in another app.",
@@ -52,7 +61,7 @@ enum ReleaseCatalog {
                 "Right-click a terminal tab ▸ Copy IP Address to put the server's host/IP on the clipboard.",
                 "ZeroTier browser: each network now shows its network ID — click (or right-click ▸ Copy) to copy it.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.34", build: 44, date: "Jul 9, 2026",

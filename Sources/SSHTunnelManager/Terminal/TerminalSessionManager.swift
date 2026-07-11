@@ -2504,7 +2504,8 @@ final class TerminalSessionManager: ObservableObject {
                                servicePort: s.servicePort,
                                serviceHost: host, serviceUsername: user,
                                editorBackupID: s.textEditorModel?.id,
-                               tabColor: s.tabColor)
+                               tabColor: s.tabColor,
+                               runOnConnect: s.runOnConnectCommand)
     }
 
     /// Snapshot a workspace's side drawers by tab index (matching `snapshotTabs`
@@ -2707,6 +2708,13 @@ final class TerminalSessionManager: ObservableObject {
         // the open reused an existing tab or created none).
         if let color = snap.tabColor, sessions.count > tabCountBefore {
             sessions.last?.tabColor = color
+        }
+        // Re-apply a per-tab run-on-launch override (ad-hoc / workspace tabs;
+        // profile-backed tabs already inherit the profile's runOnConnect). Set
+        // right after creation, before shell output lands, so it fires normally.
+        if let cmd = snap.runOnConnect, !cmd.isEmpty,
+           snap.profileID == nil, sessions.count > tabCountBefore {
+            sessions.last?.runOnConnectCommand = cmd
         }
     }
 

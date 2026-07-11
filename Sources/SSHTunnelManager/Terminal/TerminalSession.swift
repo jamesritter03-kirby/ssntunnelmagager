@@ -83,8 +83,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     let startDirectory: String?
 
     /// A command typed and run automatically once the shell is ready
-    /// (`profile.runOnConnect`). Nil / empty = nothing is auto-run.
-    let runOnConnectCommand: String?
+    /// (`profile.runOnConnect`, or a per-tab override set from the tab menu).
+    /// Nil / empty = nothing is auto-run.
+    var runOnConnectCommand: String?
     /// Whether this session's output is being recorded to a log file.
     let sessionLoggingEnabled: Bool
     /// For profile-backed ssh tunnels: the ControlMaster socket path, so forwards
@@ -161,7 +162,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         }
         switch kind {
         case .localShell: return "terminal"
-        case .ssh:        return "network"
+        case .ssh:        return "terminal"
         case .sftp:       return "arrow.up.arrow.down"
         case .vnc:        return "display"
         case .web:        return "globe"
@@ -757,9 +758,59 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
                 self.runOnConnectFired = false   // a prompt is up — wait for it to clear
                 return
             }
+            self.applyRunOnConnectTitle(command)
             self.run(command)
         }
     }
+
+    /// Set (or clear) the command this tab auto-runs on launch. Normalises the
+    /// value, so an empty/whitespace string disables it. When `runNow` is true and
+    /// the shell is already running, the new command is also run immediately (so
+    /// the user sees it take effect without reconnecting); otherwise it just arms
+    /// for the next launch/reconnect.
+    func setRunOnConnect(_ command: String, runNow: Bool = false) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        runOnConnectCommand = trimmed.isEmpty ? nil : trimmed
+        runOnConnectFired = true   // don't let the output watcher double-fire it
+        if let c = runOnConnectCommand {
+            applyRunOnConnectTitle(c)
+            if runNow, isRunning, !secretPromptActive { run(c) }
+        }
+    }
+
+    /// Name the tab after the base program of its launch command — the first
+    /// meaningful token, stripped of any path and switches (e.g. "tmux attach ||
+    /// tmux new" → "tmux", "/usr/bin/htop -d 5" → "htop"). Leading environment
+    /// assignments and common wrappers (sudo / env) are skipped so the name
+    /// reflects the actual program. No-op if nothing usable is found.
+    private func applyRunOnConnectTitle(_ command: String) {
+        if let name = TerminalSession.baseCommandName(command) {
+            title = name
+        }
+    }
+
+    /// Extract the base program name from a shell command line. Splits on
+    /// whitespace, skips `NAME=value` env assignments and the `sudo`/`env`
+    /// wrappers, then returns the last path component of the first real token.
+    /// Returns nil for an empty command or one that's only assignments/wrappers.
+    static func baseCommandName(_ command: String) -> String? {
+        let tokens = command
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+        for token in tokens {
+            // Skip env assignments (FOO=bar) and shell wrappers.
+            if token.contains("=") && !token.hasPrefix("/") { continue }
+            if token == "sudo" || token == "env" || token == "command" || token == "exec" { continue }
+            // Skip leading switches (shouldn't lead, but be safe).
+            if token.hasPrefix("-") { continue }
+            let base = (token as NSString).lastPathComponent
+            let cleaned = base.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty { return cleaned }
+        }
+        return nil
+    }
+
 
     // MARK: - Session logging
 

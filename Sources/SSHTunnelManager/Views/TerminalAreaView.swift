@@ -1282,6 +1282,52 @@ private struct TerminalTabContextMenu: View {
         NSPasteboard.general.setString(host, forType: .string)
     }
 
+    /// The command this tab currently auto-runs on launch (its live value, which
+    /// for a profile-backed tab starts from the profile's runOnConnect).
+    private var currentRunOnConnect: String {
+        session.runOnConnectCommand ?? ""
+    }
+
+    /// Prompt for a command to auto-run when this tab launches, and store it. For
+    /// a profile-backed tab it's saved to the profile (so every launch of that
+    /// profile runs it); for an ad-hoc / workspace tab it's kept on the tab and
+    /// persisted with the workspace. Offers to run it now if the shell is live.
+    private func configureRunOnConnect() {
+        let alert = NSAlert()
+        alert.messageText = "Run Command on Launch"
+        alert.informativeText = profile != nil
+            ? "This command runs automatically each time this profile's terminal connects (saved to the profile). Leave blank to disable."
+            : "This command runs automatically when this tab launches (saved with the workspace). Leave blank to disable."
+        alert.addButton(withTitle: "Save")
+        if session.isRunning { alert.addButton(withTitle: "Save & Run Now") }
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.placeholderString = "e.g. tmux attach || tmux new"
+        field.stringValue = currentRunOnConnect
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+
+        let response = alert.runModal()
+        // With the optional "Save & Run Now" button, the Cancel button is the
+        // last one; anything that isn't Cancel is a save.
+        let isCancel = (session.isRunning && response == .alertThirdButtonReturn)
+            || (!session.isRunning && response == .alertSecondButtonReturn)
+        guard !isCancel else { return }
+        let runNow = session.isRunning && response == .alertSecondButtonReturn
+
+        let command = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let profile {
+            // Persist to the profile so future connections inherit it too.
+            var updated = profile
+            updated.runOnConnect = command
+            store.update(updated)
+        }
+        // Apply to the live tab (and run immediately if requested).
+        session.setRunOnConnect(command, runNow: runNow)
+    }
+
     /// Open an SFTP file-transfer tab to the same server as this connection.
     private func launchSFTP() {
         if let profile = effectiveProfile, !profile.isLocal {
@@ -1472,6 +1518,13 @@ private struct TerminalTabContextMenu: View {
                 session.clearTerminal()
             } label: {
                 Label("Clear Terminal", systemImage: "clear")
+            }
+            Button {
+                configureRunOnConnect()
+            } label: {
+                Label(currentRunOnConnect.isEmpty ? "Run Command on Launch…"
+                                                   : "Edit Launch Command…",
+                      systemImage: "terminal.fill")
             }
             if session.hasSessionLog {
                 Button {
