@@ -131,6 +131,18 @@ final class ProfileStore: ObservableObject {
         }
     }
 
+    /// Reorder the profiles identified by `orderedIDs` so they appear in that
+    /// order, keeping the slots they currently occupy in the master array (so
+    /// other groups' rows stay put). Used by the sidebar's `.onMove` reorder.
+    func reorderSection(orderedIDs: [UUID]) {
+        let idSet = Set(orderedIDs)
+        let slots = profiles.indices.filter { idSet.contains(profiles[$0].id) }
+        let byID = Dictionary(profiles.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let ordered = orderedIDs.compactMap { byID[$0] }
+        guard slots.count == ordered.count else { return }
+        for (slot, prof) in zip(slots, ordered) { profiles[slot] = prof }
+    }
+
     /// Append imported profiles, giving each a unique display name so they don't
     /// visually collide with existing ones. Returns the number added.
     @discardableResult

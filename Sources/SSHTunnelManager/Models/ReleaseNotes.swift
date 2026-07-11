@@ -45,13 +45,24 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.37", build: 47, date: "Jul 11, 2026",
+            highlights: [
+                "Sidebar multi-select: ⌘-click or ⇧-click to select several profiles at once, then right-click to Connect, Disconnect, favourite, export, or delete them in one go. Press Esc to clear the selection.",
+                "Favourites section is now collapsible, with a right-click ▸ Connect All Favourites (and Disconnect All) on its header.",
+                "New online filter in the sidebar search bar: show only profiles whose host is an online ZeroTier device (or currently connected).",
+                "Profiles set to connect automatically at launch now show a lightning-bolt badge in the sidebar.",
+                "Reorder profiles by dragging within a section, or via the new right-click ▸ Move commands.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.36", build: 46, date: "Jul 11, 2026",
             highlights: [
                 "Run a command when a tab launches: right-click a terminal tab ▸ Run Command on Launch… to auto-run something each time it connects. It's saved to the profile (or the workspace, for ad-hoc tabs) and carried through Save Workspace as Profile.",
                 "A tab running a launch command is named after that command's program (e.g. “tmux” or “htop”), so it's easy to tell apart at a glance.",
                 "Terminal tabs now show a terminal icon instead of the network globe.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.35", build: 45, date: "Jul 11, 2026",

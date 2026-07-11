@@ -12,21 +12,55 @@ struct SidebarView: View {
     var onDuplicate: (SSHProfile) -> Void
 
     @State private var searchText = ""
+    /// When on, only profiles whose host is an online ZeroTier device are shown.
+    @State private var showOnlineOnly = false
+    /// ZeroTier device list, observed so the online filter/glyphs update live.
+    @ObservedObject private var zeroTier = ZeroTierStore.shared
     /// Group names the user has collapsed in the sidebar.
     @State private var collapsedGroups: Set<String> = []
-    /// The profile currently being dragged to reorder, if any.
-    @State private var draggingProfileID: UUID?
+    /// Whether the Favourites section is collapsed.
+    @State private var favoritesCollapsed = false
+    /// Multi-selected *row* ids (section-scoped, see `SectionedProfile.id`).
+    /// Using the section-scoped id keeps identities unique even when a favourite
+    /// is rendered twice, which is required for List multi-selection to work.
+    @State private var multiSelection: Set<String> = []
 
-    /// Profiles matching the current search text (name / host / user / group).
+    /// The distinct profile UUIDs currently selected (deduped across sections).
+    private var selectedProfileIDs: Set<UUID> {
+        Set(multiSelection.compactMap(Self.profileID(fromTag:)))
+    }
+
+    /// The distinct selected profiles, looked up fresh from the store.
+    private var selectedProfiles: [SSHProfile] {
+        let ids = selectedProfileIDs
+        return store.profiles.filter { ids.contains($0.id) }
+    }
+
+    /// Extract the profile UUID from a section-scoped row tag.
+    private static func profileID(fromTag tag: String) -> UUID? {
+        guard let last = tag.split(separator: "\u{1F}").last else { return nil }
+        return UUID(uuidString: String(last))
+    }
+
+    /// Profiles matching the current search text (name / host / user / group)
+    /// and the online-only filter, when enabled.
     private var filteredProfiles: [SSHProfile] {
         let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return store.profiles }
-        return store.profiles.filter {
-            $0.name.lowercased().contains(q)
-                || $0.host.lowercased().contains(q)
-                || $0.username.lowercased().contains(q)
-                || $0.trimmedGroup.lowercased().contains(q)
+        return store.profiles.filter { profile in
+            if showOnlineOnly && !isOnline(profile) { return false }
+            guard !q.isEmpty else { return true }
+            return profile.name.lowercased().contains(q)
+                || profile.host.lowercased().contains(q)
+                || profile.username.lowercased().contains(q)
+                || profile.trimmedGroup.lowercased().contains(q)
         }
+    }
+
+    /// A profile counts as "online" when its host resolves to a ZeroTier device
+    /// that's currently online, or it has a live connected session.
+    private func isOnline(_ profile: SSHProfile) -> Bool {
+        if sessions.isConnected(profile: profile) { return true }
+        return zeroTier.member(forIP: profile.host)?.isOnline ?? false
     }
 
     private var favoriteProfiles: [SSHProfile] {
@@ -50,54 +84,8 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             searchField
             Divider()
-            List(selection: $selectedProfileID) {
-                if store.profiles.isEmpty {
-                    Section("Profiles") {
-                        EmptyStateView(icon: "person.crop.rectangle.stack",
-                                       title: "No profiles yet",
-                                       message: "Click + to add one.")
-                    }
-                } else if filteredProfiles.isEmpty {
-                    Section("Profiles") {
-                        Text("No matches for “\(searchText)”")
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    if !favoriteProfiles.isEmpty {
-                        Section("Favourites") {
-                            ForEach(favoriteProfiles.map { SectionedProfile(profile: $0, section: "★") }) { item in
-                                reorderableRow(item.profile, in: favoriteProfiles)
-                            }
-                        }
-                    }
-                    ForEach(groupedProfiles, id: \.group) { entry in
-                        Section {
-                            if !collapsedGroups.contains(entry.group) {
-                                ForEach(entry.profiles.map { SectionedProfile(profile: $0, section: entry.group) }) { item in
-                                    reorderableRow(item.profile, in: entry.profiles)
-                                }
-                            }
-                        } header: {
-                            groupHeader(entry.group, count: entry.profiles.count)
-                        }
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-            // Attach the row menu at the List level, keyed by the *actually*
-            // right-clicked id, and look the profile up fresh from the store when
-            // the menu opens. A per-row `.contextMenu` is memoized by SwiftUI and
-            // gets recycled with stale data — which made right-click ▸ Connect use
-            // the last-edited profile's values instead of the clicked row's.
-            .contextMenu(forSelectionType: UUID.self) { ids in
-                if let id = ids.first,
-                   let profile = store.profiles.first(where: { $0.id == id }) {
-                    profileContextMenu(profile)
-                }
-            }
-
+            profileList
             Divider()
-
             bottomBar
         }
         .toolbar {
@@ -108,6 +96,122 @@ struct SidebarView: View {
                 .help("Add a new profile")
             }
         }
+    }
+
+    private var profileList: some View {
+        List(selection: $multiSelection) {
+            if store.profiles.isEmpty {
+                Section("Profiles") {
+                    EmptyStateView(icon: "person.crop.rectangle.stack",
+                                   title: "No profiles yet",
+                                   message: "Click + to add one.")
+                }
+            } else if filteredProfiles.isEmpty {
+                Section("Profiles") {
+                    if showOnlineOnly && searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Text("No online devices")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("No matches for “\(searchText)”")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                if !favoriteProfiles.isEmpty {
+                    Section {
+                        if !favoritesCollapsed {
+                            ForEach(favoriteProfiles.map { SectionedProfile(profile: $0, section: "★") }) { item in
+                                reorderableRow(item.profile, sectionKey: "★")
+                            }
+                            .onMove { from, to in
+                                moveWithinSection(favoriteProfiles, from: from, to: to)
+                            }
+                        }
+                    } header: {
+                        favoritesHeader(count: favoriteProfiles.count)
+                    }
+                }
+                ForEach(groupedProfiles, id: \.group) { entry in
+                    Section {
+                        if !collapsedGroups.contains(entry.group) {
+                            ForEach(entry.profiles.map { SectionedProfile(profile: $0, section: entry.group) }) { item in
+                                reorderableRow(item.profile, sectionKey: entry.group)
+                            }
+                            .onMove { from, to in
+                                moveWithinSection(entry.profiles, from: from, to: to)
+                            }
+                        }
+                    } header: {
+                        groupHeader(entry.group, count: entry.profiles.count)
+                    }
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        // Attach the row menu at the List level, keyed by the *actually*
+        // right-clicked id, and look the profile up fresh from the store when
+        // the menu opens. A per-row `.contextMenu` is memoized by SwiftUI and
+        // gets recycled with stale data — which made right-click ▸ Connect use
+        // the last-edited profile's values instead of the clicked row's.
+        .contextMenu(forSelectionType: String.self) { tags in
+            let ids = Set(tags.compactMap(Self.profileID(fromTag:)))
+            if ids.count > 1 {
+                multiProfileContextMenu(ids)
+            } else if let id = ids.first,
+                      let profile = store.profiles.first(where: { $0.id == id }) {
+                profileContextMenu(profile)
+            }
+        }
+        .onChange(of: multiSelection) { _ in
+            syncSelectionOut(selectedProfileIDs)
+        }
+        .onChange(of: selectedProfileID) { newValue in
+            syncSelectionIn(newValue)
+        }
+        .onAppear {
+            syncSelectionIn(selectedProfileID)
+        }
+        // Esc clears the sidebar selection (and the highlighted detail row).
+        .onExitCommand {
+            multiSelection = []
+            selectedProfileID = nil
+        }
+    }
+
+    /// Drive the detail view from the most recent single pick. When a
+    /// multi-selection collapses to one row, reflect it; clear when empty.
+    private func syncSelectionOut(_ newValue: Set<UUID>) {
+        if newValue.count == 1, let id = newValue.first {
+            if selectedProfileID != id { selectedProfileID = id }
+        } else if newValue.isEmpty {
+            selectedProfileID = nil
+        }
+    }
+
+    /// Reflect external selection changes (e.g. after create/import). Selects
+    /// every section tag that maps to the given profile so a favourite lights up
+    /// in both its Favourites row and its group row.
+    private func syncSelectionIn(_ newValue: UUID?) {
+        guard let id = newValue else {
+            if !multiSelection.isEmpty { multiSelection = [] }
+            return
+        }
+        // If the profile is already part of the current selection, leave the
+        // (possibly multi-) selection alone.
+        if selectedProfileIDs.contains(id) { return }
+        multiSelection = tags(for: id)
+    }
+
+    /// Every section-scoped row tag that renders the given profile id.
+    private func tags(for id: UUID) -> Set<String> {
+        var result: Set<String> = []
+        if favoriteProfiles.contains(where: { $0.id == id }) {
+            result.insert("★\u{1F}\(id.uuidString)")
+        }
+        for entry in groupedProfiles where entry.profiles.contains(where: { $0.id == id }) {
+            result.insert("\(entry.group)\u{1F}\(id.uuidString)")
+        }
+        return result
     }
 
     private var searchField: some View {
@@ -125,6 +229,15 @@ struct SidebarView: View {
                 .buttonStyle(.plain)
                 .help("Clear search")
             }
+            Button {
+                showOnlineOnly.toggle()
+            } label: {
+                Image(systemName: showOnlineOnly ? "wifi" : "wifi.slash")
+                    .foregroundStyle(showOnlineOnly ? Color.green : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(showOnlineOnly ? "Showing online devices only — click to show all"
+                                 : "Show only online devices")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -155,9 +268,101 @@ struct SidebarView: View {
         .buttonStyle(.plain)
     }
 
+    /// Collapsible header for the Favourites section, with a right-click menu to
+    /// connect to every favourite at once.
+    private func favoritesHeader(count: Int) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                favoritesCollapsed.toggle()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: favoritesCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 10)
+                Image(systemName: "star.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.yellow)
+                Text("Favourites")
+                Spacer()
+                Text("\(count)")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                connectAllFavorites()
+            } label: {
+                Label("Connect All Favourites", systemImage: "play.fill")
+            }
+            .disabled(favoriteProfiles.isEmpty)
+            Button {
+                for profile in favoriteProfiles where sessions.isConnected(profile: profile) {
+                    sessions.disconnect(profile: profile)
+                }
+            } label: {
+                Label("Disconnect All Favourites", systemImage: "stop.fill")
+            }
+        }
+    }
+
+    /// Connect to every favourite profile.
+    private func connectAllFavorites() {
+        for profile in favoriteProfiles where !sessions.isConnected(profile: profile) {
+            onConnect(profile)
+        }
+    }
+
+    /// Context menu shown when multiple profiles are selected.
+    @ViewBuilder
+    private func multiProfileContextMenu(_ ids: Set<UUID>) -> some View {
+        let profiles = store.profiles.filter { ids.contains($0.id) }
+        Button {
+            for profile in profiles where !sessions.isConnected(profile: profile) {
+                onConnect(profile)
+            }
+        } label: {
+            Label("Connect \(profiles.count) Profiles", systemImage: "play.fill")
+        }
+        Button {
+            for profile in profiles where sessions.isConnected(profile: profile) {
+                sessions.disconnect(profile: profile)
+            }
+        } label: {
+            Label("Disconnect \(profiles.count) Profiles", systemImage: "stop.fill")
+        }
+        Divider()
+        Button {
+            let allFav = profiles.allSatisfy(\.isFavorite)
+            for profile in profiles {
+                var updated = profile
+                updated.isFavorite = !allFav
+                store.update(updated)
+            }
+        } label: {
+            Label(profiles.allSatisfy(\.isFavorite) ? "Remove from Favourites" : "Add to Favourites",
+                  systemImage: profiles.allSatisfy(\.isFavorite) ? "star.slash" : "star")
+        }
+        Button {
+            ProfileTransfer.exportFlow(profiles, suggestedName: "Profiles")
+        } label: {
+            Label("Export \(profiles.count) Profiles…", systemImage: "square.and.arrow.up")
+        }
+        Divider()
+        Button(role: .destructive) {
+            for profile in profiles { store.delete(profile) }
+        } label: {
+            Label("Delete \(profiles.count) Profiles", systemImage: "trash")
+        }
+    }
+
     /// One profile row with its selection tag and right-click menu.
     @ViewBuilder
-    private func profileRow(_ profile: SSHProfile) -> some View {
+    private func profileRow(_ profile: SSHProfile, sectionKey: String) -> some View {
         ProfileRow(
             profile: profile,
             isConnected: sessions.isConnected(profile: profile),
@@ -165,7 +370,7 @@ struct SidebarView: View {
             onConnect: { onConnect(profile) },
             onDisconnect: { sessions.disconnect(profile: profile) }
         )
-        .tag(profile.id)
+        .tag("\(sectionKey)\u{1F}\(profile.id.uuidString)")
     }
 
     @ViewBuilder
@@ -234,6 +439,31 @@ struct SidebarView: View {
             Label(profile.isFavorite ? "Remove from Favourites" : "Add to Favourites",
                   systemImage: profile.isFavorite ? "star.slash" : "star")
         }
+        if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+            let section = canonicalSection(for: profile)
+            let idx = section.firstIndex(where: { $0.id == profile.id })
+            Menu {
+                Button {
+                    move(profile, in: section, to: 0)
+                } label: { Label("Move to Top", systemImage: "arrow.up.to.line") }
+                    .disabled(idx == 0)
+                Button {
+                    move(profile, in: section, by: -1)
+                } label: { Label("Move Up", systemImage: "arrow.up") }
+                    .disabled(idx == 0)
+                Button {
+                    move(profile, in: section, by: 1)
+                } label: { Label("Move Down", systemImage: "arrow.down") }
+                    .disabled(idx == section.count - 1)
+                Button {
+                    move(profile, in: section, to: section.count - 1)
+                } label: { Label("Move to Bottom", systemImage: "arrow.down.to.line") }
+                    .disabled(idx == section.count - 1)
+            } label: {
+                Label("Move", systemImage: "arrow.up.arrow.down")
+            }
+            .disabled(section.count < 2)
+        }
         Button {
             onEdit(profile)
         } label: {
@@ -265,6 +495,36 @@ struct SidebarView: View {
         store.update(updated)
     }
 
+    /// The section a profile canonically belongs to (its group), used to bound
+    /// the right-click ▸ Move commands.
+    private func canonicalSection(for profile: SSHProfile) -> [SSHProfile] {
+        groupedProfiles.first { $0.profiles.contains { $0.id == profile.id } }?.profiles ?? []
+    }
+
+    /// Move a profile by a relative offset within its section.
+    private func move(_ profile: SSHProfile, in section: [SSHProfile], by offset: Int) {
+        guard let idx = section.firstIndex(where: { $0.id == profile.id }) else { return }
+        move(profile, in: section, to: idx + offset)
+    }
+
+    /// Move a profile to an absolute index within its section.
+    private func move(_ profile: SSHProfile, in section: [SSHProfile], to dest: Int) {
+        guard let idx = section.firstIndex(where: { $0.id == profile.id }),
+              section.indices.contains(dest), dest != idx else { return }
+        if dest < idx {
+            // Insert before the profile currently occupying the destination slot.
+            store.move(id: profile.id, before: section[dest].id)
+        } else {
+            // Moving down: place after the destination by inserting before the
+            // row just past it, or append to the end of the section.
+            if dest + 1 < section.count {
+                store.move(id: profile.id, before: section[dest + 1].id)
+            } else if let after = section.last {
+                store.move(id: after.id, before: profile.id)
+            }
+        }
+    }
+
     /// A profile row wrapped with drag-to-reorder support. Dragging a row and
     /// dropping it onto another row in the **same section** reorders them (and
     /// persists the order). `.onMove` is unreliable on a macOS `.sidebar` List, so
@@ -272,21 +532,18 @@ struct SidebarView: View {
     /// backing honours. Reordering is disabled while a search filter is active
     /// (the visible rows are only a subset) — clear the search to reorder.
     @ViewBuilder
-    private func reorderableRow(_ profile: SSHProfile, in section: [SSHProfile]) -> some View {
-        if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-            profileRow(profile)
-                .onDrag {
-                    draggingProfileID = profile.id
-                    return NSItemProvider(object: profile.id.uuidString as NSString)
-                }
-                .onDrop(of: [.text], delegate: ProfileReorderDropDelegate(
-                    target: profile,
-                    sectionIDs: section.map(\.id),
-                    draggingID: $draggingProfileID,
-                    store: store))
-        } else {
-            profileRow(profile)
-        }
+    /// A profile row. Reordering is handled by the enclosing `ForEach`'s
+    /// `.onMove`, which is the native macOS mechanism and coexists with List
+    /// multi-selection (unlike `.onDrag`, which steals modifier-clicks).
+    private func reorderableRow(_ profile: SSHProfile, sectionKey: String) -> some View {
+        profileRow(profile, sectionKey: sectionKey)
+    }
+
+    /// Persist a within-section reorder produced by `.onMove`.
+    private func moveWithinSection(_ profiles: [SSHProfile], from: IndexSet, to: Int) {
+        var arr = profiles
+        arr.move(fromOffsets: from, toOffset: to)
+        store.reorderSection(orderedIDs: arr.map(\.id))
     }
 
     private var bottomBar: some View {
@@ -445,6 +702,12 @@ struct ProfileRow: View {
                     Text(profile.name)
                         .fontWeight(.medium)
                         .lineLimit(1)
+                    if profile.autoConnectOnLaunch {
+                        Image(systemName: "bolt.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .help("Connects automatically at launch")
+                    }
                     ZeroTierStatusGlyph(host: profile.host)
                         .font(.caption2)
                 }
@@ -470,43 +733,5 @@ struct ProfileRow: View {
         }
         .padding(.vertical, 3)
         .contentShape(Rectangle())
-        // Use a *simultaneous* double-tap so it coexists with the List's own
-        // single-click selection. A plain `.onTapGesture` on a List row steals the
-        // click and can leave the selection stuck on the previously-selected row.
-        .simultaneousGesture(TapGesture(count: 2).onEnded { onConnect() })
-    }
-}
-
-/// Reorders profiles by drag-and-drop within a single sidebar section. As the
-/// dragged row hovers over another row in the same section, the dragged profile
-/// is moved to that row's slot live; the drop just ends the gesture. Restricted
-/// to the section the drop target belongs to, so a favourite can't be dragged
-/// into a group (or vice-versa) — matching how the sections are built.
-private struct ProfileReorderDropDelegate: DropDelegate {
-    let target: SSHProfile
-    /// The ids of every row in the target's section, in display order.
-    let sectionIDs: [UUID]
-    @Binding var draggingID: UUID?
-    let store: ProfileStore
-
-    /// Only accept a drop from a row in the same section.
-    func validateDrop(info: DropInfo) -> Bool {
-        guard let draggingID else { return false }
-        return sectionIDs.contains(draggingID)
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard let draggingID, draggingID != target.id,
-              sectionIDs.contains(draggingID) else { return }
-        store.move(id: draggingID, before: target.id)
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggingID = nil
-        return true
     }
 }
