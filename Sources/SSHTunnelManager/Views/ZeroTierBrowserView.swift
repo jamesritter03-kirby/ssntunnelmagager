@@ -764,7 +764,11 @@ struct ZeroTierBrowserView: View {
         let pass = password
         switch kind {
         case .web:
-            let url = URL(string: "http://\(ip)") ?? URL(string: "http://\(ip)/")!
+            let encoded = ip.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? ip
+            guard let url = URL(string: "http://\(encoded)") else {
+                lastAction = "Couldn’t open \(ip) — not a valid address."
+                return
+            }
             sessions.openWeb(url: url, title: ip)
             lastAction = "Opened \(ip) in a browser tab."
         case .ssh:

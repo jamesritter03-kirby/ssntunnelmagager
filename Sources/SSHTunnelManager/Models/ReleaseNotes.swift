@@ -45,6 +45,13 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.38", build: 48, date: "Jul 11, 2026",
+            highlights: [
+                "Fixed a crash when connecting to a ZeroTier controller (or device web UI) served over plain HTTP or a private/self-signed certificate — those connections now work instead of being blocked by macOS App Transport Security.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.37", build: 47, date: "Jul 11, 2026",
             highlights: [
                 "Sidebar multi-select: ⌘-click or ⇧-click to select several profiles at once, then right-click to Connect, Disconnect, favourite, export, or delete them in one go. Press Esc to clear the selection.",
@@ -53,7 +60,7 @@ enum ReleaseCatalog {
                 "Profiles set to connect automatically at launch now show a lightning-bolt badge in the sidebar.",
                 "Reorder profiles by dragging within a section, or via the new right-click ▸ Move commands.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.36", build: 46, date: "Jul 11, 2026",
