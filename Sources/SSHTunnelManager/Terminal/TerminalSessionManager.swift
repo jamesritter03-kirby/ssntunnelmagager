@@ -195,6 +195,10 @@ final class TerminalSessionManager: ObservableObject {
     /// open-saved-workspace), so they land where they were saved.
     private var suppressWorkspaceRouting = false
 
+    /// When set, the next tab added via `addAndStart` is inserted immediately
+    /// after the session with this id (used by Duplicate) instead of appended.
+    private var pendingInsertAfterID: UUID?
+
     /// Whether the current workspace tiles its tabs in a grid. Per-workspace, with
     /// the last-used value remembered as the default for new workspaces.
     var isTiled: Bool {
@@ -887,9 +891,22 @@ final class TerminalSessionManager: ObservableObject {
     func focusSession(_ session: TerminalSession) { reveal(session) }
 
     private func addAndStart(_ session: TerminalSession) {
-        sessions.append(session)
+        // If a caller (e.g. Duplicate) asked to place the new tab right after an
+        // existing one, honor it for both the flat list and the workspace order.
+        let afterID = pendingInsertAfterID
+        pendingInsertAfterID = nil
+
+        if let afterID, let flatIdx = sessions.firstIndex(where: { $0.id == afterID }) {
+            sessions.insert(session, at: flatIdx + 1)
+        } else {
+            sessions.append(session)
+        }
         if let i = currentIndex {
-            workspaces[i].tabIDs.append(session.id)
+            if let afterID, let tabIdx = workspaces[i].tabIDs.firstIndex(of: afterID) {
+                workspaces[i].tabIDs.insert(session.id, at: tabIdx + 1)
+            } else {
+                workspaces[i].tabIDs.append(session.id)
+            }
             workspaces[i].selectedSessionID = session.id
         }
         // Start on the next runloop turn so the view is mounted with a real size.
@@ -909,6 +926,10 @@ final class TerminalSessionManager: ObservableObject {
         // workspace.
         suppressWorkspaceRouting = true
         defer { suppressWorkspaceRouting = false }
+
+        // Place the duplicate immediately to the right of its source tab.
+        pendingInsertAfterID = session.id
+        defer { pendingInsertAfterID = nil }
 
         let profile = session.profileID.flatMap { id in
             ProfileStore.shared.profiles.first { $0.id == id }

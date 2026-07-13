@@ -45,11 +45,23 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.39", build: 49, date: "Jul 12, 2026",
+            highlights: [
+                "New Network & Routers manager: view this Mac's interfaces, Wi-Fi, gateway, DNS and public IP, edit DNS servers and the default gateway (with guidance prompts), and turn Internet Sharing on or off.",
+                "MikroTik router management: add routers (auto-discovered on your local network via MNDP, and now over your ZeroTier networks too), see live status, and edit the full configuration in a WinBox-style explorer.",
+                "MikroTik config files: load and apply a RouterOS .rsc script, export the current configuration to a file, or create an on-device backup.",
+                "Click any IP address in the Network or ZeroTier dialogs to copy it to the clipboard.",
+                "The in-app browser now handles plain-HTTP and self-signed sites, with a Safari-style certificate-trust prompt and a Developer right-click menu (hard reload, clear caches/cookies/HSTS, and more).",
+                "Duplicating a tab now opens the copy directly to the right of the original.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.38", build: 48, date: "Jul 11, 2026",
             highlights: [
                 "Fixed a crash when connecting to a ZeroTier controller (or device web UI) served over plain HTTP or a private/self-signed certificate — those connections now work instead of being blocked by macOS App Transport Security.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.37", build: 47, date: "Jul 11, 2026",

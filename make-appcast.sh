@@ -24,6 +24,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+source ./notarize-lib.sh
+
 APP_NAME="Remote Stuff"
 BUNDLE="${APP_NAME}.app"
 ARCHIVES="sparkle-updates"
@@ -57,6 +59,9 @@ rm -f "$ZIP"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/sshtm-appcast.XXXXXX")"
 cp -R "$BUNDLE" "$STAGE/$BUNDLE"
 ./sign-app.sh "$STAGE/$BUNDLE"
+# Notarize + staple the archived app so Sparkle-delivered updates pass Gatekeeper
+# offline (no-op for local/ad-hoc builds without credentials).
+maybe_notarize "$STAGE/$BUNDLE"
 ditto -c -k --sequesterRsrc --keepParent "$STAGE/$BUNDLE" "$ZIP"
 rm -rf "$STAGE"
 

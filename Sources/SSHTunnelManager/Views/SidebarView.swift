@@ -562,6 +562,13 @@ struct SidebarView: View {
                 }
                 .help("Browse and connect to devices on your ZeroTier networks")
 
+                Button {
+                    NetworkBrowserModel.shared.present()
+                } label: {
+                    Image(systemName: "wifi.router")
+                }
+                .help("Manage this Mac’s network and your MikroTik routers")
+
                 Spacer()
 
                 Menu {

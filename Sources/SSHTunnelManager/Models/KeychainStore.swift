@@ -244,4 +244,46 @@ final class KeychainStore {
         guard status == errSecSuccess, let data = item as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }
+
+    // MARK: - MikroTik router passwords (keyed by router id)
+
+    /// RouterOS API passwords for saved MikroTik routers. Keyed by the router's
+    /// UUID string, stored "this device only". Reads are synchronous and never
+    /// prompt for Touch ID (these are convenience management credentials).
+    private var mikroTikService: String { "com.local.sshtunnelmanager.mikrotik" }
+
+    private func mikroTikQuery(for id: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: mikroTikService,
+            kSecAttrAccount as String: id,
+        ]
+    }
+
+    /// Store (or replace) the API password for a MikroTik router.
+    @discardableResult
+    func setMikroTikPassword(_ password: String, for id: UUID) -> Bool {
+        guard let data = password.data(using: .utf8) else { return false }
+        SecItemDelete(mikroTikQuery(for: id.uuidString) as CFDictionary)
+        var query = mikroTikQuery(for: id.uuidString)
+        query[kSecValueData as String] = data
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    /// Remove the saved API password for a MikroTik router.
+    func deleteMikroTikPassword(for id: UUID) {
+        SecItemDelete(mikroTikQuery(for: id.uuidString) as CFDictionary)
+    }
+
+    /// Fetch the saved API password for a MikroTik router, or nil.
+    func mikroTikPassword(for id: UUID) -> String? {
+        var query = mikroTikQuery(for: id.uuidString)
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecReturnData as String] = true
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
 }

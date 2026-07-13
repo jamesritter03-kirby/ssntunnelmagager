@@ -15,6 +15,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+source ./notarize-lib.sh
+
 APP_NAME="Remote Stuff"
 BUNDLE="${APP_NAME}.app"
 VOL_NAME="${APP_NAME}"
@@ -39,6 +41,9 @@ mkdir -p "$BG_DIR"
 cp -R "$BUNDLE" "$STAGE/"
 # Re-strip xattrs + re-sign the staged copy in case iCloud re-tagged the source.
 ./sign-app.sh "$STAGE/$BUNDLE"
+# Notarize + staple the app BEFORE it goes into the DMG, so the installed app is
+# itself stapled (works offline). No-op for local/ad-hoc builds.
+maybe_notarize "$STAGE/$BUNDLE"
 ln -s /Applications "$STAGE/Applications"
 
 HAVE_BG=0
@@ -107,12 +112,33 @@ hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -ov -o "$DMG_PATH"
 rm -f "$RW_DMG"
 rm -rf "$STAGE" "$MOUNT_DIR"
 
+# 7. Sign + notarize + staple the DMG itself when a Developer ID identity is
+#    present, so the disk image is trusted by Gatekeeper even offline. The app
+#    inside was already stapled in step 3.
+DMG_IDENTITY="${SIGN_IDENTITY:-}"
+if [[ -z "$DMG_IDENTITY" ]]; then
+    DMG_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+        | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+fi
+if [[ -n "$DMG_IDENTITY" ]]; then
+    echo "▶︎  Signing the DMG with Developer ID…"
+    codesign --force --sign "$DMG_IDENTITY" --timestamp "$DMG_PATH"
+    maybe_notarize "$DMG_PATH"
+fi
+
 SIZE="$(du -h "$DMG_PATH" | cut -f1 | tr -d ' ')"
 echo
 echo "✓  Created: ${DMG_PATH}  (${SIZE})"
 echo
-echo "   Send that .dmg to the other Apple Silicon Mac. There:"
-echo "     1. Double-click the .dmg, then drag the app onto Applications."
-echo "     2. First launch only: right-click the app in Applications -> Open -> Open."
-echo "        If macOS still blocks it: System Settings -> Privacy & Security ->"
-echo "        'Open Anyway'. No Terminal needed; afterwards just double-click."
+if xcrun stapler validate "$DMG_PATH" >/dev/null 2>&1; then
+    echo "   This DMG is signed, notarized and stapled. On any Mac the recipient can"
+    echo "   just double-click it, drag the app to Applications, and launch normally —"
+    echo "   no right-click, no Gatekeeper warning."
+else
+    echo "   NOTE: this DMG is NOT notarized (no Developer ID identity / notary"
+    echo "   credentials were available). To distribute without Gatekeeper warnings,"
+    echo "   install your Developer ID cert, run ./setup-notarization.sh, then rebuild."
+    echo
+    echo "   As-is, the recipient must first launch via right-click -> Open -> Open"
+    echo "   (or System Settings -> Privacy & Security -> 'Open Anyway')."
+fi

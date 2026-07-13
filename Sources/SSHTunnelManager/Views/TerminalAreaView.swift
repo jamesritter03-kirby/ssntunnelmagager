@@ -1012,8 +1012,43 @@ private struct TabBar: View {
             .padding(.horizontal, 8)
             .disabled(sessions.centerSessions.count < 2)
             .help(sessions.isTiled ? "Show one tab at a time" : "Tile all tabs side by side")
+
+            if sessions.broadcastInput {
+                Divider().frame(height: 22)
+                BroadcastIndicator()
+                    .padding(.trailing, 8)
+            }
         }
         .background(.bar)
+    }
+}
+
+/// A prominent, always-visible pill shown in the tab bar while **Broadcast
+/// Input** is active, so it's obvious that keystrokes are being mirrored to
+/// every terminal (and easy to turn back off). Without it, users could mistake
+/// the mirroring for a duplicated / shared session.
+private struct BroadcastIndicator: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    var body: some View {
+        Button {
+            sessions.broadcastInput = false
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                Text("Broadcasting")
+                    .font(.caption.weight(.semibold))
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption2)
+                    .opacity(0.85)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.orange, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Input is being sent to ALL terminals (⌃⌘B). Click to stop broadcasting.")
     }
 }
 

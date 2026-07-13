@@ -42,6 +42,7 @@ struct SSHTunnelManagerApp: App {
                 Button("New VNC Connection…") { VNCConnectionModel.shared.present() }
                 Divider()
                 Button("Browse ZeroTier Devices…") { ZeroTierBrowserModel.shared.present() }
+                Button("Network & Routers…") { NetworkBrowserModel.shared.present() }
             }
             CommandGroup(after: .newItem) {
                 Button("Close Tab") { sessions.closeSelected() }

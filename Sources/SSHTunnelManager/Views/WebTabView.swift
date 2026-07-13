@@ -58,6 +58,11 @@ final class WebTabModel: ObservableObject {
         // the tab can open it with F12 / ⌥⌘I. `developerExtrasEnabled` also adds
         // "Inspect Element" to the right-click menu and covers macOS 13.0–13.2.
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        // Stop WebKit from silently upgrading http:// to https:// (and rewriting
+        // the address bar back to https). Users on tunneled / local dev servers
+        // and legacy devices often need plain HTTP, so honor exactly what they
+        // type. Available since macOS 11.3, so always present at our 13.0 min.
+        config.upgradeKnownHostsToHTTPS = false
         // Some pages cancel the `contextmenu` event to hide the browser menu.
         // Re-enable it so the developer right-click menu is always available: a
         // capture-phase listener added at document start runs before the page's
@@ -83,7 +88,16 @@ final class WebTabModel: ObservableObject {
         wv.uiDelegate = nav
         nav.observe(wv)
         navigator = nav
-        if let initialURL { wv.load(URLRequest(url: initialURL)) }
+        if let initialURL {
+            nav.expectHTTP(initialURL)
+            if initialURL.scheme == "http" {
+                Self.clearHSTS(in: config.websiteDataStore) { [weak wv] in
+                    wv?.load(URLRequest(url: initialURL))
+                }
+            } else {
+                wv.load(URLRequest(url: initialURL))
+            }
+        }
         return wv
     }
 
@@ -99,7 +113,31 @@ final class WebTabModel: ObservableObject {
     func load(_ string: String) {
         guard let url = ProfileLink(label: "", url: string).normalizedURL else { return }
         addressText = url.absoluteString
-        webView.load(URLRequest(url: url))
+        // If the user explicitly asked for http, tell the navigator so it can undo
+        // WebKit's automatic http→https upgrade for this navigation.
+        navigator?.expectHTTP(url)
+        if url.scheme == "http" {
+            // Clear any cached HSTS policy for this host first: once a host has
+            // sent Strict-Transport-Security (or is HSTS-preloaded), WebKit forces
+            // https at the network layer, before our navigation delegate can veto
+            // it — so plain http would silently bounce to https. Dropping the HSTS
+            // cache lets the http request go out as typed.
+            Self.clearHSTS(in: webView.configuration.websiteDataStore) { [weak self] in
+                self?.webView.load(URLRequest(url: url))
+            }
+        } else {
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    /// Remove WebKit's HSTS cache from a data store, then run `done`. Uses the
+    /// private `_WKWebsiteDataTypeHSTSCache` record type (there is no public
+    /// constant), falling back to a no-op if the platform ever drops it.
+    static func clearHSTS(in store: WKWebsiteDataStore, then done: @escaping () -> Void) {
+        let hsts = "_WKWebsiteDataTypeHSTSCache"
+        store.removeData(ofTypes: [hsts], modifiedSince: .distantPast) {
+            DispatchQueue.main.async(execute: done)
+        }
     }
 
     /// Hand the current page off to the user's default browser.
@@ -302,21 +340,39 @@ final class InspectableWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
 
-        func add(_ title: String, _ action: Selector) {
+        func add(_ title: String, _ action: Selector, to target: NSMenu) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
-            menu.addItem(item)
+            target.addItem(item)
         }
 
+        // Group all the developer / cache tools under one submenu so they're easy
+        // to find on any page (even a blank / failed one).
+        let devMenu = NSMenu()
+        add("Reload", #selector(devReload), to: devMenu)
+        add("Hard Refresh (Ignore Cache)", #selector(devHardReload), to: devMenu)
+        devMenu.addItem(.separator())
+        add("Empty Caches", #selector(devEmptyCaches), to: devMenu)
+        add("Empty Caches and Hard Refresh", #selector(devEmptyCachesAndReload), to: devMenu)
+        add("Clear Cookies", #selector(devClearCookies), to: devMenu)
+        add("Clear Data for This Site…", #selector(devClearSiteData), to: devMenu)
+        add("Clear All Website Data…", #selector(devClearWebsiteData), to: devMenu)
+        devMenu.addItem(.separator())
+        add("Force HTTP (Clear HSTS) & Reload", #selector(devForceHTTP), to: devMenu)
+        add("Clear HSTS for All Sites", #selector(devClearHSTS), to: devMenu)
+        devMenu.addItem(.separator())
+        add("Copy Page Address", #selector(devCopyAddress), to: devMenu)
+        add("Open in Default Browser", #selector(devOpenInDefaultBrowser), to: devMenu)
+        add("Open Web Inspector", #selector(devOpenInspector), to: devMenu)
+
         menu.addItem(.separator())
-        add("Hard Refresh (Ignore Cache)", #selector(devHardReload))
-        add("Empty Caches", #selector(devEmptyCaches))
-        add("Empty Caches and Hard Refresh", #selector(devEmptyCachesAndReload))
-        add("Clear All Website Data…", #selector(devClearWebsiteData))
-        menu.addItem(.separator())
-        add("Copy Page Address", #selector(devCopyAddress))
-        add("Open in Default Browser", #selector(devOpenInDefaultBrowser))
-        add("Open Web Inspector", #selector(devOpenInspector))
+        let devItem = NSMenuItem(title: "Developer", action: nil, keyEquivalent: "")
+        devItem.submenu = devMenu
+        menu.addItem(devItem)
+
+        // Also surface the two most common actions at the top level.
+        add("Hard Refresh (Ignore Cache)", #selector(devHardReload), to: menu)
+        add("Force HTTP (Clear HSTS) & Reload", #selector(devForceHTTP), to: menu)
     }
 
     /// Remove the given website-data types from this view's data store, then run
@@ -331,11 +387,75 @@ final class InspectableWebView: WKWebView {
     /// Reload bypassing the cache (end-to-end revalidation) — a "hard refresh".
     @objc private func devHardReload() { reloadFromOrigin() }
 
+    /// Ordinary reload.
+    @objc private func devReload() { reload() }
+
     /// Remove only the cache data types (keeps cookies and local storage).
     @objc private func devEmptyCaches() { removeData(ofTypes: Self.cacheDataTypes) }
 
     @objc private func devEmptyCachesAndReload() {
         removeData(ofTypes: Self.cacheDataTypes) { [weak self] in self?.reloadFromOrigin() }
+    }
+
+    /// Clear cookies for the shared session (signs you out of sites).
+    @objc private func devClearCookies() {
+        removeData(ofTypes: [WKWebsiteDataTypeCookies])
+    }
+
+    /// Clear the HSTS cache (all hosts), so http:// stops being force-upgraded.
+    @objc private func devClearHSTS() {
+        WebTabModel.clearHSTS(in: configuration.websiteDataStore) {}
+    }
+
+    /// Clear HSTS + this site's data, then reload the current page as plain http.
+    /// The most direct fix for "http keeps flipping to https" on a device (like a
+    /// router) that once sent a Strict-Transport-Security header.
+    @objc private func devForceHTTP() {
+        let host = url?.host
+        WebTabModel.clearHSTS(in: configuration.websiteDataStore) { [weak self] in
+            guard let self else { return }
+            self.clearData(forHost: host) {
+                guard let current = self.url,
+                      var comps = URLComponents(url: current, resolvingAgainstBaseURL: false) else {
+                    NSSound.beep(); return
+                }
+                comps.scheme = "http"
+                guard let httpURL = comps.url else { NSSound.beep(); return }
+                // Tell the navigation delegate to honor http for this load, then go.
+                (self.navigationDelegate as? WebNavigator)?.expectHTTP(httpURL)
+                self.load(URLRequest(url: httpURL))
+            }
+        }
+    }
+
+    /// Remove all website data records that belong to `host` (cookies, storage,
+    /// caches for that one site), then run `done`.
+    private func clearData(forHost host: String?, then done: @escaping () -> Void) {
+        guard let host else { removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), then: done); return }
+        let store = configuration.websiteDataStore
+        let all = WKWebsiteDataStore.allWebsiteDataTypes()
+        store.fetchDataRecords(ofTypes: all) { records in
+            let matching = records.filter { rec in
+                rec.displayName == host || host.hasSuffix(rec.displayName) || rec.displayName.hasSuffix(host)
+            }
+            store.removeData(ofTypes: all, for: matching) {
+                DispatchQueue.main.async(execute: done)
+            }
+        }
+    }
+
+    /// Clear only this site's data (cookies, storage, caches), keeping everything
+    /// else intact, then reload.
+    @objc private func devClearSiteData() {
+        let host = url?.host
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = host.map { "Clear data for \($0)?" } ?? "Clear data for this site?"
+        alert.informativeText = "Removes cookies, storage, and caches for this site only. You may be signed out of it."
+        alert.addButton(withTitle: "Clear")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        clearData(forHost: host) { [weak self] in self?.reloadFromOrigin() }
     }
 
     /// Clear everything (cookies, storage, caches) after confirming — this can sign
@@ -434,9 +554,130 @@ final class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
     private let maxRetries = 40
     private var isRetrying = false
 
+    /// The http URL the user explicitly requested, if any. WebKit may silently
+    /// upgrade the first request to https; when it does, we cancel that and reload
+    /// the original http URL exactly once. Cleared as soon as it's honored so real
+    /// server-side redirects (301 http→https) are left alone.
+    private var pendingHTTPURL: URL?
+
+    /// Hosts whose (self-signed / otherwise invalid) TLS certificate the user has
+    /// chosen to trust for this session, like Safari's "visit this website" flow.
+    private var trustedHosts: Set<String> = []
+    /// Hosts currently showing a trust prompt, so overlapping challenges (page +
+    /// subresources) don't stack multiple dialogs.
+    private var promptingHosts: Set<String> = []
+
     init(model: WebTabModel) { self.model = model }
 
+    /// Called by the model when the user loads an explicit `http://` address.
+    func expectHTTP(_ url: URL) {
+        pendingHTTPURL = url.scheme == "http" ? url : nil
+    }
+
+    /// Handle TLS server-trust challenges. Valid certs pass through normally; for
+    /// an invalid one (self-signed, expired, hostname mismatch — common on routers
+    /// and local devices) we ask the user once per host whether to proceed, then
+    /// remember their choice for the session.
+    func webView(_ webView: WKWebView,
+                 didReceive challenge: URLAuthenticationChallenge,
+                 completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        let host = challenge.protectionSpace.host
+
+        // Already trusted this session — proceed with the server's certificate.
+        if trustedHosts.contains(host) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+            return
+        }
+
+        // If the certificate is actually valid, let the default handling accept it.
+        var error: CFError?
+        if SecTrustEvaluateWithError(trust, &error) {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+
+        // Invalid certificate: ask the user (once per host), Safari-style.
+        if promptingHosts.contains(host) {
+            // A prompt for this host is already up; reject the extra challenge so
+            // we don't queue duplicate dialogs.
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        promptingHosts.insert(host)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { completionHandler(.cancelAuthenticationChallenge, nil); return }
+            let proceed = Self.askToTrust(host: host, error: error)
+            self.promptingHosts.remove(host)
+            if proceed {
+                self.trustedHosts.insert(host)
+                completionHandler(.useCredential, URLCredential(trust: trust))
+                // Reload so the whole page (which the rejected challenge aborted)
+                // loads now that the host is trusted.
+                DispatchQueue.main.async { [weak webView] in webView?.reload() }
+            } else {
+                completionHandler(.cancelAuthenticationChallenge, nil)
+            }
+        }
+    }
+
+    /// Show a Safari-like "this connection is not private" prompt and return
+    /// whether the user chose to continue.
+    private static func askToTrust(host: String, error: CFError?) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "“\(host)” has an invalid certificate"
+        let reason = (error.map { CFErrorCopyDescription($0) as String })
+            .map { " (\($0))" } ?? ""
+        alert.informativeText =
+            "The identity of “\(host)” can’t be verified\(reason). This is normal for routers and local devices that use a self-signed certificate. Continue only if you trust this device."
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Intercept WebKit's automatic https upgrade of a user-typed http address.
+    /// The synthetic upgrade arrives as the very first navigation for our pending
+    /// URL, before any server is contacted; we cancel it and reload plain http.
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if let pending = pendingHTTPURL, let url = navigationAction.request.url,
+           sameHost(url, pending) {
+            if url.scheme == "https" {
+                // WebKit upgraded us — cancel and reload the original http URL.
+                // Keep `pendingHTTPURL` set so a repeat upgrade is caught too.
+                decisionHandler(.cancel)
+                DispatchQueue.main.async { [weak webView] in
+                    webView?.load(URLRequest(url: pending))
+                }
+                return
+            }
+            // http for the same host: let it proceed. Don't clear the flag yet —
+            // WebKit can still upgrade this allowed request; we clear on commit.
+        }
+        decisionHandler(.allow)
+    }
+
+    /// Whether two URLs point at the same host (ignoring scheme / path). Host-only
+    /// so an upgrade that also normalizes the path (""→"/") is still recognized.
+    private func sameHost(_ a: URL, _ b: URL) -> Bool {
+        guard let ha = a.host, let hb = b.host else { return false }
+        return ha.caseInsensitiveCompare(hb) == .orderedSame && a.port == b.port
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        // Once a plain-http navigation to the pending host actually starts, we've
+        // won the race against the upgrade — stop watching so genuine server-side
+        // http→https redirects afterwards are honored.
+        if let pending = pendingHTTPURL, let url = webView.url,
+           url.scheme == "http", sameHost(url, pending) {
+            pendingHTTPURL = nil
+        }
         // A fresh, user-driven navigation resets the retry budget; our own
         // retries don't.
         if !isRetrying { retryCount = 0 }

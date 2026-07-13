@@ -257,9 +257,7 @@ struct ZeroTierBrowserView: View {
                 }
                 .font(.caption)
                 if let ip = net.primaryIP {
-                    Text(ip)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
+                    CopyableText(text: ip, font: .caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
             }
@@ -538,9 +536,7 @@ struct ZeroTierBrowserView: View {
             Image(systemName: "number")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Text(ip)
-                .font(.system(.callout, design: .monospaced))
-                .textSelection(.enabled)
+            CopyableText(text: ip)
             Spacer()
             connectButton("Open in browser", "globe") { connect(.web, ip: ip) }
             connectButton("Open SSH terminal", "terminal") { connect(.ssh, ip: ip) }

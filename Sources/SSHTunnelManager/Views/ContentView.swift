@@ -15,6 +15,7 @@ struct ContentView: View {
     @ObservedObject private var vncConnection = VNCConnectionModel.shared
     @ObservedObject private var remoteConnection = RemoteConnectionModel.shared
     @ObservedObject private var zerotier = ZeroTierBrowserModel.shared
+    @ObservedObject private var networkBrowser = NetworkBrowserModel.shared
     @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
     @ObservedObject private var editConnection = EditConnectionModel.shared
     @ObservedObject private var knownHosts = KnownHostsModel.shared
@@ -125,6 +126,9 @@ struct ContentView: View {
         .sheet(isPresented: $zerotier.isPresented) {
             ZeroTierBrowserView()
                 .environmentObject(sessions)
+        }
+        .sheet(isPresented: $networkBrowser.isPresented) {
+            NetworkBrowserView()
         }
         .sheet(isPresented: $knownHosts.isPresented) {
             KnownHostsView()
