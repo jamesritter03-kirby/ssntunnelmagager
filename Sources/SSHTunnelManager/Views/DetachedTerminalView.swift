@@ -59,6 +59,7 @@ struct DetachedTerminalView: View {
     }
 
     private var statusColor: Color {
+        if session.isPaused { return .orange }
         if session.isRunning { return .green }
         if let code = session.exitCode, code != 0 { return .red }
         return .secondary

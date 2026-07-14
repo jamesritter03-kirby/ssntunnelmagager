@@ -56,6 +56,60 @@ struct InternetSharingState: Hashable {
     var isRunning = false
 }
 
+/// A user-defined "Mac as router" configuration: the Mac assigns itself a fixed
+/// LAN IP, NATs a LAN interface's traffic out over an uplink, and runs a DHCP
+/// server for the LAN subnet. Unlike macOS's built-in Internet Sharing (fixed
+/// 192.168.2.0/24), this lets the user pick the whole subnet and DHCP range.
+struct MacRouterConfig: Codable, Hashable {
+    /// The uplink interface with internet access (e.g. Wi-Fi "en0").
+    var uplinkDevice = ""
+    /// The LAN interface the Mac routes for (e.g. a USB Ethernet "en7").
+    var lanDevice = ""
+    /// The Mac's address on the LAN — it acts as the gateway (e.g. "10.1.1.1").
+    var routerIP = "10.1.1.1"
+    /// The LAN subnet mask.
+    var subnetMask = "255.255.255.0"
+    /// Whether the built-in DHCP server hands out addresses.
+    var dhcpEnabled = true
+    /// First address of the DHCP pool.
+    var dhcpStart = "10.1.1.100"
+    /// Last address of the DHCP pool.
+    var dhcpEnd = "10.1.1.200"
+    /// DHCP lease length in seconds.
+    var leaseSeconds = 86_400
+
+    /// The LAN network address derived from routerIP + mask (e.g. "10.1.1.0").
+    var networkAddress: String {
+        let ip = routerIP.split(separator: ".").compactMap { UInt32($0) }
+        let mk = subnetMask.split(separator: ".").compactMap { UInt32($0) }
+        guard ip.count == 4, mk.count == 4 else { return routerIP }
+        let net = (0..<4).map { ip[$0] & mk[$0] }
+        return net.map(String.init).joined(separator: ".")
+    }
+
+    /// CIDR prefix length from the dotted mask (e.g. 255.255.255.0 → 24).
+    var prefixLength: Int {
+        subnetMask.split(separator: ".").compactMap { UInt8($0) }
+            .reduce(0) { $0 + $1.nonzeroBitCount }
+    }
+}
+
+/// A device seen on the Mac's router LAN — from the DHCP lease file and/or the
+/// live ARP table.
+struct RouterClient: Identifiable, Hashable {
+    var ip: String
+    var mac: String
+    var hostName: String?
+    /// Whether the device is currently in the ARP table (recently reachable).
+    var isActive: Bool
+    var id: String { mac.isEmpty ? ip : mac }
+
+    var displayName: String {
+        if let h = hostName, !h.isEmpty, h != "?" { return h }
+        return ip
+    }
+}
+
 /// Gathers this Mac's live network state (interfaces, gateway, DNS, Wi-Fi,
 /// public IP) by shelling out to the standard macOS network tools, and exposes
 /// a few common maintenance actions (flush DNS, renew DHCP). A singleton so the
@@ -63,7 +117,9 @@ struct InternetSharingState: Hashable {
 @MainActor
 final class NetworkStore: ObservableObject {
     static let shared = NetworkStore()
-    private init() {}
+    private init() {
+        routerConfig = Self.loadRouterConfig()
+    }
     @Published private(set) var interfaces: [MacInterface] = []
     @Published private(set) var defaultGateway: String?
     @Published private(set) var dnsServers: [String] = []
@@ -80,6 +136,17 @@ final class NetworkStore: ObservableObject {
     /// The primary network service name (e.g. "Wi-Fi", "Ethernet") that DNS /
     /// gateway edits target — the top active service in the service order.
     @Published private(set) var primaryService: String?
+
+    /// The user's "Mac as router" configuration (persisted to UserDefaults).
+    @Published var routerConfig: MacRouterConfig {
+        didSet { Self.saveRouterConfig(routerConfig) }
+    }
+    /// Whether our custom router is currently active (LAN IP assigned + NAT up).
+    @Published private(set) var routerRunning = false
+    /// Devices seen on the router LAN (DHCP leases merged with the ARP table).
+    @Published private(set) var routerClients: [RouterClient] = []
+    /// True while an enable/disable router action is in flight.
+    @Published private(set) var routerBusy = false
 
     // MARK: Refresh
 
@@ -104,6 +171,12 @@ final class NetworkStore: ObservableObject {
         publicIP = p
         sharing = await share
         primaryService = await Self.readPrimaryService()
+        routerRunning = await Self.readRouterRunning(config: routerConfig)
+        if routerRunning {
+            routerClients = await Self.readRouterClients(config: routerConfig)
+        } else {
+            routerClients = []
+        }
         lastRefreshed = Date()
     }
 
@@ -153,6 +226,59 @@ final class NetworkStore: ObservableObject {
                                          toDevices: sharing.toDevices)
         lastActionMessage = ok ? "Internet Sharing stopped." : "Couldn’t stop Internet Sharing."
         await refresh()
+    }
+
+    // MARK: Mac as Router
+
+    /// Bring up the custom router described by `routerConfig`: assign the LAN IP,
+    /// enable IP forwarding, install a pf NAT rule out the uplink, and (if
+    /// enabled) start the bootpd DHCP server. One admin prompt for everything.
+    func enableRouter() async {
+        let cfg = routerConfig
+        guard !cfg.uplinkDevice.isEmpty, !cfg.lanDevice.isEmpty else {
+            lastActionMessage = "Pick an uplink (internet) interface and a LAN interface."
+            return
+        }
+        guard cfg.uplinkDevice != cfg.lanDevice else {
+            lastActionMessage = "The uplink and LAN interfaces must be different."
+            return
+        }
+        guard isValidIPv4(cfg.routerIP), isValidIPv4(cfg.subnetMask) else {
+            lastActionMessage = "Enter a valid router IP and subnet mask."
+            return
+        }
+        routerBusy = true
+        let ok = await Self.applyRouter(enabled: true, config: cfg)
+        routerBusy = false
+        lastActionMessage = ok
+            ? "Router started — \(cfg.routerIP) on \(cfg.lanDevice), sharing \(cfg.uplinkDevice)."
+            : "Couldn’t start the router (cancelled or failed)."
+        await refresh()
+    }
+
+    /// Tear the custom router down: stop DHCP, remove the pf NAT rule, drop the
+    /// LAN IP, and disable forwarding (admin prompt).
+    func disableRouter() async {
+        routerBusy = true
+        let ok = await Self.applyRouter(enabled: false, config: routerConfig)
+        routerBusy = false
+        lastActionMessage = ok ? "Router stopped." : "Couldn’t stop the router."
+        await refresh()
+    }
+
+    /// Reload just the list of devices on the router LAN.
+    func refreshRouterClients() async {
+        guard routerRunning else { routerClients = []; return }
+        routerClients = await Self.readRouterClients(config: routerConfig)
+    }
+
+    private func isValidIPv4(_ s: String) -> Bool {
+        let parts = s.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        return parts.allSatisfy { p in
+            if let n = Int(p), (0...255).contains(n), String(n) == p || p == "0" { return true }
+            return Int(p) != nil && (0...255).contains(Int(p)!)
+        }
     }
 
     // MARK: DNS & Gateway editing
@@ -387,7 +513,244 @@ final class NetworkStore: ObservableObject {
         return await runOSAScript(osa)
     }
 
+    // MARK: - Mac-as-router helpers
+
+    /// Persistent file/anchor names for the custom router.
+    private nonisolated static let routerPFAnchor = "com.remotestuff.router"
+    private nonisolated static let routerPFAnchorPath = "/etc/pf.anchors/com.remotestuff.router"
+    private nonisolated static let routerBootpdPlist = "/etc/bootpd.plist"
+    private nonisolated static let routerDefaultsKey = "MacRouterConfig"
+    private nonisolated static let routerFlagPath = "/tmp/com.remotestuff.router.active"
+
+    /// Load the saved router config from UserDefaults (or defaults).
+    nonisolated static func loadRouterConfig() -> MacRouterConfig {
+        guard let data = UserDefaults.standard.data(forKey: routerDefaultsKey),
+              let cfg = try? JSONDecoder().decode(MacRouterConfig.self, from: data) else {
+            return MacRouterConfig()
+        }
+        return cfg
+    }
+
+    nonisolated static func saveRouterConfig(_ cfg: MacRouterConfig) {
+        if let data = try? JSONEncoder().encode(cfg) {
+            UserDefaults.standard.set(data, forKey: routerDefaultsKey)
+        }
+    }
+
+    /// Whether the router appears to be up: the LAN device currently holds the
+    /// configured router IP.
+    nonisolated static func readRouterRunning(config: MacRouterConfig) async -> Bool {
+        guard !config.lanDevice.isEmpty else { return false }
+        let addr = await output("/usr/sbin/ipconfig", ["getifaddr", config.lanDevice])
+        if addr.trimmingCharacters(in: .whitespacesAndNewlines) == config.routerIP { return true }
+        // ipconfig only reports DHCP-assigned addresses; check ifconfig for a
+        // manually-aliased address too.
+        let cfg = await output("/sbin/ifconfig", [config.lanDevice])
+        return cfg.contains("inet \(config.routerIP) ")
+    }
+
+    /// Build the plist for bootpd (the macOS DHCP server) as an XML string.
+    private nonisolated static func bootpdPlistXML(_ c: MacRouterConfig, dns: String) -> String {
+        let lease = max(60, c.leaseSeconds)
+        return """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>bootp_enabled</key>
+            <false/>
+            <key>detect_other_dhcp_server</key>
+            <integer>1</integer>
+            <key>dhcp_enabled</key>
+            <array>
+                <string>\(c.lanDevice)</string>
+            </array>
+            <key>reply_threshold_seconds</key>
+            <integer>0</integer>
+            <key>Subnets</key>
+            <array>
+                <dict>
+                    <key>allocate</key>
+                    <true/>
+                    <key>lease_max</key>
+                    <integer>\(lease)</integer>
+                    <key>lease_min</key>
+                    <integer>\(lease)</integer>
+                    <key>name</key>
+                    <string>RemoteStuffLAN</string>
+                    <key>net_address</key>
+                    <string>\(c.networkAddress)</string>
+                    <key>net_mask</key>
+                    <string>\(c.subnetMask)</string>
+                    <key>net_range</key>
+                    <array>
+                        <string>\(c.dhcpStart)</string>
+                        <string>\(c.dhcpEnd)</string>
+                    </array>
+                    <key>dhcp_router</key>
+                    <string>\(c.routerIP)</string>
+                    <key>dhcp_domain_name_server</key>
+                    <array>
+                        <string>\(dns.isEmpty ? c.routerIP : dns)</string>
+                    </array>
+                </dict>
+            </array>
+        </dict>
+        </plist>
+        """
+    }
+
+    /// pf anchor ruleset: NAT the LAN subnet out the uplink and pass its traffic.
+    private nonisolated static func routerPFRules(_ c: MacRouterConfig) -> String {
+        """
+        nat on \(c.uplinkDevice) from \(c.networkAddress)/\(c.prefixLength) to any -> (\(c.uplinkDevice))
+        pass in on \(c.lanDevice) from \(c.networkAddress)/\(c.prefixLength) to any keep state
+        pass out on \(c.uplinkDevice) from \(c.networkAddress)/\(c.prefixLength) to any keep state
+        """
+    }
+
+    /// Bring the custom router up or down under one admin prompt. Uses base64 to
+    /// smuggle the multi-line config files past AppleScript quoting.
+    nonisolated static func applyRouter(enabled: Bool, config c: MacRouterConfig) async -> Bool {
+        var lines: [String] = ["set -e"]
+
+        if enabled {
+            // 1. Assign the LAN IP.
+            lines.append("/sbin/ifconfig \(c.lanDevice) inet \(c.routerIP) netmask \(c.subnetMask) up")
+            // 2. Enable IP forwarding.
+            lines.append("/usr/sbin/sysctl -w net.inet.ip.forwarding=1")
+
+            // 3. Write the pf anchor + a combined pf.conf that loads it.
+            let anchorB64 = Data(routerPFRules(c).utf8).base64EncodedString()
+            lines.append("/bin/mkdir -p /etc/pf.anchors")
+            lines.append("echo \(anchorB64) | /usr/bin/base64 -D > \(routerPFAnchorPath)")
+            let combined = """
+            \(defaultPFConf())
+            nat-anchor "\(routerPFAnchor)"
+            rdr-anchor "\(routerPFAnchor)"
+            anchor "\(routerPFAnchor)"
+            load anchor "\(routerPFAnchor)" from "\(routerPFAnchorPath)"
+            """
+            let confB64 = Data(combined.utf8).base64EncodedString()
+            lines.append("echo \(confB64) | /usr/bin/base64 -D > /tmp/com.remotestuff.pf.conf")
+            lines.append("/sbin/pfctl -E -f /tmp/com.remotestuff.pf.conf 2>/dev/null || /sbin/pfctl -e -f /tmp/com.remotestuff.pf.conf 2>/dev/null || true")
+
+            // 4. Start the DHCP server if enabled.
+            if c.dhcpEnabled {
+                let dnsServer = await primaryDNSForRouter()
+                let bootpdB64 = Data(bootpdPlistXML(c, dns: dnsServer).utf8).base64EncodedString()
+                lines.append("echo \(bootpdB64) | /usr/bin/base64 -D > \(routerBootpdPlist)")
+                lines.append("/bin/launchctl load -w /System/Library/LaunchDaemons/bootps.plist 2>/dev/null || true")
+                lines.append("/bin/launchctl enable system/com.apple.bootpd 2>/dev/null || true")
+                lines.append("/bin/launchctl kickstart -k system/com.apple.bootpd 2>/dev/null || /usr/libexec/bootpd 2>/dev/null || true")
+            }
+            lines.append("/usr/bin/touch \(routerFlagPath)")
+        } else {
+            // Stop DHCP.
+            lines.append("/bin/launchctl bootout system/com.apple.bootpd 2>/dev/null || true")
+            lines.append("/bin/launchctl unload -w /System/Library/LaunchDaemons/bootps.plist 2>/dev/null || true")
+            lines.append("/usr/bin/killall bootpd 2>/dev/null || true")
+            // Flush + remove our pf anchor, reload the stock ruleset.
+            lines.append("/sbin/pfctl -a \(routerPFAnchor) -F all 2>/dev/null || true")
+            lines.append("/sbin/pfctl -f /etc/pf.conf 2>/dev/null || true")
+            // Drop the LAN IP and disable forwarding.
+            if !c.lanDevice.isEmpty {
+                lines.append("/sbin/ifconfig \(c.lanDevice) inet \(c.routerIP) -alias 2>/dev/null || true")
+            }
+            lines.append("/usr/sbin/sysctl -w net.inet.ip.forwarding=0 2>/dev/null || true")
+            lines.append("/bin/rm -f \(routerFlagPath) 2>/dev/null || true")
+        }
+
+        let script = lines.joined(separator: "\n")
+        let escaped = script
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let osa = "do shell script \"\(escaped)\" with administrator privileges"
+        return await runOSAScript(osa)
+    }
+
+    /// The stock /etc/pf.conf contents (read at build time), used as the base for
+    /// our combined ruleset so Apple's own anchors keep working.
+    private nonisolated static func defaultPFConf() -> String {
+        (try? String(contentsOfFile: "/etc/pf.conf", encoding: .utf8))
+            ?? """
+            scrub-anchor "com.apple/*"
+            nat-anchor "com.apple/*"
+            rdr-anchor "com.apple/*"
+            dummynet-anchor "com.apple/*"
+            anchor "com.apple/*"
+            load anchor "com.apple" from "/etc/pf.anchors/com.apple"
+            """
+    }
+
+    /// The first upstream DNS server the Mac is using, handed to DHCP clients.
+    private nonisolated static func primaryDNSForRouter() async -> String {
+        let scutil = await output("/usr/sbin/scutil", ["--dns"])
+        if let s = firstCapture(in: scutil, pattern: #"nameserver\[0\]\s*:\s*([0-9.]+)"#) {
+            return s
+        }
+        return "8.8.8.8"
+    }
+
+    /// Read the devices on the router LAN: parse the bootpd lease file and merge
+    /// with the live ARP table (ARP membership marks a client "active").
+    nonisolated static func readRouterClients(config c: MacRouterConfig) async -> [RouterClient] {
+        var byMac: [String: RouterClient] = [:]
+
+        // 1. DHCP leases from /var/db/dhcpd_leases.
+        let leases = (try? String(contentsOfFile: "/var/db/dhcpd_leases", encoding: .utf8)) ?? ""
+        var name: String?; var ip: String?; var mac: String?
+        for raw in leases.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line == "{" { name = nil; ip = nil; mac = nil }
+            else if line.hasPrefix("name=") { name = String(line.dropFirst(5)) }
+            else if line.hasPrefix("ip_address=") { ip = String(line.dropFirst(11)) }
+            else if line.hasPrefix("hw_address=") {
+                // Format "1,aa:bb:cc:dd:ee:ff" — drop the hw-type prefix.
+                let v = String(line.dropFirst(11))
+                mac = v.contains(",") ? String(v.split(separator: ",").last ?? "") : v
+            } else if line == "}" {
+                if let ip, ipInSubnet(ip, config: c) {
+                    let key = (mac ?? ip).lowercased()
+                    byMac[key] = RouterClient(ip: ip, mac: mac ?? "",
+                                              hostName: name, isActive: false)
+                }
+            }
+        }
+
+        // 2. ARP table — marks who's actually reachable, and catches static clients.
+        let arp = await output("/usr/sbin/arp", ["-an"])
+        for raw in arp.components(separatedBy: .newlines) {
+            // "? (10.1.1.100) at aa:bb:cc:dd:ee:ff on en7 ifscope [ethernet]"
+            guard let aip = firstCapture(in: raw, pattern: #"\(([0-9.]+)\)"#),
+                  ipInSubnet(aip, config: c) else { continue }
+            let amac = firstCapture(in: raw, pattern: #"at\s+([0-9a-fA-F:]+)\s+on"#) ?? ""
+            if aip == c.routerIP { continue }   // skip ourselves
+            let key = (amac.isEmpty ? aip : amac).lowercased()
+            if var existing = byMac[key] {
+                existing.isActive = true
+                if existing.mac.isEmpty { existing.mac = amac }
+                byMac[key] = existing
+            } else {
+                byMac[key] = RouterClient(ip: aip, mac: amac, hostName: nil, isActive: true)
+            }
+        }
+
+        return byMac.values.sorted { $0.ip.compare($1.ip, options: .numeric) == .orderedAscending }
+    }
+
+    /// Whether an IPv4 address falls within the router's configured subnet.
+    private nonisolated static func ipInSubnet(_ ip: String, config c: MacRouterConfig) -> Bool {
+        let a = ip.split(separator: ".").compactMap { UInt32($0) }
+        let net = c.networkAddress.split(separator: ".").compactMap { UInt32($0) }
+        let mk = c.subnetMask.split(separator: ".").compactMap { UInt32($0) }
+        guard a.count == 4, net.count == 4, mk.count == 4 else { return false }
+        for i in 0..<4 where (a[i] & mk[i]) != net[i] { return false }
+        return true
+    }
+
     // MARK: - Parsers
+
 
     /// Enumerate active interfaces, joining `ifconfig` addresses with friendly
     /// names / media types from `networksetup -listallhardwareports`.

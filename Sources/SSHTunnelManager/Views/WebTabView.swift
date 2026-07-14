@@ -106,6 +106,40 @@ final class WebTabModel: ObservableObject {
     func reload() { webView.reload() }
     func stop() { webView.stopLoading() }
 
+    /// Whether the tab is paused: loading is halted and the live page is unloaded
+    /// so it stops using CPU, network, and media (audio/video/timers). Resuming
+    /// reloads the address that was showing.
+    @Published private(set) var isPaused = false
+    /// Fires when `isPaused` changes so the owning session can refresh its tab UI.
+    var onPausedChange: ((Bool) -> Void)?
+    /// The URL to restore when resuming from a paused state.
+    private var pausedURL: URL?
+
+    /// Pause the tab: remember the current page, stop loading, and unload it to
+    /// about:blank so background activity (media, timers, sockets) stops.
+    func pause() {
+        guard !isPaused else { return }
+        pausedURL = webView.url ?? URL(string: currentURLString)
+        webView.stopLoading()
+        webView.load(URLRequest(url: URL(string: "about:blank")!))
+        isPaused = true
+        onPausedChange?(true)
+    }
+
+    /// Resume a paused tab by reloading the page that was showing when paused.
+    func resume() {
+        guard isPaused else { return }
+        isPaused = false
+        onPausedChange?(false)
+        if let url = pausedURL {
+            navigator?.expectHTTP(url)
+            webView.load(URLRequest(url: url))
+        } else {
+            webView.reload()
+        }
+        pausedURL = nil
+    }
+
     /// Navigate to whatever is currently typed in the address bar.
     func submitAddress() { load(addressText) }
 
@@ -567,6 +601,10 @@ final class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// subresources) don't stack multiple dialogs.
     private var promptingHosts: Set<String> = []
 
+    /// The chosen on-disk destination for each in-flight download, so we can
+    /// reveal the file in Finder once it finishes.
+    private var downloadDestinations: [WKDownload: URL] = [:]
+
     init(model: WebTabModel) { self.model = model }
 
     /// Called by the model when the user loads an explicit `http://` address.
@@ -646,6 +684,12 @@ final class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // A link with a `download` attribute (or a scheme WebKit treats as a
+        // download) — hand it to the download machinery instead of navigating.
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
         if let pending = pendingHTTPURL, let url = navigationAction.request.url,
            sameHost(url, pending) {
             if url.scheme == "https" {
@@ -661,6 +705,52 @@ final class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
             // WebKit can still upgrade this allowed request; we clear on commit.
         }
         decisionHandler(.allow)
+    }
+
+    /// Decide what to do with a server response. If WebKit can't display the
+    /// content inline (e.g. a PDF served as an attachment, a .zip, an installer),
+    /// turn it into a download rather than showing a blank page — matching what
+    /// Safari does when a button triggers a file download.
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        if navigationResponse.canShowMIMEType {
+            decisionHandler(.allow)
+        } else {
+            decisionHandler(.download)
+        }
+    }
+
+    /// A navigation turned into a download (e.g. a `download`-attribute link).
+    func webView(_ webView: WKWebView,
+                 navigationAction: WKNavigationAction,
+                 didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    /// A response turned into a download (non-displayable content).
+    func webView(_ webView: WKWebView,
+                 navigationResponse: WKNavigationResponse,
+                 didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    /// Present a native file picker when a page's `<input type="file">` (or a
+    /// button that opens one) asks the user to choose files to upload. Without
+    /// this `WKUIDelegate` hook, WebKit silently does nothing, so upload buttons
+    /// appear dead — this restores the Safari-like Open panel.
+    func webView(_ webView: WKWebView,
+                 runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping ([URL]?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.resolvesAliases = true
+        panel.begin { response in
+            completionHandler(response == .OK ? panel.urls : nil)
+        }
     }
 
     /// Whether two URLs point at the same host (ignoring scheme / path). Host-only
@@ -764,6 +854,57 @@ final class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
             webView.load(URLRequest(url: url))
         }
         return nil
+    }
+}
+
+/// Download handling: pick a destination in ~/Downloads, then reveal the file in
+/// Finder when it finishes (or report failures) — the way Safari behaves.
+extension WebNavigator: WKDownloadDelegate {
+    func download(_ download: WKDownload,
+                  decideDestinationUsing response: URLResponse,
+                  suggestedFilename: String,
+                  completionHandler: @escaping (URL?) -> Void) {
+        let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let name = suggestedFilename.isEmpty ? "download" : suggestedFilename
+        let dest = Self.uniqueDestination(dir.appendingPathComponent(name))
+        downloadDestinations[download] = dest
+        completionHandler(dest)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        if let url = downloadDestinations.removeValue(forKey: download) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        downloadDestinations.removeValue(forKey: download)
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Download failed"
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
+
+    /// Append " 2", " 3", … before the extension until the path is free, so a
+    /// repeat download never silently overwrites an existing file.
+    private static func uniqueDestination(_ url: URL) -> URL {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return url }
+        let dir = url.deletingLastPathComponent()
+        let ext = url.pathExtension
+        let base = url.deletingPathExtension().lastPathComponent
+        var n = 2
+        while true {
+            let candidateName = ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)"
+            let candidate = dir.appendingPathComponent(candidateName)
+            if !fm.fileExists(atPath: candidate.path) { return candidate }
+            n += 1
+        }
     }
 }
 

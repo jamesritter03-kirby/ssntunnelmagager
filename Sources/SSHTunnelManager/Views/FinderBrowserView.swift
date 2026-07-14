@@ -386,6 +386,16 @@ struct FinderBrowserView: View {
     @State private var showNewFolder = false
     @State private var newFolderName = ""
 
+    /// Live width of the listing area. When the tab is docked to a narrow side
+    /// panel we drop the fixed-width Size / Date columns so the Name column keeps
+    /// the space and is the one that grows and shrinks as the dock is resized.
+    @State private var contentWidth: CGFloat = 0
+
+    /// Show the Date Modified column only when there's comfortable room.
+    private var showDateColumn: Bool { contentWidth >= 340 }
+    /// Show the Size column until the panel gets quite narrow.
+    private var showSizeColumn: Bool { contentWidth >= 240 }
+
     init(session: TerminalSession) {
         _session = ObservedObject(initialValue: session)
         _browser = ObservedObject(initialValue: session.finderModel
@@ -393,15 +403,27 @@ struct FinderBrowserView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            listHeader
-            Divider()
-            browserList
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider()
-            statusBar
+        // Pin the whole listing to the container's exact width. A SwiftUI List is
+        // backed by an NSTableView that keeps a minimum intrinsic width, so in a
+        // narrow docked drawer the fixed Size / Date columns would otherwise push
+        // the content wider than the pane and get clipped. Forcing the width makes
+        // the content shrink to fit, and `contentWidth` is then the true pane
+        // width that drives which columns stay visible (Name always wins).
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                toolbar
+                Divider()
+                listHeader
+                Divider()
+                browserList
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider()
+                statusBar
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+            .onAppear { contentWidth = proxy.size.width }
+            .onChange(of: proxy.size.width) { newValue in contentWidth = newValue }
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .alert("New Folder", isPresented: $showNewFolder) {
@@ -536,10 +558,14 @@ struct FinderBrowserView: View {
             Color.clear.frame(width: 18, height: 1)
             sortHeader("Name", field: .name, alignment: .leading)
                 .frame(maxWidth: .infinity)
-            sortHeader("Size", field: .size, alignment: .trailing)
-                .frame(width: 76)
-            sortHeader("Date Modified", field: .modified, alignment: .trailing)
-                .frame(width: 132)
+            if showSizeColumn {
+                sortHeader("Size", field: .size, alignment: .trailing)
+                    .frame(width: 76)
+            }
+            if showDateColumn {
+                sortHeader("Date Modified", field: .modified, alignment: .trailing)
+                    .frame(width: 132)
+            }
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
@@ -581,7 +607,7 @@ struct FinderBrowserView: View {
         ZStack {
             List(selection: $selection) {
                 ForEach(browser.entries) { entry in
-                    FinderRow(entry: entry)
+                    FinderRow(entry: entry, showSize: showSizeColumn, showDate: showDateColumn)
                         .tag(entry.id)
                         .listRowInsets(EdgeInsets())
                         // Make the whole row (text included) one hit target, then
@@ -774,6 +800,8 @@ struct FinderBrowserView: View {
 /// One row in the local file browser list.
 private struct FinderRow: View {
     let entry: LocalFileEntry
+    var showSize = true
+    var showDate = true
 
     var body: some View {
         HStack(spacing: 10) {
@@ -784,12 +812,16 @@ private struct FinderRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(entry.displaySize)
-                .font(.caption).foregroundStyle(.secondary)
-                .frame(width: 76, alignment: .trailing)
-            Text(entry.displayModified)
-                .font(.caption).foregroundStyle(.secondary)
-                .frame(width: 132, alignment: .trailing)
+            if showSize {
+                Text(entry.displaySize)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 76, alignment: .trailing)
+            }
+            if showDate {
+                Text(entry.displayModified)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 132, alignment: .trailing)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 3)

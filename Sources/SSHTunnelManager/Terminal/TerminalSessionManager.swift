@@ -2066,6 +2066,16 @@ final class TerminalSessionManager: ObservableObject {
         return savedWorkspaces.contains { $0.name == ws.name }
     }
 
+    /// Whether a saved workspace already exists under `name` (case-insensitive,
+    /// trimmed) — used to confirm before a Save-As overwrites it.
+    func savedWorkspaceExists(named name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return savedWorkspaces.contains {
+            $0.name.caseInsensitiveCompare(trimmed) == .orderedSame
+        }
+    }
+
     /// Snapshot `ws` into `savedWorkspaces`, replacing any entry of the same name.
     private func upsertSavedWorkspace(from ws: Workspace, name: String) {
         let tabs = snapshotTabs(for: ws)

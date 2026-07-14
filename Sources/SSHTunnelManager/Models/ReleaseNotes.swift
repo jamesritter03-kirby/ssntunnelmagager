@@ -45,6 +45,17 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.40", build: 50, date: "Jul 14, 2026",
+            highlights: [
+                "Mac as Router: turn your Mac into a full router on a subnet you define — pick an uplink (e.g. Wi-Fi) and a LAN interface (e.g. a USB Ethernet adapter), set the router IP (like 10.1.1.1) and subnet mask, run a built-in DHCP server with a custom address pool and lease time, and see every connected device with its name, IP, MAC and live reachability.",
+                "In-app browser now downloads files (saved to Downloads and revealed in Finder) and supports file uploads via the page's file picker.",
+                "Pause and resume tabs from the right-click menu — pause a connection to stop it, or pause a browser page to unload it and free resources — with an orange indicator on paused tabs.",
+                "Save As Workspace now asks for confirmation before replacing an existing saved workspace.",
+                "Finder side-dock: the file-name column now shrinks as you narrow the drawer instead of covering other columns.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.39", build: 49, date: "Jul 12, 2026",
             highlights: [
                 "New Network & Routers manager: view this Mac's interfaces, Wi-Fi, gateway, DNS and public IP, edit DNS servers and the default gateway (with guidance prompts), and turn Internet Sharing on or off.",
@@ -54,7 +65,7 @@ enum ReleaseCatalog {
                 "The in-app browser now handles plain-HTTP and self-signed sites, with a Safari-style certificate-trust prompt and a Developer right-click menu (hard reload, clear caches/cookies/HSTS, and more).",
                 "Duplicating a tab now opens the copy directly to the right of the original.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.38", build: 48, date: "Jul 11, 2026",

@@ -48,6 +48,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// Set when the user deliberately stopped this session (Disconnect / close /
     /// quit), so the manager's auto-reconnect doesn't treat it as a dropped link.
     var userInitiatedStop = false
+    /// Toggled to force tab UI (chips / dock headers) to re-read `isPaused` when a
+    /// web tab's paused state changes — the web model is a separate observable.
+    @Published private var pausedTick = false
     /// Invoked with the raw bytes the user types, when broadcast-input is on, so
     /// the manager can mirror them to every other live terminal. Nil = no relay.
     var onUserTypedForBroadcast: ((ArraySlice<UInt8>) -> Void)?
@@ -178,6 +181,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// (mqtt / redis) are live connections — “Disconnect”; local shells are “Stop”.
     var isRemote: Bool {
         kind == .ssh || kind == .sftp || kind == .vnc || kind == .mqtt || kind == .redis
+    }
+
+    /// Whether the tab is currently paused by the user: a web tab whose page has
+    /// been unloaded via Pause, or a connection / local process the user paused
+    /// (stopped without the tab ending on its own). Drives the paused tab badge.
+    var isPaused: Bool {
+        if kind == .web { return webModel?.isPaused ?? false }
+        if kind == .finder || kind == .editor || kind == .spreadsheet { return false }
+        return userInitiatedStop && !isRunning
     }
 
     /// Whether a per-command history makes sense for this tab: the interactive
@@ -407,6 +419,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         webModel?.onTitleChange = { [weak self] newTitle in
             let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
             if !trimmed.isEmpty { self?.title = trimmed }
+        }
+        webModel?.onPausedChange = { [weak self] _ in
+            // Nudge the session so tab chips / dock headers re-evaluate `isPaused`.
+            self?.pausedTick.toggle()
         }
         finderModel?.onPathChange = { [weak self] url in
             let name = url.lastPathComponent

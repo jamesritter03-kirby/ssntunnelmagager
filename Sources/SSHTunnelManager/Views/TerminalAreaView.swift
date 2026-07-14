@@ -426,6 +426,7 @@ private struct DockColumnView: View {
     }
 
     private func statusColor(_ session: TerminalSession) -> Color {
+        if session.isPaused { return .orange }
         if session.isRunning { return .green }
         if let code = session.exitCode, code != 0 { return .red }
         return .secondary
@@ -482,6 +483,12 @@ private struct DockPaneView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if session.isPaused {
+                Image(systemName: "pause.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                    .help("Paused")
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
@@ -511,6 +518,7 @@ private struct DockPaneView: View {
     }
 
     private var statusColor: Color {
+        if session.isPaused { return .orange }
         if session.isRunning { return .green }
         if let code = session.exitCode, code != 0 { return .red }
         return .secondary
@@ -559,6 +567,9 @@ private struct WorkspaceBar: View {
     @State private var isSavingAsProfile = false
     @State private var profileNameField = ""
     @State private var pendingProfileWorkspaceID: UUID?
+    /// When a Save name collides with an existing saved workspace, holds the name
+    /// pending overwrite confirmation.
+    @State private var overwriteName: String?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -618,11 +629,30 @@ private struct WorkspaceBar: View {
             TextField("Name", text: $saveField)
             Button("Cancel", role: .cancel) { isSaving = false }
             Button("Save") {
-                sessions.saveCurrentWorkspace(name: saveField)
+                let name = saveField.trimmingCharacters(in: .whitespacesAndNewlines)
+                let finalName = name.isEmpty ? (sessions.currentWorkspace?.name ?? "") : name
                 isSaving = false
+                // If a saved workspace already uses this name, confirm the
+                // overwrite before replacing it.
+                if sessions.savedWorkspaceExists(named: finalName) {
+                    overwriteName = finalName
+                } else {
+                    sessions.saveCurrentWorkspace(name: finalName)
+                }
             }
         } message: {
             Text("Save this workspace's tabs so you can reopen them later from the workspaces menu.")
+        }
+        .alert("Replace Saved Workspace?", isPresented: overwriteBinding) {
+            Button("Cancel", role: .cancel) { overwriteName = nil }
+            Button("Replace", role: .destructive) {
+                if let name = overwriteName {
+                    sessions.saveCurrentWorkspace(name: name)
+                }
+                overwriteName = nil
+            }
+        } message: {
+            Text("A saved workspace named “\(overwriteName ?? "")” already exists. Replacing it overwrites its saved tabs with the current ones.")
         }
         .alert("Save Workspace as Profile", isPresented: $isSavingAsProfile) {
             TextField("Profile name", text: $profileNameField)
@@ -675,6 +705,9 @@ private struct WorkspaceBar: View {
         Binding(get: { renamingID != nil }, set: { if !$0 { renamingID = nil } })
     }
 
+    private var overwriteBinding: Binding<Bool> {
+        Binding(get: { overwriteName != nil }, set: { if !$0 { overwriteName = nil } })
+    }
     private func beginRename(_ ws: Workspace) {
         nameField = ws.name
         renamingID = ws.id
@@ -1515,13 +1548,41 @@ private struct TerminalTabContextMenu: View {
         }
         if session.kind != .web && session.kind != .finder && session.kind != .editor
             && session.kind != .spreadsheet {
-            Button {
-                session.disconnect()
-            } label: {
-                Label(session.isRemote ? "Disconnect" : "Stop",
-                      systemImage: "bolt.horizontal.circle")
+            // Pause / resume the tab's connection (or local process) without
+            // closing the tab. Running → pause (disconnect / stop); stopped →
+            // resume (reconnect / restart).
+            if session.isRunning {
+                Button {
+                    session.disconnect()
+                } label: {
+                    Label(session.isRemote ? "Pause Connection" : "Pause (Stop)",
+                          systemImage: "pause.circle")
+                }
+            } else {
+                Button {
+                    session.restart()
+                } label: {
+                    Label(session.isRemote ? "Resume Connection" : "Resume (Restart)",
+                          systemImage: "play.circle")
+                }
             }
-            .disabled(!session.isRunning)
+        }
+        // A browser tab pauses by unloading the page (stops media, timers, and
+        // network); resuming reloads the page that was showing.
+        if session.kind == .web, let web = session.webModel {
+            if web.isPaused {
+                Button {
+                    web.resume()
+                } label: {
+                    Label("Resume Page", systemImage: "play.circle")
+                }
+            } else {
+                Button {
+                    web.pause()
+                } label: {
+                    Label("Pause Page", systemImage: "pause.circle")
+                }
+            }
         }
         // Type the profile's saved password at the current prompt (Touch ID as the
         // profile configures) without revealing it — a reliable fallback for a
@@ -2019,6 +2080,12 @@ private struct TabChip: View {
             Text(session.title)
                 .lineLimit(1)
                 .font(.callout)
+            if session.isPaused {
+                Image(systemName: "pause.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                    .help("Paused")
+            }
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
@@ -2034,6 +2101,7 @@ private struct TabChip: View {
             RoundedRectangle(cornerRadius: 7)
                 .strokeBorder(chipBorder, lineWidth: 1)
         )
+        .opacity(session.isPaused ? 0.65 : 1)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .contextMenu {
@@ -2042,6 +2110,7 @@ private struct TabChip: View {
     }
 
     private var statusColor: Color {
+        if session.isPaused { return .orange }
         if session.isRunning { return .green }
         if let code = session.exitCode, code != 0 { return .red }
         return .secondary

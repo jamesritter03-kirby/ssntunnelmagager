@@ -246,6 +246,9 @@ private struct MacNetworkDetail: View {
     @State private var shareTo: Set<String> = []
     @State private var applyingShare = false
 
+    /// Whether the advanced "Mac as router" panel is expanded.
+    @State private var showRouter = false
+
     /// Which inline editor sheet is open, if any.
     @State private var editingDNS = false
     @State private var editingGateway = false
@@ -289,6 +292,8 @@ private struct MacNetworkDetail: View {
                 }
 
                 sharingSection
+
+                routerSection
 
                 actions
             }
@@ -474,6 +479,163 @@ private struct MacNetworkDetail: View {
 
     private func friendlyName(_ bsd: String) -> String {
         net.interfaces.first { $0.bsdName == bsd }?.friendlyName ?? bsd
+    }
+
+    // MARK: Mac as Router
+
+    /// Binding into the store's persisted router config.
+    private var cfg: Binding<MacRouterConfig> { $net.routerConfig }
+
+    private var routerSection: some View {
+        section("Mac as Router (Advanced)") {
+            HStack {
+                Circle()
+                    .fill(net.routerRunning ? Color.green : Color.secondary)
+                    .frame(width: 8, height: 8)
+                Text(net.routerRunning
+                     ? "Running — \(net.routerConfig.routerIP) on \(friendlyName(net.routerConfig.lanDevice))"
+                     : "Off")
+                    .fontWeight(.medium)
+                Spacer()
+                Button {
+                    withAnimation { showRouter.toggle() }
+                } label: {
+                    Image(systemName: showRouter ? "chevron.up" : "chevron.down")
+                }
+                .buttonStyle(.borderless)
+                .help(showRouter ? "Hide router settings" : "Configure router")
+            }
+
+            if net.routerRunning {
+                Divider()
+                connectedDevices
+            }
+
+            if showRouter {
+                Divider()
+                routerForm
+            }
+
+            Text("Turns this Mac into a full router: assigns a fixed IP to a LAN interface, hands out addresses over its own DHCP server, and NATs traffic out an uplink. Great for sharing Wi‑Fi to a USB Ethernet adapter on a custom subnet. Needs an administrator password.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var routerForm: some View {
+        // Uplink (internet source).
+        HStack(alignment: .firstTextBaseline) {
+            Text("Uplink").foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
+            Picker("", selection: cfg.uplinkDevice) {
+                Text("Select…").tag("")
+                ForEach(shareableInterfaces) { iface in
+                    Text(interfaceLabel(iface)).tag(iface.bsdName)
+                }
+            }
+            .labelsHidden()
+        }
+        // LAN interface (the network we serve).
+        HStack(alignment: .firstTextBaseline) {
+            Text("LAN interface").foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
+            Picker("", selection: cfg.lanDevice) {
+                Text("Select…").tag("")
+                ForEach(shareableInterfaces.filter { $0.bsdName != net.routerConfig.uplinkDevice }) { iface in
+                    Text(interfaceLabel(iface)).tag(iface.bsdName)
+                }
+            }
+            .labelsHidden()
+        }
+
+        routerField("Router IP", cfg.routerIP, placeholder: "10.1.1.1")
+        routerField("Subnet mask", cfg.subnetMask, placeholder: "255.255.255.0")
+
+        Toggle(isOn: cfg.dhcpEnabled) {
+            Text("Run a DHCP server on this network")
+        }
+        .toggleStyle(.checkbox)
+
+        if net.routerConfig.dhcpEnabled {
+            routerField("DHCP start", cfg.dhcpStart, placeholder: "10.1.1.100")
+            routerField("DHCP end", cfg.dhcpEnd, placeholder: "10.1.1.200")
+            HStack(alignment: .firstTextBaseline) {
+                Text("Lease (hours)").foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
+                TextField("24", value: Binding(
+                    get: { net.routerConfig.leaseSeconds / 3600 },
+                    set: { net.routerConfig.leaseSeconds = max(1, $0) * 3600 }),
+                    format: .number)
+                    .frame(width: 80)
+            }
+        }
+
+        HStack {
+            Spacer()
+            if net.routerRunning {
+                Button(role: .destructive) {
+                    Task { await net.disableRouter() }
+                } label: {
+                    if net.routerBusy { ProgressView().controlSize(.small) } else { Text("Stop Router") }
+                }
+                .disabled(net.routerBusy)
+            } else {
+                Button {
+                    Task { await net.enableRouter() }
+                } label: {
+                    if net.routerBusy { ProgressView().controlSize(.small) } else { Text("Start Router") }
+                }
+                .disabled(net.routerBusy
+                          || net.routerConfig.uplinkDevice.isEmpty
+                          || net.routerConfig.lanDevice.isEmpty)
+            }
+        }
+    }
+
+    private func routerField(_ label: String, _ binding: Binding<String>, placeholder: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
+            TextField(placeholder, text: binding)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 160)
+        }
+    }
+
+    @ViewBuilder
+    private var connectedDevices: some View {
+        HStack {
+            Text("Connected Devices").fontWeight(.medium)
+            Spacer()
+            Button {
+                Task { await net.refreshRouterClients() }
+            } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.borderless)
+                .help("Refresh device list")
+        }
+        if net.routerClients.isEmpty {
+            Text("No devices seen yet.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            ForEach(net.routerClients) { client in
+                HStack(alignment: .top) {
+                    Circle()
+                        .fill(client.isActive ? Color.green : Color.secondary)
+                        .frame(width: 7, height: 7)
+                        .padding(.top, 5)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(client.displayName).fontWeight(.medium)
+                        CopyableText(text: client.ip, font: .callout)
+                        if !client.mac.isEmpty {
+                            CopyableText(text: client.mac, font: .caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Text(client.isActive ? "Active" : "Idle")
+                        .font(.caption)
+                        .foregroundStyle(client.isActive ? .green : .secondary)
+                }
+                if client.id != net.routerClients.last?.id { Divider() }
+            }
+        }
     }
 
     /// Load the store's current sharing config into the editable draft.
