@@ -45,6 +45,17 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.41", build: 51, date: "Jul 14, 2026",
+            highlights: [
+                "Mac as Router upgrades: a built-in DNS forwarder (dnsmasq) so client devices get working name resolution, an optional “start this router automatically when the app launches” setting, and a pre-flight check that warns you if the router IP is already in use before starting.",
+                "More reliable routing: the LAN address is now assigned through macOS networking (fixing “Can't assign requested address”), NAT rules load in the correct order so clients reach the internet, and Stop Router reliably tears everything down.",
+                "Live device status: connected router devices now show the same green/gray globe indicator as ZeroTier devices, and their IPs appear in the IP address picker so you can pick a connected device in one click.",
+                "SSH host-key changes are now detected in-app with a clear prompt to remove the old key and reconnect, instead of a cryptic terminal error.",
+                "The Network and ZeroTier windows now open at full screen height and stay resizable, and IP-less hardware ports (like an idle USB-Ethernet adapter) show up in the interface lists.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.40", build: 50, date: "Jul 14, 2026",
             highlights: [
                 "Mac as Router: turn your Mac into a full router on a subnet you define — pick an uplink (e.g. Wi-Fi) and a LAN interface (e.g. a USB Ethernet adapter), set the router IP (like 10.1.1.1) and subnet mask, run a built-in DHCP server with a custom address pool and lease time, and see every connected device with its name, IP, MAC and live reachability.",
@@ -53,7 +64,7 @@ enum ReleaseCatalog {
                 "Save As Workspace now asks for confirmation before replacing an existing saved workspace.",
                 "Finder side-dock: the file-name column now shrinks as you narrow the drawer instead of covering other columns.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.39", build: 49, date: "Jul 12, 2026",

@@ -2509,6 +2509,29 @@ struct TerminalContainer: View {
                 .padding(10)
             }
         }
+        .alert("Host Key Has Changed",
+               isPresented: Binding(
+                get: { session.hostKeyChangedHost != nil },
+                set: { if !$0 { session.dismissHostKeyChange() } })) {
+            Button("Remove Key & Reconnect") {
+                Task {
+                    let ok = await session.clearChangedHostKey()
+                    if ok { session.restart() }
+                }
+            }
+            Button("Cancel", role: .cancel) { session.dismissHostKeyChange() }
+        } message: {
+            Text(hostKeyChangedMessage)
+        }
+    }
+
+    private var hostKeyChangedMessage: String {
+        let host = session.hostKeyChangedHost ?? "this host"
+        return """
+        The SSH server at \(host) is presenting a different host key than the one saved in ~/.ssh/known_hosts.
+
+        This usually means the machine was reinstalled or replaced. If you trust that this is expected, remove the old key and reconnect. If you weren't expecting a change, cancel — it could indicate a man-in-the-middle.
+        """
     }
 }
 

@@ -45,6 +45,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     @Published private(set) var commandHistory: [String] = []
     /// Live reachability of this session's forwarded local ports (sidebar dot).
     @Published var tunnelHealth: TunnelHealth = .unknown
+    /// Set to the offending host when ssh reports its host key has changed
+    /// ("REMOTE HOST IDENTIFICATION HAS CHANGED"). Drives an in-app prompt that
+    /// offers to remove the stale `known_hosts` entry and reconnect. Cleared once
+    /// handled or dismissed.
+    @Published var hostKeyChangedHost: String? = nil
     /// Set when the user deliberately stopped this session (Disconnect / close /
     /// quit), so the manager's auto-reconnect doesn't treat it as a dropped link.
     var userInitiatedStop = false
@@ -759,7 +764,81 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         if secretPromptActive && !wasActive {
             maybeAutofillPassword()
         }
+        detectHostKeyChange(in: cleaned)
         maybeFireRunOnConnect()
+    }
+
+    /// Spot ssh's "REMOTE HOST IDENTIFICATION HAS CHANGED" failure and surface the
+    /// offending host so the UI can offer to remove the stale known_hosts entry.
+    private func detectHostKeyChange(in text: String) {
+        guard hostKeyChangedHost == nil else { return }
+        guard text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
+                || text.contains("Host key verification failed") else { return }
+        // Prefer the explicit "Host key for <host> has changed" line.
+        var host: String?
+        if let range = text.range(of: #"Host key for (?:'|\")?([^'\"\s]+)(?:'|\")? has changed"#,
+                                   options: .regularExpression) {
+            let match = String(text[range])
+            if let inner = match.range(of: #"for (?:'|\")?([^'\"\s]+)"#, options: .regularExpression) {
+                host = String(match[inner])
+                    .replacingOccurrences(of: "for ", with: "")
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "'\" "))
+            }
+        }
+        // Fall back to the profile's host if we couldn't parse one out.
+        let resolved = host ?? hostForKnownHosts
+        guard let resolved, !resolved.isEmpty else { return }
+        hostKeyChangedHost = resolved
+    }
+
+    /// Remove the stale `known_hosts` entry for the offending host via
+    /// `ssh-keygen -R`. Returns true on success. Runs off the main thread.
+    func clearChangedHostKey() async -> Bool {
+        guard let host = hostKeyChangedHost else { return false }
+        let ok = await TerminalSession.runSSHKeygenRemove(host: host)
+        await MainActor.run { self.hostKeyChangedHost = nil }
+        return ok
+    }
+
+    /// Dismiss the host-key-changed prompt without removing anything.
+    func dismissHostKeyChange() {
+        hostKeyChangedHost = nil
+    }
+
+    /// The host string used for known_hosts lookups: the profile's host (with a
+    /// bracketed `[host]:port` form when a non-standard port is in play is left to
+    /// ssh-keygen). Falls back to any host parsed from the launch args.
+    private var hostForKnownHosts: String? {
+        // The launch args carry the destination; grab the last non-option token
+        // that looks like a host (user@host or bare host/IP).
+        for token in args.reversed() {
+            if token.hasPrefix("-") { continue }
+            let hostPart = token.contains("@") ? String(token.split(separator: "@").last ?? "") : token
+            if hostPart.contains(".") || hostPart.contains(":") || !hostPart.isEmpty {
+                return hostPart
+            }
+        }
+        return nil
+    }
+
+    /// Run `ssh-keygen -R <host>` to drop the offending key. Best-effort.
+    nonisolated static func runSSHKeygenRemove(host: String) async -> Bool {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
+                proc.arguments = ["-R", host]
+                proc.standardOutput = Pipe()
+                proc.standardError = Pipe()
+                do {
+                    try proc.run()
+                    proc.waitUntilExit()
+                    cont.resume(returning: proc.terminationStatus == 0)
+                } catch {
+                    cont.resume(returning: false)
+                }
+            }
+        }
     }
 
     /// Fire the profile's run-on-connect command once the shell looks ready: after

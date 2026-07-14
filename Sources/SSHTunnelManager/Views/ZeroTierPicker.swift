@@ -19,7 +19,7 @@ struct ZeroTierPickerButton: View {
             Image(systemName: "globe.americas.fill")
         }
         .buttonStyle(.borderless)
-        .help("Pick an IP address from your ZeroTier devices")
+        .help("Pick an IP from your ZeroTier devices or the Mac router's clients")
         .popover(isPresented: $showing, arrowEdge: .bottom) {
             ZeroTierIPPickerPopover { ip in
                 onPick(ip)
@@ -36,6 +36,7 @@ private struct ZeroTierIPPickerPopover: View {
     var onPick: (String) -> Void
 
     @ObservedObject private var store = ZeroTierStore.shared
+    @ObservedObject private var net = NetworkStore.shared
     @State private var search = ""
     @State private var onlineOnly = false
     @State private var newLabel = ""
@@ -50,12 +51,21 @@ private struct ZeroTierIPPickerPopover: View {
                 controls
                 Divider()
                 content
+            } else if !filteredRouterClients.isEmpty {
+                // No ZeroTier account, but we're a router with clients — still
+                // useful to show those.
+                controls
+                Divider()
+                content
             } else {
                 setupForm
             }
         }
-        .frame(width: 340, height: store.hasAccounts ? 430 : 300)
-        .task { await store.loadIfNeeded() }
+        .frame(width: 340, height: (store.hasAccounts || !filteredRouterClients.isEmpty) ? 430 : 300)
+        .task {
+            await store.loadIfNeeded()
+            await net.refreshRouterClients()
+        }
     }
 
     private var header: some View {
@@ -91,9 +101,10 @@ private struct ZeroTierIPPickerPopover: View {
     @ViewBuilder
     private var content: some View {
         let devices = filteredMembers
-        if store.networks.isEmpty && store.isLoadingNetworks {
+        let routerClients = filteredRouterClients
+        if store.networks.isEmpty && store.isLoadingNetworks && routerClients.isEmpty {
             spacerBox { ProgressView() }
-        } else if devices.isEmpty {
+        } else if devices.isEmpty && routerClients.isEmpty {
             spacerBox {
                 Text(search.isEmpty && !onlineOnly ? "No devices with an IP found." : "No matching devices.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -101,6 +112,16 @@ private struct ZeroTierIPPickerPopover: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
+                    if !routerClients.isEmpty {
+                        sectionLabel("On This Mac’s Router (\(net.routerConfig.routerIP))")
+                        ForEach(routerClients) { client in
+                            routerClientRow(client)
+                        }
+                        if !devices.isEmpty {
+                            Divider().padding(.vertical, 4)
+                            sectionLabel("ZeroTier Devices")
+                        }
+                    }
                     ForEach(devices) { member in
                         deviceBlock(member)
                     }
@@ -108,6 +129,35 @@ private struct ZeroTierIPPickerPopover: View {
                 .padding(8)
             }
         }
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
+    }
+
+    private func routerClientRow(_ client: RouterClient) -> some View {
+        Button { onPick(client.ip) } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(client.isActive ? Color.green : Color.secondary.opacity(0.4))
+                    .frame(width: 7, height: 7)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(client.displayName).font(.caption.weight(.semibold)).lineLimit(1)
+                    Text(client.ip).font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "arrow.right.circle").foregroundStyle(.tint)
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 3)
+            .padding(.horizontal, 6)
+        }
+        .buttonStyle(.plain)
     }
 
     private func deviceBlock(_ member: ZeroTierMember) -> some View {
@@ -188,6 +238,21 @@ private struct ZeroTierIPPickerPopover: View {
         VStack { Spacer(); content(); Spacer() }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Router LAN clients (only when the Mac router is running), filtered by the
+    /// same search box. Online (ARP-active) devices sort first.
+    private var filteredRouterClients: [RouterClient] {
+        guard net.routerRunning else { return [] }
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        return net.routerClients
+            .filter { c in
+                guard !q.isEmpty else { return true }
+                if c.displayName.lowercased().contains(q) { return true }
+                if c.ip.lowercased().contains(q) { return true }
+                return c.mac.lowercased().contains(q)
+            }
+            .sorted { ($0.isActive ? 0 : 1, $0.ip) < ($1.isActive ? 0 : 1, $1.ip) }
+    }
+
     /// Devices that have at least one IP, after the search / online filter,
     /// across every account's networks.
     private var filteredMembers: [ZeroTierMember] {
@@ -213,6 +278,7 @@ private struct ZeroTierIPPickerPopover: View {
 struct ZeroTierStatusGlyph: View {
     let host: String
     @ObservedObject private var store = ZeroTierStore.shared
+    @ObservedObject private var net = NetworkStore.shared
 
     var body: some View {
         if let member = store.member(forIP: host) {
@@ -222,7 +288,21 @@ struct ZeroTierStatusGlyph: View {
                 .accessibilityLabel(member.isOnline
                                     ? "ZeroTier device online"
                                     : "ZeroTier device offline")
+        } else if let client = net.routerClient(forIP: host) {
+            Image(systemName: "globe.americas.fill")
+                .foregroundStyle(client.isActive ? Color.green : Color.secondary)
+                .help(helpText(for: client))
+                .accessibilityLabel(client.isActive
+                                    ? "Mac router device online"
+                                    : "Mac router device offline")
         }
+    }
+
+    private func helpText(for client: RouterClient) -> String {
+        if client.isActive {
+            return "“\(client.displayName)” is connected to this Mac’s router"
+        }
+        return "“\(client.displayName)” has a lease on this Mac’s router but isn’t currently reachable"
     }
 
     private func helpText(for member: ZeroTierMember) -> String {

@@ -318,6 +318,20 @@ private struct MacNetworkDetail: View {
                 Task { await net.setGateway(gw, persistOn: net.primaryService, ip: ip, mask: mask) }
             }
         }
+        .alert("IP Address Already In Use",
+               isPresented: Binding(
+                get: { net.routerIPConflict != nil },
+                set: { if !$0 { net.routerIPConflict = nil } })) {
+            Button("Start Anyway", role: .destructive) {
+                let msg = net.routerIPConflict
+                net.routerIPConflict = nil
+                if msg != nil { Task { await net.enableRouter(force: true) } }
+            }
+            Button("Cancel", role: .cancel) { net.routerIPConflict = nil }
+        } message: {
+            Text((net.routerIPConflict ?? "")
+                 + "\n\nStarting the router would create an IP conflict. Cancel and either power off the other device, unplug it, or choose a different router IP.")
+        }
     }
 
     private var header: some View {
@@ -568,6 +582,13 @@ private struct MacNetworkDetail: View {
             }
         }
 
+        Toggle(isOn: Binding(
+            get: { net.routerConfig.autoStart },
+            set: { net.routerConfig.autoStart = $0 })) {
+            Text("Start this router automatically when the app launches")
+        }
+        .toggleStyle(.checkbox)
+
         HStack {
             Spacer()
             if net.routerRunning {
@@ -588,6 +609,10 @@ private struct MacNetworkDetail: View {
                           || net.routerConfig.lanDevice.isEmpty)
             }
         }
+
+        Text("The Mac runs NAT, a DHCP server, and (if dnsmasq is installed) a DNS forwarder on the router IP — so clients pointing at \(net.routerConfig.routerIP) for DNS resolve names through your Mac's upstream servers.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     private func routerField(_ label: String, _ binding: Binding<String>, placeholder: String) -> some View {
@@ -1151,12 +1176,19 @@ private struct ContentUnavailablePlaceholder: View {
 private struct NetworkResizableSheet: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let v = NSView()
-        DispatchQueue.main.async {
-            if let window = v.window {
-                window.styleMask.insert(.resizable)
-            }
-        }
+        DispatchQueue.main.async { expandToScreenHeight(from: v) }
         return v
     }
     func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private func expandToScreenHeight(from view: NSView) {
+        guard let window = view.window else { return }
+        window.styleMask.insert(.resizable)
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        var frame = window.frame
+        frame.size.height = visible.height
+        frame.origin.y = visible.minY
+        window.setFrame(frame, display: true, animate: false)
+    }
 }

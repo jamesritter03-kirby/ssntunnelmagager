@@ -77,6 +77,8 @@ struct MacRouterConfig: Codable, Hashable {
     var dhcpEnd = "10.1.1.200"
     /// DHCP lease length in seconds.
     var leaseSeconds = 86_400
+    /// Whether to bring the router up automatically when the app launches.
+    var autoStart = false
 
     /// The LAN network address derived from routerIP + mask (e.g. "10.1.1.0").
     var networkAddress: String {
@@ -142,11 +144,36 @@ final class NetworkStore: ObservableObject {
         didSet { Self.saveRouterConfig(routerConfig) }
     }
     /// Whether our custom router is currently active (LAN IP assigned + NAT up).
-    @Published private(set) var routerRunning = false
+    @Published private(set) var routerRunning = false {
+        didSet {
+            guard routerRunning != oldValue else { return }
+            if routerRunning { startRouterClientPolling() }
+            else { stopRouterClientPolling() }
+        }
+    }
     /// Devices seen on the router LAN (DHCP leases merged with the ARP table).
     @Published private(set) var routerClients: [RouterClient] = []
     /// True while an enable/disable router action is in flight.
     @Published private(set) var routerBusy = false
+    /// Background task that keeps `routerClients` fresh while the router is up,
+    /// so live status glyphs (green globes) stay accurate.
+    private var routerClientPoll: Task<Void, Never>?
+
+    private func startRouterClientPolling() {
+        routerClientPoll?.cancel()
+        routerClientPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.refreshRouterClients()
+                try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+            }
+        }
+    }
+
+    private func stopRouterClientPolling() {
+        routerClientPoll?.cancel()
+        routerClientPoll = nil
+    }
 
     // MARK: Refresh
 
@@ -230,10 +257,19 @@ final class NetworkStore: ObservableObject {
 
     // MARK: Mac as Router
 
+    /// When the pre-flight check finds another device already using the chosen
+    /// router IP, this holds a human-readable description of it. The UI shows a
+    /// confirmation so the user can cancel (recommended) or start anyway.
+    @Published var routerIPConflict: String?
+
     /// Bring up the custom router described by `routerConfig`: assign the LAN IP,
     /// enable IP forwarding, install a pf NAT rule out the uplink, and (if
     /// enabled) start the bootpd DHCP server. One admin prompt for everything.
-    func enableRouter() async {
+    ///
+    /// Before touching anything it probes the chosen router IP; if some other
+    /// device on the LAN already answers there, it stops and populates
+    /// `routerIPConflict` instead (unless `force` is true).
+    func enableRouter(force: Bool = false) async {
         let cfg = routerConfig
         guard !cfg.uplinkDevice.isEmpty, !cfg.lanDevice.isEmpty else {
             lastActionMessage = "Pick an uplink (internet) interface and a LAN interface."
@@ -247,6 +283,18 @@ final class NetworkStore: ObservableObject {
             lastActionMessage = "Enter a valid router IP and subnet mask."
             return
         }
+
+        // Pre-flight: is someone else already using our router IP on the LAN?
+        if !force {
+            routerBusy = true
+            let conflict = await Self.detectIPConflict(ip: cfg.routerIP, device: cfg.lanDevice)
+            routerBusy = false
+            if let conflict {
+                routerIPConflict = conflict
+                return
+            }
+        }
+
         routerBusy = true
         let ok = await Self.applyRouter(enabled: true, config: cfg)
         routerBusy = false
@@ -270,6 +318,45 @@ final class NetworkStore: ObservableObject {
     func refreshRouterClients() async {
         guard routerRunning else { routerClients = []; return }
         routerClients = await Self.readRouterClients(config: routerConfig)
+    }
+
+    /// Look up a connected Mac-router client by its IP address (if the router is
+    /// running). Used to show a live status indicator next to profiles that
+    /// connect to a device on the Mac's own LAN.
+    func routerClient(forIP ip: String) -> RouterClient? {
+        guard routerRunning else { return nil }
+        let target = ip.trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty else { return nil }
+        return routerClients.first { $0.ip == target }
+    }
+
+    /// If auto-start is enabled and the router isn't already up, bring it up.
+    /// Called shortly after app launch. Prompts for an admin password (once).
+    func autoStartRouterIfNeeded() async {
+        guard routerConfig.autoStart else { return }
+        guard !routerConfig.uplinkDevice.isEmpty, !routerConfig.lanDevice.isEmpty else { return }
+        let running = await Self.readRouterRunning(config: routerConfig)
+        if running {
+            routerRunning = true
+            routerClients = await Self.readRouterClients(config: routerConfig)
+            return
+        }
+        await enableRouter()
+        // Wait for the LAN interface to actually hold its address before anything
+        // (e.g. auto-connect SSH tabs) tries to use the new subnet — otherwise the
+        // first connections fail with "Can't assign requested address".
+        await Self.waitForRouterReady(config: routerConfig)
+    }
+
+    /// Poll until the LAN interface has the configured router IP (or a timeout).
+    /// Used to gate launch-time actions on the router being fully up.
+    nonisolated static func waitForRouterReady(config: MacRouterConfig,
+                                               timeout: TimeInterval = 8) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await readRouterRunning(config: config) { return }
+            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s
+        }
     }
 
     private func isValidIPv4(_ s: String) -> Bool {
@@ -521,6 +608,21 @@ final class NetworkStore: ObservableObject {
     private nonisolated static let routerBootpdPlist = "/etc/bootpd.plist"
     private nonisolated static let routerDefaultsKey = "MacRouterConfig"
     private nonisolated static let routerFlagPath = "/tmp/com.remotestuff.router.active"
+    /// DNS-forwarder (dnsmasq) file locations.
+    private nonisolated static let dnsmasqConfPath = "/tmp/com.remotestuff.dnsmasq.conf"
+    private nonisolated static let dnsmasqPlistPath = "/Library/LaunchDaemons/com.remotestuff.dnsmasq.plist"
+    private nonisolated static let dnsmasqLabel = "com.remotestuff.dnsmasq"
+
+    /// Locate a usable dnsmasq binary (Homebrew on Apple silicon / Intel, or a
+    /// system copy). Returns nil if none is installed — the router then hands out
+    /// the upstream DNS directly instead of running a local forwarder.
+    nonisolated static func dnsmasqPath() -> String? {
+        for p in ["/opt/homebrew/sbin/dnsmasq", "/usr/local/sbin/dnsmasq",
+                  "/opt/homebrew/bin/dnsmasq", "/usr/local/bin/dnsmasq"] {
+            if FileManager.default.isExecutableFile(atPath: p) { return p }
+        }
+        return nil
+    }
 
     /// Load the saved router config from UserDefaults (or defaults).
     nonisolated static func loadRouterConfig() -> MacRouterConfig {
@@ -601,11 +703,14 @@ final class NetworkStore: ObservableObject {
     }
 
     /// pf anchor ruleset: NAT the LAN subnet out the uplink and pass its traffic.
+    /// Ends with a trailing newline — pf treats a final line without one as a
+    /// syntax error.
     private nonisolated static func routerPFRules(_ c: MacRouterConfig) -> String {
         """
         nat on \(c.uplinkDevice) from \(c.networkAddress)/\(c.prefixLength) to any -> (\(c.uplinkDevice))
         pass in on \(c.lanDevice) from \(c.networkAddress)/\(c.prefixLength) to any keep state
         pass out on \(c.uplinkDevice) from \(c.networkAddress)/\(c.prefixLength) to any keep state
+
         """
     }
 
@@ -614,31 +719,80 @@ final class NetworkStore: ObservableObject {
     nonisolated static func applyRouter(enabled: Bool, config c: MacRouterConfig) async -> Bool {
         var lines: [String] = ["set -e"]
 
+        // Resolve the LAN device's network-service name so we can assign its IP
+        // through `networksetup` (which registers the address with configd).
+        // Assigning via raw `ifconfig` leaves macOS's scoped-routing source
+        // selection unaware of the address, so connections that don't explicitly
+        // bind a source fail with "Can't assign requested address". Falls back to
+        // `ifconfig` only if the device has no matching service.
+        let lanService = await serviceName(forDevice: c.lanDevice)
+
         if enabled {
-            // 1. Assign the LAN IP.
-            lines.append("/sbin/ifconfig \(c.lanDevice) inet \(c.routerIP) netmask \(c.subnetMask) up")
+            // 1. Assign the LAN IP (prefer networksetup; no router arg = no
+            //    default route added).
+            if let svc = lanService, !svc.isEmpty {
+                lines.append("/usr/sbin/networksetup -setmanual \"\(svc)\" \(c.routerIP) \(c.subnetMask)")
+            } else {
+                lines.append("/sbin/ifconfig \(c.lanDevice) inet \(c.routerIP) netmask \(c.subnetMask) up")
+            }
+            // 1b. Belt-and-suspenders: strip any default route the LAN interface
+            //     might carry (a stale DHCP lease can leave one, which breaks
+            //     source selection for the rest of the machine).
+            lines.append("/sbin/route -n delete -ifscope \(c.lanDevice) default 2>/dev/null || true")
             // 2. Enable IP forwarding.
             lines.append("/usr/sbin/sysctl -w net.inet.ip.forwarding=1")
 
             // 3. Write the pf anchor + a combined pf.conf that loads it.
+            //    pf enforces a strict rule order (options → normalization →
+            //    queueing → translation → filtering), so our nat-/rdr-anchors
+            //    must be interleaved with Apple's *before* any filter anchors,
+            //    and every `load anchor` goes at the very end. Appending our lines
+            //    after the stock file breaks that order, so we build the ruleset
+            //    ourselves in the correct sequence.
             let anchorB64 = Data(routerPFRules(c).utf8).base64EncodedString()
             lines.append("/bin/mkdir -p /etc/pf.anchors")
             lines.append("echo \(anchorB64) | /usr/bin/base64 -D > \(routerPFAnchorPath)")
             let combined = """
-            \(defaultPFConf())
+            scrub-anchor "com.apple/*"
+            nat-anchor "com.apple/*"
             nat-anchor "\(routerPFAnchor)"
+            rdr-anchor "com.apple/*"
             rdr-anchor "\(routerPFAnchor)"
+            dummynet-anchor "com.apple/*"
+            anchor "com.apple/*"
             anchor "\(routerPFAnchor)"
+            load anchor "com.apple" from "/etc/pf.anchors/com.apple"
             load anchor "\(routerPFAnchor)" from "\(routerPFAnchorPath)"
             """
             let confB64 = Data(combined.utf8).base64EncodedString()
             lines.append("echo \(confB64) | /usr/bin/base64 -D > /tmp/com.remotestuff.pf.conf")
             lines.append("/sbin/pfctl -E -f /tmp/com.remotestuff.pf.conf 2>/dev/null || /sbin/pfctl -e -f /tmp/com.remotestuff.pf.conf 2>/dev/null || true")
 
-            // 4. Start the DHCP server if enabled.
+            // 4. Start a local DNS forwarder (dnsmasq) bound to the router IP, so
+            //    clients that use the router as their DNS server (the standard
+            //    setup, and what statically-configured devices expect) can resolve
+            //    names. Falls back to handing out the upstream DNS directly if
+            //    dnsmasq isn't installed.
+            let upstreams = await upstreamDNSForRouter()
+            let dnsmasq = dnsmasqPath()
+            if let dnsmasq {
+                let conf = dnsmasqConf(c, upstreams: upstreams)
+                let confB64 = Data(conf.utf8).base64EncodedString()
+                lines.append("echo \(confB64) | /usr/bin/base64 -D > \(dnsmasqConfPath)")
+                let plist = dnsmasqPlistXML(binary: dnsmasq)
+                let plistB64 = Data(plist.utf8).base64EncodedString()
+                lines.append("echo \(plistB64) | /usr/bin/base64 -D > \(dnsmasqPlistPath)")
+                lines.append("/bin/launchctl bootout system/\(dnsmasqLabel) 2>/dev/null || true")
+                lines.append("/bin/launchctl bootstrap system \(dnsmasqPlistPath) 2>/dev/null || /bin/launchctl load -w \(dnsmasqPlistPath) 2>/dev/null || true")
+                lines.append("/bin/launchctl kickstart -k system/\(dnsmasqLabel) 2>/dev/null || true")
+            }
+
+            // 5. Start the DHCP server if enabled. Hand out the router IP as the
+            //    DNS server when the local forwarder is running; otherwise pass the
+            //    upstream resolver through directly.
             if c.dhcpEnabled {
-                let dnsServer = await primaryDNSForRouter()
-                let bootpdB64 = Data(bootpdPlistXML(c, dns: dnsServer).utf8).base64EncodedString()
+                let dnsForClients = dnsmasq != nil ? c.routerIP : (upstreams.first ?? c.routerIP)
+                let bootpdB64 = Data(bootpdPlistXML(c, dns: dnsForClients).utf8).base64EncodedString()
                 lines.append("echo \(bootpdB64) | /usr/bin/base64 -D > \(routerBootpdPlist)")
                 lines.append("/bin/launchctl load -w /System/Library/LaunchDaemons/bootps.plist 2>/dev/null || true")
                 lines.append("/bin/launchctl enable system/com.apple.bootpd 2>/dev/null || true")
@@ -646,6 +800,10 @@ final class NetworkStore: ObservableObject {
             }
             lines.append("/usr/bin/touch \(routerFlagPath)")
         } else {
+            // Stop the DNS forwarder.
+            lines.append("/bin/launchctl bootout system/\(dnsmasqLabel) 2>/dev/null || true")
+            lines.append("/bin/launchctl unload -w \(dnsmasqPlistPath) 2>/dev/null || true")
+            lines.append("/bin/rm -f \(dnsmasqPlistPath) \(dnsmasqConfPath) 2>/dev/null || true")
             // Stop DHCP.
             lines.append("/bin/launchctl bootout system/com.apple.bootpd 2>/dev/null || true")
             lines.append("/bin/launchctl unload -w /System/Library/LaunchDaemons/bootps.plist 2>/dev/null || true")
@@ -654,6 +812,13 @@ final class NetworkStore: ObservableObject {
             lines.append("/sbin/pfctl -a \(routerPFAnchor) -F all 2>/dev/null || true")
             lines.append("/sbin/pfctl -f /etc/pf.conf 2>/dev/null || true")
             // Drop the LAN IP and disable forwarding.
+            if let svc = lanService, !svc.isEmpty {
+                lines.append("/usr/sbin/networksetup -setdhcp \"\(svc)\" 2>/dev/null || true")
+            }
+            // Always also strip any raw ifconfig alias — a router started by an
+            // older build (or a half-applied config) leaves the address on the
+            // interface even after the service reverts to DHCP, which would keep
+            // it looking "running".
             if !c.lanDevice.isEmpty {
                 lines.append("/sbin/ifconfig \(c.lanDevice) inet \(c.routerIP) -alias 2>/dev/null || true")
             }
@@ -667,6 +832,65 @@ final class NetworkStore: ObservableObject {
             .replacingOccurrences(of: "\"", with: "\\\"")
         let osa = "do shell script \"\(escaped)\" with administrator privileges"
         return await runOSAScript(osa)
+    }
+
+    /// Detect whether another device on the LAN already answers at `ip` (before
+    /// we try to claim it). Sends a temporary ARP probe: pings the address a few
+    /// times, then reads the ARP table for a resolved MAC that isn't one of our
+    /// own interfaces. Returns a human-readable description of the conflicting
+    /// device, or nil if the address appears free. Best-effort; never throws.
+    nonisolated static func detectIPConflict(ip: String, device: String) async -> String? {
+        // Collect our own MACs so we don't flag ourselves.
+        let ifc = await output("/sbin/ifconfig", [])
+        let ownMACs = Set(matches(in: ifc, pattern: #"ether\s+([0-9a-fA-F:]+)"#).map { $0.lowercased() })
+
+        // Flush any stale entry, then provoke a fresh ARP resolution.
+        _ = await output("/usr/sbin/arp", ["-d", ip])
+        for _ in 0..<3 {
+            _ = await output("/sbin/ping", ["-c", "1", "-t", "1", ip])
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+
+        let arp = await output("/usr/sbin/arp", ["-n", ip])
+        // "? (10.1.1.1) at 88:a2:9e:53:b9:7b on en10 ..." — grab the MAC.
+        guard let mac = firstCapture(in: arp, pattern: #"at\s+([0-9a-fA-F:]+)\s"#),
+              !mac.lowercased().contains("incomplete") else {
+            return nil   // nothing answered — the address is free
+        }
+        let macLower = mac.lowercased()
+        if ownMACs.contains(macLower) { return nil }   // that's us
+        // Normalise short octets (macOS prints "8:a2:9e" not "08:a2:9e").
+        let norm = macLower.split(separator: ":")
+            .map { $0.count == 1 ? "0\($0)" : String($0) }
+            .joined(separator: ":")
+        return "A device with MAC address \(norm) is already using \(ip) on \(device)."
+    }
+
+    /// All capture-group-1 matches of `pattern` in `text`.
+    private nonisolated static func matches(in text: String, pattern: String) -> [String] {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return re.matches(in: text, range: range).compactMap { m in
+            guard m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: text) else { return nil }
+            return String(text[r])
+        }
+    }
+
+    /// Map a BSD device name (e.g. "en10") to its network-service name (e.g.
+    /// "USB 10/100/1000 LAN") from `-listnetworkserviceorder`. Nil if the device
+    /// isn't backed by a configured service.
+    nonisolated static func serviceName(forDevice bsd: String) async -> String? {
+        let order = await output("/usr/sbin/networksetup", ["-listnetworkserviceorder"])
+        var pending: String?
+        for line in order.components(separatedBy: .newlines) {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if let m = firstCapture(in: t, pattern: #"^\((?:\d+|\*)\)\s+(.*)$"#) {
+                pending = m
+            } else if t.contains("Device: \(bsd)"), let p = pending {
+                return p
+            }
+        }
+        return nil
     }
 
     /// The stock /etc/pf.conf contents (read at build time), used as the base for
@@ -683,13 +907,72 @@ final class NetworkStore: ObservableObject {
             """
     }
 
-    /// The first upstream DNS server the Mac is using, handed to DHCP clients.
-    private nonisolated static func primaryDNSForRouter() async -> String {
+    /// The upstream DNS servers the Mac is currently using (deduplicated, IPv4),
+    /// which the router's DNS forwarder / DHCP hands downstream. Filters out any
+    /// of our own LAN addresses so we never forward to ourselves. Falls back to
+    /// public resolvers if none are found.
+    private nonisolated static func upstreamDNSForRouter() async -> [String] {
         let scutil = await output("/usr/sbin/scutil", ["--dns"])
-        if let s = firstCapture(in: scutil, pattern: #"nameserver\[0\]\s*:\s*([0-9.]+)"#) {
-            return s
+        var seen = Set<String>()
+        var result: [String] = []
+        for line in scutil.components(separatedBy: .newlines) {
+            if let ip = firstCapture(in: line, pattern: #"nameserver\[\d+\]\s*:\s*([0-9.]+)"#),
+               !seen.contains(ip) {
+                // Skip link-local / our own router IPs and loopback.
+                if ip.hasPrefix("127.") || ip.hasPrefix("169.254.") { continue }
+                seen.insert(ip)
+                result.append(ip)
+            }
         }
-        return "8.8.8.8"
+        return result.isEmpty ? ["8.8.8.8", "1.1.1.1"] : result
+    }
+
+    /// dnsmasq config: bind to the router IP on port 53, act purely as a
+    /// forwarding resolver (no DHCP — bootpd handles that), and forward to the
+    /// Mac's upstream servers.
+    private nonisolated static func dnsmasqConf(_ c: MacRouterConfig, upstreams: [String]) -> String {
+        var lines = [
+            "# Generated by Remote Stuff — Mac as Router DNS forwarder",
+            "listen-address=\(c.routerIP)",
+            "listen-address=127.0.0.1",
+            "bind-interfaces",
+            "port=53",
+            "no-dhcp-interface=\(c.lanDevice)",  // DHCP is bootpd's job, not ours
+            "no-resolv",                          // use only the servers below
+            "no-poll",
+            "cache-size=1000",
+            "domain-needed",
+            "bogus-priv",
+        ]
+        for up in upstreams { lines.append("server=\(up)") }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// launchd plist that runs dnsmasq in the foreground (`-k`) with our config,
+    /// kept alive by launchd, as a system daemon.
+    private nonisolated static func dnsmasqPlistXML(binary: String) -> String {
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>\(dnsmasqLabel)</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>\(binary)</string>
+                <string>-k</string>
+                <string>--conf-file=\(dnsmasqConfPath)</string>
+            </array>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>KeepAlive</key>
+            <true/>
+            <key>StandardErrorPath</key>
+            <string>/tmp/com.remotestuff.dnsmasq.log</string>
+        </dict>
+        </plist>
+        """
     }
 
     /// Read the devices on the router LAN: parse the bootpd lease file and merge
@@ -776,8 +1059,11 @@ final class NetworkStore: ObservableObject {
 
         func flush() {
             if let c = current,
-               // Only surface interfaces that have an address or are up + physical.
-               (!c.ipv4.isEmpty || !c.ipv6.isEmpty),
+               // Surface interfaces that either have an address, or are a real
+               // hardware port (Wi-Fi / Ethernet / USB LAN) — the latter so an
+               // unconfigured LAN adapter still appears (e.g. to pick as the
+               // router's LAN interface before it has an IP).
+               (!c.ipv4.isEmpty || !c.ipv6.isEmpty || friendly[c.bsdName] != nil),
                !c.bsdName.hasPrefix("lo"), !c.bsdName.hasPrefix("gif"),
                !c.bsdName.hasPrefix("stf") {
                 result.append(c)
@@ -808,6 +1094,11 @@ final class NetworkStore: ObservableObject {
                 } else if line.hasPrefix("ether ") {
                     let parts = line.components(separatedBy: .whitespaces)
                     if parts.count >= 2 { current?.macAddress = parts[1] }
+                } else if line.hasPrefix("status:") {
+                    // Reflect real link state: "status: active" means a cable /
+                    // link is present. Overrides the flags-based guess so an
+                    // unplugged adapter reads as Down.
+                    current?.isUp = line.contains("active")
                 }
             }
         }

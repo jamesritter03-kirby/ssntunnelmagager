@@ -317,8 +317,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // open set so the next launch can resume exactly where we left off.
         TerminalSessionManager.shared.restoreLastSessionIfEnabled()
         TerminalSessionManager.shared.beginPersistingOpenSessions()
-        // Bring up any profiles the user asked to auto-connect at launch.
-        TerminalSessionManager.shared.autoConnectProfilesOnLaunch()
+
+        // If the user enabled "start router at launch", bring the Mac router up
+        // and wait for its LAN interface to hold its IP *before* auto-connecting
+        // profiles — otherwise SSH tabs on the new subnet fail with "Can't assign
+        // requested address". When auto-start is off, connect right away.
+        if NetworkStore.shared.routerConfig.autoStart {
+            Task { @MainActor in
+                await NetworkStore.shared.autoStartRouterIfNeeded()
+                TerminalSessionManager.shared.autoConnectProfilesOnLaunch()
+            }
+        } else {
+            TerminalSessionManager.shared.autoConnectProfilesOnLaunch()
+        }
 
         if !AppSettings.shared.startInMenuBarOnly {
             NSApp.setActivationPolicy(.regular)

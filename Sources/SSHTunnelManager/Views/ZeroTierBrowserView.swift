@@ -932,18 +932,28 @@ struct ZeroTierBrowserView: View {
 /// flexible frame; inserting `.resizable` into the sheet window's style mask lets
 /// the user drag its edges (bounded by the content's min/max frame).
 private struct ResizableSheet: NSViewRepresentable {
+    final class Coordinator { var didExpand = false }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        DispatchQueue.main.async { Self.makeResizable(from: view) }
+        DispatchQueue.main.async { Self.apply(to: view, coordinator: context.coordinator) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { Self.makeResizable(from: nsView) }
+        DispatchQueue.main.async { Self.apply(to: nsView, coordinator: context.coordinator) }
     }
 
-    private static func makeResizable(from view: NSView) {
+    private static func apply(to view: NSView, coordinator: Coordinator) {
         guard let window = view.window else { return }
         window.styleMask.insert(.resizable)
+        guard !coordinator.didExpand, let screen = window.screen ?? NSScreen.main else { return }
+        coordinator.didExpand = true
+        let visible = screen.visibleFrame
+        var frame = window.frame
+        frame.size.height = visible.height
+        frame.origin.y = visible.minY
+        window.setFrame(frame, display: true, animate: false)
     }
 }
