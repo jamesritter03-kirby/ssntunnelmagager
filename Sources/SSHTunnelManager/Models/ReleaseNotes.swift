@@ -45,6 +45,14 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.42", build: 52, date: "Jul 15, 2026",
+            highlights: [
+                "Mac as Router internet fix: client devices on the Mac's LAN can now reach the internet again. The NAT rules that share your uplink are now loaded reliably (a missing newline was silently causing the firewall ruleset to be rejected, so traffic was forwarded without address translation).",
+                "Router DNS fix: the built-in DNS forwarder no longer picks up malformed upstream servers from IPv6 resolver entries, so client name resolution works correctly.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.41", build: 51, date: "Jul 14, 2026",
             highlights: [
                 "Mac as Router upgrades: a built-in DNS forwarder (dnsmasq) so client devices get working name resolution, an optional “start this router automatically when the app launches” setting, and a pre-flight check that warns you if the router IP is already in use before starting.",
@@ -53,7 +61,7 @@ enum ReleaseCatalog {
                 "SSH host-key changes are now detected in-app with a clear prompt to remove the old key and reconnect, instead of a cryptic terminal error.",
                 "The Network and ZeroTier windows now open at full screen height and stay resizable, and IP-less hardware ports (like an idle USB-Ethernet adapter) show up in the interface lists.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.40", build: 50, date: "Jul 14, 2026",

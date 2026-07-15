@@ -72,10 +72,13 @@ fi
 # Strip detritus xattrs + ad-hoc sign (inside-out, verified). Shared with the
 # packaging scripts so the DMG and update zips are signed identically.
 #
-# Note: on iCloud-synced folders (~/Documents) macOS may re-tag this bundle a
-# moment later, which can break this signature. That's harmless for launching
-# locally; make-dmg.sh / make-appcast.sh re-sign a /tmp copy for distribution.
-./sign-app.sh "$BUNDLE"
+# Note: on iCloud-synced folders (~/Documents) macOS's file provider re-tags this
+# bundle with com.apple.FinderInfo faster than codesign can strip it, so sealing
+# the outer bundle in place may fail. That's harmless: the app still launches
+# locally, and make-dmg.sh / make-appcast.sh re-sign a /tmp copy (outside the
+# file provider) for distribution. So don't let an in-place signing failure abort
+# the build.
+./sign-app.sh "$BUNDLE" || echo "⚠︎  In-place signing incomplete (iCloud file-provider re-tagging); distribution copies are signed separately in /tmp."
 
 echo "✓  Built ${BUNDLE}"
 echo

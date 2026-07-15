@@ -79,6 +79,8 @@ struct MacRouterConfig: Codable, Hashable {
     var leaseSeconds = 86_400
     /// Whether to bring the router up automatically when the app launches.
     var autoStart = false
+    /// Whether to host the router status/config web portal on port 80.
+    var webPortalEnabled = true
 
     /// The LAN network address derived from routerIP + mask (e.g. "10.1.1.0").
     var networkAddress: String {
@@ -93,6 +95,26 @@ struct MacRouterConfig: Codable, Hashable {
     var prefixLength: Int {
         subnetMask.split(separator: ".").compactMap { UInt8($0) }
             .reduce(0) { $0 + $1.nonzeroBitCount }
+    }
+
+    init() {}
+
+    // Custom decoding so newly-added fields (e.g. `webPortalEnabled`) don't cause
+    // a decode failure on configs saved by older builds — missing keys fall back
+    // to their defaults instead of wiping the whole saved configuration.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let def = MacRouterConfig()
+        uplinkDevice = try c.decodeIfPresent(String.self, forKey: .uplinkDevice) ?? def.uplinkDevice
+        lanDevice = try c.decodeIfPresent(String.self, forKey: .lanDevice) ?? def.lanDevice
+        routerIP = try c.decodeIfPresent(String.self, forKey: .routerIP) ?? def.routerIP
+        subnetMask = try c.decodeIfPresent(String.self, forKey: .subnetMask) ?? def.subnetMask
+        dhcpEnabled = try c.decodeIfPresent(Bool.self, forKey: .dhcpEnabled) ?? def.dhcpEnabled
+        dhcpStart = try c.decodeIfPresent(String.self, forKey: .dhcpStart) ?? def.dhcpStart
+        dhcpEnd = try c.decodeIfPresent(String.self, forKey: .dhcpEnd) ?? def.dhcpEnd
+        leaseSeconds = try c.decodeIfPresent(Int.self, forKey: .leaseSeconds) ?? def.leaseSeconds
+        autoStart = try c.decodeIfPresent(Bool.self, forKey: .autoStart) ?? def.autoStart
+        webPortalEnabled = try c.decodeIfPresent(Bool.self, forKey: .webPortalEnabled) ?? def.webPortalEnabled
     }
 }
 
@@ -318,6 +340,39 @@ final class NetworkStore: ObservableObject {
     func refreshRouterClients() async {
         guard routerRunning else { routerClients = []; return }
         routerClients = await Self.readRouterClients(config: routerConfig)
+        // Keep the web portal's data file in sync, and pick up any config change
+        // submitted through the portal.
+        if routerConfig.webPortalEnabled {
+            Self.writeWebData(config: routerConfig, clients: routerClients,
+                              dns: routerConfig.routerIP)
+            await applyWebConfigRequestIfNeeded()
+        }
+    }
+
+    /// If the web portal wrote a pending config change, apply it: update the
+    /// stored config and restart the router (which prompts for admin once).
+    private func applyWebConfigRequestIfNeeded() async {
+        guard !routerBusy,
+              let newCfg = Self.consumeWebConfigRequest(base: routerConfig) else { return }
+        guard newCfg != routerConfig else { return }
+        routerConfig = newCfg
+        // Note shown on the portal after the restart completes.
+        Self.writeWebData(config: newCfg, clients: routerClients,
+                          dns: newCfg.routerIP,
+                          savedNote: "Applying changes… the router is restarting.")
+        await enableRouter(force: true)
+    }
+
+    /// Flush the entire ARP cache (admin prompt), then refresh the device list.
+    /// Useful when a device's IP↔MAC mapping is stale (e.g. after swapping
+    /// hardware or reassigning addresses on the LAN).
+    func clearARPCache() async {
+        routerBusy = true
+        let ok = await Self.runOSAScript(
+            "do shell script \"/usr/sbin/arp -a -d\" with administrator privileges")
+        routerBusy = false
+        lastActionMessage = ok ? "Cleared the ARP cache." : "Couldn’t clear the ARP cache."
+        await refreshRouterClients()
     }
 
     /// Look up a connected Mac-router client by its IP address (if the router is
@@ -613,6 +668,24 @@ final class NetworkStore: ObservableObject {
     private nonisolated static let dnsmasqPlistPath = "/Library/LaunchDaemons/com.remotestuff.dnsmasq.plist"
     private nonisolated static let dnsmasqLabel = "com.remotestuff.dnsmasq"
 
+    /// Router web-portal (status/config page on port 80) file locations.
+    private nonisolated static let webLabel = "com.remotestuff.web"
+    private nonisolated static let webPlistPath = "/Library/LaunchDaemons/com.remotestuff.web.plist"
+    private nonisolated static let webScriptPath = "/tmp/com.remotestuff.web.py"
+    private nonisolated static let webDataPath = "/tmp/com.remotestuff.web.json"
+    private nonisolated static let webRequestPath = "/tmp/com.remotestuff.web.request.json"
+
+    /// Locate a usable Python 3 interpreter for the web portal server. Prefers a
+    /// real interpreter over the `/usr/bin/python3` CLT shim. Returns nil if none
+    /// is found, in which case the portal is simply not started.
+    nonisolated static func pythonPath() -> String? {
+        for p in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3",
+                  "/usr/bin/python3"] {
+            if FileManager.default.isExecutableFile(atPath: p) { return p }
+        }
+        return nil
+    }
+
     /// Locate a usable dnsmasq binary (Homebrew on Apple silicon / Intel, or a
     /// system copy). Returns nil if none is installed — the router then hands out
     /// the upstream DNS directly instead of running a local forwarder.
@@ -763,8 +836,11 @@ final class NetworkStore: ObservableObject {
             anchor "\(routerPFAnchor)"
             load anchor "com.apple" from "/etc/pf.anchors/com.apple"
             load anchor "\(routerPFAnchor)" from "\(routerPFAnchorPath)"
+
             """
-            let confB64 = Data(combined.utf8).base64EncodedString()
+            // pf treats a final line without a trailing newline as a syntax
+            // error, so guarantee one (the heredoc above may not preserve it).
+            let confB64 = Data((combined.hasSuffix("\n") ? combined : combined + "\n").utf8).base64EncodedString()
             lines.append("echo \(confB64) | /usr/bin/base64 -D > /tmp/com.remotestuff.pf.conf")
             lines.append("/sbin/pfctl -E -f /tmp/com.remotestuff.pf.conf 2>/dev/null || /sbin/pfctl -e -f /tmp/com.remotestuff.pf.conf 2>/dev/null || true")
 
@@ -798,8 +874,30 @@ final class NetworkStore: ObservableObject {
                 lines.append("/bin/launchctl enable system/com.apple.bootpd 2>/dev/null || true")
                 lines.append("/bin/launchctl kickstart -k system/com.apple.bootpd 2>/dev/null || /usr/libexec/bootpd 2>/dev/null || true")
             }
+
+            // 6. Start the router web portal on port 80 (a small Python daemon),
+            //    if enabled and a Python 3 interpreter is available. The data file
+            //    is seeded now and refreshed by the app while the router runs.
+            if c.webPortalEnabled, let python = pythonPath() {
+                let dnsForClients = dnsmasqPath() != nil ? c.routerIP : (upstreams.first ?? c.routerIP)
+                writeWebData(config: c, clients: [], dns: dnsForClients)
+                lines.append("/bin/chmod 666 \(webDataPath) 2>/dev/null || true")
+                lines.append("/bin/rm -f \(webRequestPath) 2>/dev/null || true")
+                let scriptB64 = Data(webServerScript().utf8).base64EncodedString()
+                lines.append("echo \(scriptB64) | /usr/bin/base64 -D > \(webScriptPath)")
+                let webPlist = webPlistXML(python: python, routerIP: c.routerIP)
+                let webPlistB64 = Data(webPlist.utf8).base64EncodedString()
+                lines.append("echo \(webPlistB64) | /usr/bin/base64 -D > \(webPlistPath)")
+                lines.append("/bin/launchctl bootout system/\(webLabel) 2>/dev/null || true")
+                lines.append("/bin/launchctl bootstrap system \(webPlistPath) 2>/dev/null || /bin/launchctl load -w \(webPlistPath) 2>/dev/null || true")
+                lines.append("/bin/launchctl kickstart -k system/\(webLabel) 2>/dev/null || true")
+            }
             lines.append("/usr/bin/touch \(routerFlagPath)")
         } else {
+            // Stop the web portal.
+            lines.append("/bin/launchctl bootout system/\(webLabel) 2>/dev/null || true")
+            lines.append("/bin/launchctl unload -w \(webPlistPath) 2>/dev/null || true")
+            lines.append("/bin/rm -f \(webPlistPath) \(webScriptPath) \(webDataPath) \(webRequestPath) 2>/dev/null || true")
             // Stop the DNS forwarder.
             lines.append("/bin/launchctl bootout system/\(dnsmasqLabel) 2>/dev/null || true")
             lines.append("/bin/launchctl unload -w \(dnsmasqPlistPath) 2>/dev/null || true")
@@ -916,7 +1014,11 @@ final class NetworkStore: ObservableObject {
         var seen = Set<String>()
         var result: [String] = []
         for line in scutil.components(separatedBy: .newlines) {
-            if let ip = firstCapture(in: line, pattern: #"nameserver\[\d+\]\s*:\s*([0-9.]+)"#),
+            // Require a full dotted-quad IPv4 address. The old `[0-9.]+` pattern
+            // captured the leading digits of an IPv6 nameserver (e.g. it turned
+            // `2600:1700:...` into `2600`), producing a bogus `server=` line that
+            // broke dnsmasq. Anchoring on four octets skips IPv6 lines cleanly.
+            if let ip = firstCapture(in: line, pattern: #"nameserver\[\d+\]\s*:\s*(\d{1,3}(?:\.\d{1,3}){3})\b"#),
                !seen.contains(ip) {
                 // Skip link-local / our own router IPs and loopback.
                 if ip.hasPrefix("127.") || ip.hasPrefix("169.254.") { continue }
@@ -973,6 +1075,285 @@ final class NetworkStore: ObservableObject {
         </dict>
         </plist>
         """
+    }
+
+    // MARK: Router web portal (port 80)
+
+    /// The self-contained Python 3 HTTP server for the router portal. Serves a
+    /// live status/config page on port 80, reading the data file the app keeps
+    /// refreshed and writing a request file when the config form is submitted
+    /// (which the app then applies). Pure standard library — no dependencies.
+    private nonisolated static func webServerScript() -> String {
+        // NB: kept as a raw multi-line string; `%%` isn't used so no escaping of
+        // Swift interpolation is needed — the paths are injected via os.environ
+        // set in the launchd plist to avoid any string-substitution pitfalls.
+        return #"""
+        #!/usr/bin/env python3
+        import json, os, html, urllib.parse
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        DATA = os.environ.get("RS_DATA", "/tmp/com.remotestuff.web.json")
+        REQUEST = os.environ.get("RS_REQUEST", "/tmp/com.remotestuff.web.request.json")
+        BIND = os.environ.get("RS_BIND", "0.0.0.0")
+        PORT = int(os.environ.get("RS_PORT", "80"))
+
+        def load():
+            try:
+                with open(DATA) as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+
+        def esc(v):
+            return html.escape(str(v if v is not None else ""))
+
+        def page(d):
+            cfg = d.get("config", {})
+            clients = d.get("clients", [])
+            rows = ""
+            if clients:
+                for c in clients:
+                    dot = "#33c15a" if c.get("active") else "#9b9b9b"
+                    rows += (
+                        "<tr>"
+                        f"<td><span class='dot' style='background:{dot}'></span>{esc(c.get('name') or c.get('ip'))}</td>"
+                        f"<td class='mono'>{esc(c.get('ip'))}</td>"
+                        f"<td class='mono'>{esc(c.get('mac'))}</td>"
+                        f"<td>{'Online' if c.get('active') else 'Idle'}</td>"
+                        "</tr>"
+                    )
+            else:
+                rows = "<tr><td colspan='4' class='muted'>No devices seen yet.</td></tr>"
+
+            def field(label, name, value, typ="text"):
+                return (
+                    f"<label>{esc(label)}"
+                    f"<input name='{name}' type='{typ}' value='{esc(value)}'></label>"
+                )
+
+            dhcp_checked = "checked" if cfg.get("dhcpEnabled") else ""
+            saved = d.get("savedNote", "")
+            note = f"<div class='note'>{esc(saved)}</div>" if saved else ""
+
+            return f"""<!doctype html>
+        <html><head><meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <title>Router — {esc(cfg.get('routerIP'))}</title>
+        <style>
+          :root {{ color-scheme: light dark; }}
+          body {{ font: 15px -apple-system, system-ui, sans-serif; margin: 0; background:#f5f5f7; color:#1d1d1f; }}
+          @media (prefers-color-scheme: dark) {{ body {{ background:#1c1c1e; color:#f5f5f7; }} .card{{background:#2c2c2e!important;}} input{{background:#1c1c1e;color:#f5f5f7;border-color:#444!important;}} th{{color:#aaa!important;}} }}
+          .wrap {{ max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }}
+          h1 {{ font-size: 22px; margin: 8px 0 2px; }}
+          .sub {{ color:#86868b; margin:0 0 20px; }}
+          .card {{ background:#fff; border-radius:12px; padding:18px 20px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
+          .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; }}
+          .grid div {{ padding:6px 0; border-bottom:1px solid rgba(128,128,128,.15); }}
+          .k {{ color:#86868b; font-size:13px; }}
+          .mono {{ font-family: ui-monospace, Menlo, monospace; }}
+          table {{ width:100%; border-collapse:collapse; }}
+          th, td {{ text-align:left; padding:8px 6px; border-bottom:1px solid rgba(128,128,128,.15); font-size:14px; }}
+          th {{ color:#86868b; font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.4px; }}
+          .dot {{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; vertical-align:middle; }}
+          .muted {{ color:#86868b; text-align:center; }}
+          label {{ display:block; font-size:13px; color:#86868b; margin-bottom:12px; }}
+          input {{ display:block; width:100%; box-sizing:border-box; margin-top:4px; padding:8px 10px; font-size:15px; border:1px solid #d2d2d7; border-radius:8px; }}
+          .row {{ display:grid; grid-template-columns:1fr 1fr; gap:0 20px; }}
+          .chk {{ display:flex; align-items:center; gap:8px; color:inherit; }}
+          .chk input {{ width:auto; margin:0; }}
+          button {{ background:#0071e3; color:#fff; border:0; border-radius:8px; padding:10px 20px; font-size:15px; font-weight:500; cursor:pointer; }}
+          .note {{ background:#e8f5e9; color:#1b5e20; padding:10px 14px; border-radius:8px; margin-bottom:14px; font-size:14px; }}
+          @media (prefers-color-scheme: dark) {{ .note {{ background:#14361a; color:#a5d6a7; }} }}
+          .hint {{ color:#86868b; font-size:12px; margin-top:10px; }}
+        </style></head>
+        <body><div class='wrap'>
+          <h1>Mac Router</h1>
+          <p class='sub'>Hosted by Remote Stuff on {esc(cfg.get('routerIP'))}</p>
+          {note}
+          <div class='card'>
+            <div class='grid'>
+              <div><div class='k'>Router IP</div><span class='mono'>{esc(cfg.get('routerIP'))}</span></div>
+              <div><div class='k'>Subnet mask</div><span class='mono'>{esc(cfg.get('subnetMask'))}</span></div>
+              <div><div class='k'>Uplink (internet)</div><span class='mono'>{esc(cfg.get('uplinkDevice'))}</span></div>
+              <div><div class='k'>LAN interface</div><span class='mono'>{esc(cfg.get('lanDevice'))}</span></div>
+              <div><div class='k'>DHCP</div>{'On' if cfg.get('dhcpEnabled') else 'Off'} ({esc(cfg.get('dhcpStart'))} – {esc(cfg.get('dhcpEnd'))})</div>
+              <div><div class='k'>Lease</div>{esc(cfg.get('leaseHours'))} h</div>
+              <div><div class='k'>DNS</div><span class='mono'>{esc(cfg.get('dns'))}</span></div>
+              <div><div class='k'>Connected devices</div>{len(clients)}</div>
+            </div>
+          </div>
+
+          <div class='card'>
+            <h2 style='font-size:16px;margin:0 0 12px'>Connected Devices</h2>
+            <table><thead><tr><th>Name</th><th>IP</th><th>MAC</th><th>Status</th></tr></thead>
+            <tbody>{rows}</tbody></table>
+          </div>
+
+          <div class='card'>
+            <h2 style='font-size:16px;margin:0 0 14px'>Configure</h2>
+            <form method='POST' action='/apply'>
+              <div class='row'>
+                {field('Router IP', 'routerIP', cfg.get('routerIP'))}
+                {field('Subnet mask', 'subnetMask', cfg.get('subnetMask'))}
+              </div>
+              <label class='chk'><input type='checkbox' name='dhcpEnabled' value='1' {dhcp_checked}> Run DHCP server</label>
+              <div class='row'>
+                {field('DHCP start', 'dhcpStart', cfg.get('dhcpStart'))}
+                {field('DHCP end', 'dhcpEnd', cfg.get('dhcpEnd'))}
+              </div>
+              {field('Lease (hours)', 'leaseHours', cfg.get('leaseHours'), 'number')}
+              <button type='submit'>Apply Changes</button>
+              <div class='hint'>Applying restarts the router. The Mac hosting it will prompt for an administrator password before the change takes effect.</div>
+            </form>
+          </div>
+          <p class='sub' style='text-align:center'>This page refreshes automatically.</p>
+        </div>
+        <script>
+          setTimeout(function(){{ if(!document.querySelector('input:focus')) location.reload(); }}, 15000);
+        </script>
+        </body></html>"""
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def _send(self, code, body, ctype="text/html; charset=utf-8"):
+                data = body.encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+            def do_GET(self):
+                d = load()
+                if self.path.startswith("/data.json"):
+                    self._send(200, json.dumps(d), "application/json")
+                else:
+                    self._send(200, page(d))
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                raw = self.rfile.read(length).decode("utf-8") if length else ""
+                form = urllib.parse.parse_qs(raw)
+                def g(k, default=""):
+                    v = form.get(k)
+                    return v[0] if v else default
+                req = {
+                    "routerIP": g("routerIP"),
+                    "subnetMask": g("subnetMask"),
+                    "dhcpEnabled": ("dhcpEnabled" in form),
+                    "dhcpStart": g("dhcpStart"),
+                    "dhcpEnd": g("dhcpEnd"),
+                    "leaseHours": g("leaseHours", "24"),
+                }
+                try:
+                    with open(REQUEST, "w") as f:
+                        json.dump(req, f)
+                    os.chmod(REQUEST, 0o666)
+                except Exception:
+                    pass
+                self.send_response(303)
+                self.send_header("Location", "/")
+                self.end_headers()
+
+        if __name__ == "__main__":
+            httpd = ThreadingHTTPServer((BIND, PORT), Handler)
+            httpd.serve_forever()
+        """#
+    }
+
+    /// launchd plist that runs the Python web portal as a system daemon on
+    /// port 80, kept alive by launchd. Paths are passed through the environment
+    /// so the script itself needs no substitution. Binds to all interfaces
+    /// (0.0.0.0) rather than the router IP so it comes up even before the LAN
+    /// address is fully live (avoiding a bind race) and recovers automatically.
+    private nonisolated static func webPlistXML(python: String, routerIP: String) -> String {
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>\(webLabel)</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>\(python)</string>
+                <string>\(webScriptPath)</string>
+            </array>
+            <key>EnvironmentVariables</key>
+            <dict>
+                <key>RS_DATA</key><string>\(webDataPath)</string>
+                <key>RS_REQUEST</key><string>\(webRequestPath)</string>
+                <key>RS_BIND</key><string>0.0.0.0</string>
+                <key>RS_PORT</key><string>80</string>
+            </dict>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>KeepAlive</key>
+            <true/>
+            <key>ThrottleInterval</key>
+            <integer>5</integer>
+            <key>StandardErrorPath</key>
+            <string>/tmp/com.remotestuff.web.log</string>
+        </dict>
+        </plist>
+        """
+    }
+
+    /// Serialize the live router state (config + clients) to the data file the
+    /// web portal reads. Best-effort; safe to call frequently.
+    nonisolated static func writeWebData(config c: MacRouterConfig,
+                                         clients: [RouterClient],
+                                         dns: String,
+                                         savedNote: String? = nil) {
+        let clientObjs: [[String: Any]] = clients.map {
+            ["ip": $0.ip, "mac": $0.mac, "name": $0.displayName, "active": $0.isActive]
+        }
+        let cfg: [String: Any] = [
+            "routerIP": c.routerIP,
+            "subnetMask": c.subnetMask,
+            "uplinkDevice": c.uplinkDevice,
+            "lanDevice": c.lanDevice,
+            "dhcpEnabled": c.dhcpEnabled,
+            "dhcpStart": c.dhcpStart,
+            "dhcpEnd": c.dhcpEnd,
+            "leaseHours": max(1, c.leaseSeconds / 3600),
+            "dns": dns,
+        ]
+        var payload: [String: Any] = ["config": cfg, "clients": clientObjs]
+        if let savedNote { payload["savedNote"] = savedNote }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: webDataPath))
+    }
+
+    /// Read and clear a pending config change submitted through the web portal.
+    /// Returns a config derived from the current one with the requested fields
+    /// applied, or nil if there's no valid pending request.
+    nonisolated static func consumeWebConfigRequest(base: MacRouterConfig) -> MacRouterConfig? {
+        let url = URL(fileURLWithPath: webRequestPath)
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        try? FileManager.default.removeItem(at: url)
+        var cfg = base
+        if let s = obj["routerIP"] as? String, isValidIPv4Static(s) { cfg.routerIP = s }
+        if let s = obj["subnetMask"] as? String, isValidIPv4Static(s) { cfg.subnetMask = s }
+        if let b = obj["dhcpEnabled"] as? Bool { cfg.dhcpEnabled = b }
+        if let s = obj["dhcpStart"] as? String, isValidIPv4Static(s) { cfg.dhcpStart = s }
+        if let s = obj["dhcpEnd"] as? String, isValidIPv4Static(s) { cfg.dhcpEnd = s }
+        if let s = obj["leaseHours"] as? String, let h = Int(s), h > 0 {
+            cfg.leaseSeconds = h * 3600
+        }
+        return cfg
+    }
+
+    /// A context-free IPv4 validator usable from nonisolated static helpers.
+    private nonisolated static func isValidIPv4Static(_ s: String) -> Bool {
+        let parts = s.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        return parts.allSatisfy { p in
+            guard let n = Int(p), (0...255).contains(n) else { return false }
+            return true
+        }
     }
 
     /// Read the devices on the router LAN: parse the bootpd lease file and merge

@@ -72,6 +72,12 @@ if [[ -d "$SP" ]]; then
         "$VDIR/Updater.app" \
         "$VDIR/Autoupdate"; do
         if [[ -e "$nested" ]]; then
+            # Strip xattrs right before signing this item: on iCloud-synced
+            # folders macOS re-applies FinderInfo/provenance tags within seconds,
+            # so a single top-level strip can go stale before we reach the nested
+            # Updater.app ("resource fork … not allowed"). Clearing immediately
+            # before each sign keeps the race window near-zero.
+            xattr -cr "$nested" 2>/dev/null || true
             if [[ "$DIST_SIGNING" == "1" ]]; then
                 run codesign --force --sign "$IDENTITY" ${RUNTIME[@]+"${RUNTIME[@]}"} \
                     --preserve-metadata=entitlements,requirements,flags "$nested"
@@ -98,13 +104,28 @@ fi
 xattr -cr "$BUNDLE" 2>/dev/null || true
 run codesign --force --sign "$IDENTITY" ${RUNTIME[@]+"${RUNTIME[@]}"} \
     "$BUNDLE/Contents/MacOS/$EXE_NAME"
-xattr -cr "$BUNDLE" 2>/dev/null || true
-if [[ "$DIST_SIGNING" == "1" ]]; then
-    run codesign --force --sign "$IDENTITY" ${RUNTIME[@]+"${RUNTIME[@]}"} \
-        --entitlements "$ENTITLEMENTS" "$BUNDLE"
-else
-    run codesign --force --sign "$IDENTITY" "$BUNDLE"
-fi
+
+# Seal the outer bundle. On iCloud-synced folders macOS keeps re-tagging the
+# bundle root with FinderInfo/provenance xattrs, so a strip-then-sign can still
+# lose the race ("resource fork … not allowed"). Retry a few times, stripping
+# immediately before each attempt, so a transient re-tag doesn't abort the build.
+sign_bundle() {
+    if [[ "$DIST_SIGNING" == "1" ]]; then
+        codesign --force --sign "$IDENTITY" ${RUNTIME[@]+"${RUNTIME[@]}"} \
+            --entitlements "$ENTITLEMENTS" "$BUNDLE"
+    else
+        codesign --force --sign "$IDENTITY" "$BUNDLE" >/dev/null 2>&1 || true
+    fi
+}
+for attempt in 1 2 3 4 5; do
+    xattr -cr "$BUNDLE" 2>/dev/null || true
+    if sign_bundle; then
+        break
+    elif [[ "$attempt" == "5" ]]; then
+        echo "✗  Failed to seal $(basename "$BUNDLE") after $attempt attempts (iCloud xattr race)." >&2
+        [[ "$DIST_SIGNING" == "1" ]] && exit 1
+    fi
+done
 
 # 3. Verify. For distribution also run the Gatekeeper assessment so problems
 #    surface here rather than at notarization time.
