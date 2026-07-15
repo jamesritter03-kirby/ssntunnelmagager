@@ -589,6 +589,13 @@ private struct MacNetworkDetail: View {
         }
         .toggleStyle(.checkbox)
 
+        Toggle(isOn: Binding(
+            get: { net.routerConfig.webPortalEnabled },
+            set: { net.routerConfig.webPortalEnabled = $0 })) {
+            Text("Host a status & configuration web page on port 80")
+        }
+        .toggleStyle(.checkbox)
+
         HStack {
             Spacer()
             if net.routerRunning {
@@ -613,6 +620,13 @@ private struct MacNetworkDetail: View {
         Text("The Mac runs NAT, a DHCP server, and (if dnsmasq is installed) a DNS forwarder on the router IP — so clients pointing at \(net.routerConfig.routerIP) for DNS resolve names through your Mac's upstream servers.")
             .font(.caption)
             .foregroundStyle(.secondary)
+
+        if net.routerRunning && net.routerConfig.webPortalEnabled {
+            if let url = URL(string: "http://\(net.routerConfig.routerIP)/") {
+                Link("Open router portal (http://\(net.routerConfig.routerIP))", destination: url)
+                    .font(.caption)
+            }
+        }
     }
 
     private func routerField(_ label: String, _ binding: Binding<String>, placeholder: String) -> some View {
@@ -629,6 +643,12 @@ private struct MacNetworkDetail: View {
         HStack {
             Text("Connected Devices").fontWeight(.medium)
             Spacer()
+            Button {
+                Task { await net.clearARPCache() }
+            } label: { Image(systemName: "eraser") }
+                .buttonStyle(.borderless)
+                .disabled(net.routerBusy)
+                .help("Clear the Mac's ARP cache (forces IP↔MAC mappings to be re-learned)")
             Button {
                 Task { await net.refreshRouterClients() }
             } label: { Image(systemName: "arrow.clockwise") }

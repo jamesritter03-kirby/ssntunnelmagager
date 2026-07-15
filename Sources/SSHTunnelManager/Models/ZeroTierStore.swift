@@ -197,18 +197,24 @@ struct ZeroTierMember: Identifiable, Decodable, Hashable {
 /// Errors surfaced by the ZeroTier Central API client, with friendly messages.
 enum ZeroTierError: LocalizedError {
     case notConfigured
-    case http(Int)
+    case http(Int, String?)
     case transport(String)
     case decoding
 
     var errorDescription: String? {
         switch self {
         case .notConfigured: return "Add a ZeroTier API token first."
-        case .http(401), .http(403):
+        case .http(401, _), .http(403, _):
             return "ZeroTier rejected the API token. Check it’s correct and still valid."
-        case .http(429):
+        case .http(429, _):
             return "ZeroTier is rate-limiting requests. Wait a moment and try again."
-        case .http(let code):
+        case .http(400, let detail):
+            let extra = detail.map { ": \($0)" } ?? "."
+            return "ZeroTier rejected the request (HTTP 400)\(extra)"
+        case .http(let code, let detail):
+            if let detail, !detail.isEmpty {
+                return "ZeroTier API error (HTTP \(code)): \(detail)"
+            }
             return "ZeroTier API error (HTTP \(code))."
         case .transport(let m):
             return "Couldn’t reach ZeroTier: \(m)"
@@ -252,12 +258,17 @@ struct ZeroTierAPI {
     // MARK: Member authorization (write)
 
     /// Authorize or deauthorize a member on a Central / personal network.
+    /// ZeroTier Central validates the body strictly: the authorization flag
+    /// lives under `config`, and sending a stray top-level `authorized` key is
+    /// rejected with HTTP 400, so only `config` is sent here.
     func setMemberAuthorized(networkId: String, nodeId: String, authorized: Bool) async throws {
         try await post("/network/\(networkId)/member/\(nodeId)",
-                       body: ["authorized": authorized, "config": ["authorized": authorized]])
+                       body: ["config": ["authorized": authorized]])
     }
 
     /// Authorize or deauthorize a member on a self-hosted (ZTNET) org network.
+    /// ZTNET accepts the flag at the top level; `config` is included too so both
+    /// controller versions are covered.
     func setMemberAuthorized(orgId: String, networkId: String, nodeId: String, authorized: Bool) async throws {
         try await post("/org/\(orgId)/network/\(networkId)/member/\(nodeId)",
                        body: ["authorized": authorized, "config": ["authorized": authorized]])
@@ -278,7 +289,9 @@ struct ZeroTierAPI {
             throw ZeroTierError.transport(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else { throw ZeroTierError.decoding }
-        guard (200..<300).contains(http.statusCode) else { throw ZeroTierError.http(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw ZeroTierError.http(http.statusCode, Self.errorDetail(from: data))
+        }
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
@@ -300,14 +313,32 @@ struct ZeroTierAPI {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        let response: URLResponse
+        let data: Data, response: URLResponse
         do {
-            (_, response) = try await URLSession.shared.data(for: req)
+            (data, response) = try await URLSession.shared.data(for: req)
         } catch {
             throw ZeroTierError.transport(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else { throw ZeroTierError.decoding }
-        guard (200..<300).contains(http.statusCode) else { throw ZeroTierError.http(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw ZeroTierError.http(http.statusCode, Self.errorDetail(from: data))
+        }
+    }
+
+    /// Pull a short, human-readable message out of an error response body.
+    /// ZeroTier/ZTNET usually return JSON like `{"message": "…"}` or
+    /// `{"error": "…"}`; fall back to a trimmed snippet of the raw body.
+    private static func errorDetail(from data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for key in ["message", "error", "detail", "description"] {
+                if let s = obj[key] as? String, !s.isEmpty { return s }
+            }
+        }
+        let text = String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        return text.count > 200 ? String(text.prefix(200)) + "…" : text
     }
 }
 
