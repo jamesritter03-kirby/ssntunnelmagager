@@ -81,6 +81,8 @@ struct ZeroTierBrowserView: View {
         .background(ResizableSheet())
         .task { await store.loadIfNeeded() }
         .task { await store.refreshLocalNode() }
+        .onAppear { store.beginAutoRefresh() }
+        .onDisappear { store.endAutoRefresh() }
         .confirmationDialog(
             memberPendingDeauth.map { "Deauthorize “\($0.displayName)”?" } ?? "Deauthorize device?",
             isPresented: Binding(get: { memberPendingDeauth != nil },

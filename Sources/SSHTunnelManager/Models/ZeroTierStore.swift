@@ -610,6 +610,50 @@ final class ZeroTierStore: ObservableObject {
         }
     }
 
+    // MARK: Periodic auto-refresh
+
+    /// How often to re-poll ZeroTier for live status while a view is watching.
+    private static let autoRefreshInterval: Duration = .seconds(30)
+    private var autoRefreshTask: Task<Void, Never>?
+    private var autoRefreshSubscribers = 0
+
+    /// Begin periodic background refreshing of the local node, networks and their
+    /// members. Reference-counted: multiple views can subscribe and the poll runs
+    /// while at least one is active. Balance every call with `endAutoRefresh()`.
+    func beginAutoRefresh() {
+        autoRefreshSubscribers += 1
+        guard autoRefreshTask == nil else { return }
+        autoRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.autoRefreshInterval)
+                if Task.isCancelled { break }
+                await self?.autoRefreshTick()
+            }
+        }
+    }
+
+    /// Stop the periodic refresh once the last subscriber goes away.
+    func endAutoRefresh() {
+        autoRefreshSubscribers = max(0, autoRefreshSubscribers - 1)
+        guard autoRefreshSubscribers == 0 else { return }
+        autoRefreshTask?.cancel()
+        autoRefreshTask = nil
+    }
+
+    /// One background poll. Refreshes silently (no spinner flash, no disabling of
+    /// the manual refresh button) so live status stays current unobtrusively, and
+    /// skips while a manual refresh is already running to avoid overlapping fetches.
+    private func autoRefreshTick() async {
+        await refreshLocalNode()
+        guard hasAccounts, !isLoadingNetworks else { return }
+        for account in accounts {
+            await loadNetworks(for: account)
+        }
+        for network in networks {
+            await refreshMembers(network, quiet: true)
+        }
+    }
+
     /// Reload a single account's networks and their members.
     func refresh(account: ZeroTierAccount) async {
         isLoadingNetworks = true
@@ -660,12 +704,14 @@ final class ZeroTierStore: ObservableObject {
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
-    func refreshMembers(_ network: ZeroTierNetwork) async {
+    /// Reload a network's members. Pass `quiet: true` for background polls so the
+    /// per-network loading spinner doesn't flash on every automatic refresh.
+    func refreshMembers(_ network: ZeroTierNetwork, quiet: Bool = false) async {
         guard let accountId = network.accountId,
               let account = accounts.first(where: { $0.id == accountId }),
               let token = token(for: accountId), !token.isEmpty else { return }
-        loadingMembers.insert(network.id)
-        defer { loadingMembers.remove(network.id) }
+        if !quiet { loadingMembers.insert(network.id) }
+        defer { if !quiet { loadingMembers.remove(network.id) } }
         do {
             let api = ZeroTierAPI(token: token, baseURL: account.baseURL)
             let raw: [ZeroTierMember]

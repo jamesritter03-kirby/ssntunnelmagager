@@ -18,6 +18,12 @@ struct RedisBrowserView: View {
     @State private var detail: RedisKeyDetail?
     @State private var loadingDetail = false
 
+    /// When on, the selected key's value and TTL re-poll on a short timer so live
+    /// data (e.g. a frequently-rewritten key) stays current, like the MQTT tab.
+    @State private var autoRefresh = true
+    /// Fires while the tab is visible; each tick quietly reloads the open key.
+    private let refreshTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
     @State private var commandText = ""
     @State private var consoleLines: [String] = []
     @State private var showConsole = false
@@ -38,6 +44,7 @@ struct RedisBrowserView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { startInitialScanIfReady() }
         .onChange(of: client.phase) { _ in startInitialScanIfReady() }
+        .onReceive(refreshTick) { _ in autoReloadDetail() }
     }
 
     // MARK: - State screens
@@ -190,6 +197,14 @@ struct RedisBrowserView: View {
                     .clipShape(Capsule())
                 Label(ttlText(detail.ttl), systemImage: "timer")
                     .font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Toggle(isOn: $autoRefresh) {
+                    Label("Live", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.caption)
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .help("Automatically refresh this value and TTL")
             }
             Divider()
             valueView(detail.value)
@@ -386,6 +401,18 @@ struct RedisBrowserView: View {
             guard selectedKey == key else { return }
             detail = loaded
             loadingDetail = false
+        }
+    }
+
+    /// Re-poll the open key without the loading spinner, so a live value refreshes
+    /// in place. Skips when disabled, disconnected, nothing is selected, or an
+    /// explicit (spinner) load is already running.
+    private func autoReloadDetail() {
+        guard autoRefresh, client.isConnected, !loadingDetail,
+              let key = selectedKey else { return }
+        client.load(key: key) { loaded in
+            guard selectedKey == key, autoRefresh else { return }
+            detail = loaded
         }
     }
 
