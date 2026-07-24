@@ -1,0 +1,50 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="RemoteStuff.App"
+             xmlns:local="using:RemoteStuff"
+             RequestedThemeVariant="Dark">
+    <Application.DataTemplates>
+        <local:ViewLocator />
+    </Application.DataTemplates>
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="AppSurfaceBrush" Color="#1E1E1E" />
+                    <SolidColorBrush x:Key="AppInsetBrush" Color="#151515" />
+                    <SolidColorBrush x:Key="AppChromeBrush" Color="#252526" />
+                    <SolidColorBrush x:Key="AppPillBrush" Color="#2A2A2A" />
+                    <SolidColorBrush x:Key="AppDividerBrush" Color="#3A3A3A" />
+                    <SolidColorBrush x:Key="AppTextBrush" Color="#DDDDDD" />
+                    <SolidColorBrush x:Key="AppSecondaryTextBrush" Color="#AAAAAA" />
+                    <SolidColorBrush x:Key="AppMutedTextBrush" Color="#888888" />
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#7FB0DE" />
+                    <SolidColorBrush x:Key="AppTipBackgroundBrush" Color="#1F2A20" />
+                    <SolidColorBrush x:Key="AppTipBorderBrush" Color="#3C5A3F" />
+                    <SolidColorBrush x:Key="AppTipTextBrush" Color="#9FD3A0" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="AppSurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AppInsetBrush" Color="#F7F7F7" />
+                    <SolidColorBrush x:Key="AppChromeBrush" Color="#F0F0F0" />
+                    <SolidColorBrush x:Key="AppPillBrush" Color="#E4E4E4" />
+                    <SolidColorBrush x:Key="AppDividerBrush" Color="#CFCFCF" />
+                    <SolidColorBrush x:Key="AppTextBrush" Color="#1E1E1E" />
+                    <SolidColorBrush x:Key="AppSecondaryTextBrush" Color="#555555" />
+                    <SolidColorBrush x:Key="AppMutedTextBrush" Color="#6A6A6A" />
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#1F6FB2" />
+                    <SolidColorBrush x:Key="AppTipBackgroundBrush" Color="#E9F6EC" />
+                    <SolidColorBrush x:Key="AppTipBorderBrush" Color="#B6DCBB" />
+                    <SolidColorBrush x:Key="AppTipTextBrush" Color="#276B2E" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
+        <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
+    </Application.Styles>
+</Application>

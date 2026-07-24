@@ -1,0 +1,134 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="RemoteStuff.Views.MqttTabView"
+             x:DataType="vm:MqttTabViewModel">
+
+    <Grid ColumnDefinitions="240,4,*">
+
+        <!-- Topic tree -->
+        <Border Grid.Column="0" Background="{DynamicResource AppSurfaceBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,1,0">
+            <Grid RowDefinitions="Auto,*">
+                <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}"
+                        BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+                    <TextBlock Text="Topics" Foreground="{DynamicResource AppSecondaryTextBrush}" FontWeight="SemiBold" />
+                </Border>
+                <TreeView Grid.Row="1" ItemsSource="{Binding TopicTree}"
+                          SelectedItem="{Binding SelectedTopic, Mode=TwoWay}"
+                          Background="Transparent">
+                    <TreeView.ContextMenu>
+                        <ContextMenu x:DataType="vm:MqttTabViewModel">
+                            <MenuItem Header="Expand All" Command="{Binding ExpandAllTopicsCommand}" />
+                            <MenuItem Header="Collapse All" Command="{Binding CollapseAllTopicsCommand}" />
+                        </ContextMenu>
+                    </TreeView.ContextMenu>
+                    <TreeView.Styles>
+                        <Style Selector="TreeViewItem" x:DataType="vm:MqttTopicNode">
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                        </Style>
+                    </TreeView.Styles>
+                    <TreeView.ItemTemplate>
+                        <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:MqttTopicNode">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource AppTextBrush}" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding CountText}" Foreground="{DynamicResource AppMutedTextBrush}"
+                                           FontSize="10" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding LatestPayload}" Foreground="#7FB0DE"
+                                           FontSize="11" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="110" />
+                            </StackPanel>
+                        </TreeDataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+            </Grid>
+        </Border>
+
+        <GridSplitter Grid.Column="1" Background="{DynamicResource AppDividerBrush}" ResizeDirection="Columns" />
+
+        <Grid Grid.Column="2" RowDefinitions="Auto,Auto,Auto,4,*,Auto">
+
+        <!-- Subscribe -->
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="Subscribe" VerticalAlignment="Center" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                <TextBox Text="{Binding SubscribeTopic}" Width="240" Watermark="topic/# " />
+                <Button Content="Subscribe" Command="{Binding SubscribeCommand}" />
+                <Button Content="Reconnect" Command="{Binding ReconnectCommand}" />
+                <Button Content="Clear" Command="{Binding ClearMessagesCommand}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Publish -->
+        <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="Publish" VerticalAlignment="Center" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                <TextBox Text="{Binding PublishTopic}" Width="200" Watermark="topic" />
+                <TextBox Text="{Binding PublishPayload}" Width="300" Watermark="payload" />
+                <Button Content="Publish" Command="{Binding PublishCommand}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Collapsible detail sections (graph + selected-topic payload). This region
+             is resizable against the message list via the GridSplitter below it. -->
+        <ScrollViewer Grid.Row="2" MaxHeight="360" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+
+                <!-- Numeric graph -->
+                <Expander Header="Graph" IsExpanded="True" HorizontalAlignment="Stretch"
+                          IsVisible="{Binding HasNumericTopics}"
+                          Background="{DynamicResource AppInsetBrush}">
+                    <StackPanel Spacing="4" Margin="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <ComboBox MinWidth="240" ItemsSource="{Binding NumericTopics}"
+                                      SelectedItem="{Binding GraphTopic, Mode=TwoWay}" />
+                            <TextBlock Text="{Binding GraphSummary}" Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" FontSize="11" />
+                        </StackPanel>
+                        <Border Background="#0E0E0E" CornerRadius="3" Height="98" Width="328" HorizontalAlignment="Left">
+                            <Canvas>
+                                <Polyline Points="{Binding GraphPoints}" Stroke="#7FB0DE" StrokeThickness="1.5" />
+                            </Canvas>
+                        </Border>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Selected topic payload (pretty JSON) -->
+                <Expander Header="Payload (JSON)" IsExpanded="True" HorizontalAlignment="Stretch"
+                          IsVisible="{Binding HasSelectedTopic}"
+                          Background="{DynamicResource AppInsetBrush}">
+                    <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Auto">
+                        <SelectableTextBlock Text="{Binding SelectedPayloadPretty}"
+                                             Margin="4"
+                                             FontFamily="Menlo, Consolas, monospace" FontSize="12"
+                                             Foreground="{DynamicResource AppTextBrush}" />
+                    </ScrollViewer>
+                </Expander>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <GridSplitter Grid.Row="3" Height="4" ResizeDirection="Rows"
+                      HorizontalAlignment="Stretch" Background="{DynamicResource AppDividerBrush}" />
+
+        <!-- Messages -->
+        <ListBox Grid.Row="4" ItemsSource="{Binding Messages}" Background="{DynamicResource AppSurfaceBrush}">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:MqttMessage">
+                    <Grid ColumnDefinitions="70,240,*">
+                        <TextBlock Grid.Column="0" Text="{Binding TimeText}" Foreground="{DynamicResource AppMutedTextBrush}" FontFamily="Menlo, Consolas, monospace" />
+                        <TextBlock Grid.Column="1" Text="{Binding Topic}" Foreground="#7FB0DE" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="2" Text="{Binding Payload}" Foreground="{DynamicResource AppTextBrush}" TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Grid.Row="5" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="10,4">
+            <TextBlock Text="{Binding StatusText}" Foreground="#9FD3A0" />
+        </Border>
+        </Grid>
+    </Grid>
+</UserControl>

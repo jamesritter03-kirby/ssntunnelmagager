@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="RemoteStuff.Views.VncTabView"
+             x:DataType="vm:VncTabViewModel">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Button Content="🖥 Open Viewer" Command="{Binding OpenViewerCommand}" />
+                <Button Content="⟳ Reconnect" Command="{Binding ReconnectCommand}" />
+                <Button Content="⨯ Disconnect" Command="{Binding DisconnectCommand}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Body: status + connection details -->
+        <StackPanel Grid.Row="1" Spacing="14" Margin="24" VerticalAlignment="Center"
+                    HorizontalAlignment="Center" MaxWidth="520">
+            <ProgressBar IsIndeterminate="True" Height="4" Width="240"
+                         IsVisible="{Binding IsConnecting}" />
+
+            <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppTextBrush}" FontSize="14"
+                       TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
+
+            <Button Content="⨯ Abort" Command="{Binding AbortCommand}"
+                    IsVisible="{Binding IsConnecting}"
+                    HorizontalAlignment="Center" Padding="16,6" />
+
+            <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" Padding="16">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="Target:" Foreground="{DynamicResource AppMutedTextBrush}" Width="70" />
+                        <TextBlock Text="{Binding TargetLabel}" Foreground="#9FD3A0"
+                                   FontFamily="Menlo, Consolas, monospace" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="Address:" Foreground="{DynamicResource AppMutedTextBrush}" Width="70" />
+                        <TextBlock Text="{Binding ViewerAddress}" Foreground="#7FA7C7"
+                                   FontFamily="Menlo, Consolas, monospace" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Button Content="🖥 Open in VNC Viewer" Command="{Binding OpenViewerCommand}"
+                    HorizontalAlignment="Center" Padding="16,8" />
+        </StackPanel>
+
+        <!-- Log -->
+        <Expander Grid.Row="2" Header="SSH log" Background="{DynamicResource AppSurfaceBrush}" Padding="0">
+            <ScrollViewer MaxHeight="160">
+                <TextBox Text="{Binding LogText}" IsReadOnly="True" AcceptsReturn="True"
+                         Background="Transparent" BorderThickness="0"
+                         FontFamily="Menlo, Consolas, monospace" FontSize="11" Foreground="#9AA" />
+            </ScrollViewer>
+        </Expander>
+    </Grid>
+</UserControl>

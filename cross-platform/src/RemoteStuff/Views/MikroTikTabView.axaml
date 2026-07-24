@@ -1,0 +1,128 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:m="using:RemoteStuff.Models"
+             xmlns:views="using:RemoteStuff.Views"
+             mc:Ignorable="d"
+             x:Class="RemoteStuff.Views.MikroTikTabView"
+             x:DataType="vm:MikroTikTabViewModel"
+             x:CompileBindings="True">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Connection bar -->
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" Padding="10,8" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+            <WrapPanel Orientation="Horizontal">
+                <TextBox Text="{Binding Host}" Watermark="192.168.88.1" Width="150" Margin="0,0,0,4"
+                         ToolTip.Tip="Router host or IP" />
+                <views:ZeroTierPicker Text="{Binding Host, Mode=TwoWay}" VerticalAlignment="Center"
+                                      Margin="0,0,6,4" />
+                <NumericUpDown Value="{Binding Port}" Minimum="1" Maximum="65535" Width="110" Margin="0,0,6,4"
+                               FormatString="0" ToolTip.Tip="REST port" />
+                <TextBox Text="{Binding Username}" Watermark="admin" Width="120" Margin="0,0,6,4" />
+                <TextBox Text="{Binding Password}" Watermark="password" PasswordChar="•" Width="140" Margin="0,0,6,4" />
+                <CheckBox Content="HTTPS" IsChecked="{Binding UseHttps}" VerticalAlignment="Center" Margin="0,0,10,4" />
+                <Button Content="Connect" Command="{Binding ConnectCommand}" Margin="0,0,6,4" />
+                <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,6,4" />
+                <Button Content="Reboot" Command="{Binding RebootCommand}" Margin="0,0,6,4" />
+                <ProgressBar IsIndeterminate="True" Width="80" Height="4" VerticalAlignment="Center"
+                             IsVisible="{Binding IsBusy}" />
+            </WrapPanel>
+        </Border>
+
+        <!-- Content -->
+        <TabControl Grid.Row="1">
+            <TabItem Header="Overview">
+                <ScrollViewer>
+                    <StackPanel Margin="12" Spacing="4">
+                        <TextBlock Text="{Binding Identity, StringFormat='Identity: {0}'}" />
+                        <TextBlock Text="{Binding BoardName, StringFormat='Board: {0}'}" />
+                        <TextBlock Text="{Binding Version, StringFormat='RouterOS: {0}'}" />
+                        <TextBlock Text="{Binding Uptime, StringFormat='Uptime: {0}'}" />
+                        <TextBlock Text="{Binding CpuLoad, StringFormat='CPU: {0}'}" />
+                        <TextBlock Text="{Binding Memory, StringFormat='Memory: {0}'}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Interfaces">
+                <ListBox ItemsSource="{Binding Interfaces}" Background="Transparent">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="m:MtInterface">
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
+                                <TextBlock Text="{Binding StatusGlyph}" />
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Width="140" />
+                                <TextBlock Text="{Binding Type}" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
+                                <TextBlock Text="{Binding Mac}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                                <Button Content="Toggle" FontSize="11" Padding="6,1"
+                                        Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).ToggleInterfaceCommand}"
+                                        CommandParameter="{Binding}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </TabItem>
+
+            <TabItem Header="Addresses">
+                <ListBox ItemsSource="{Binding Addresses}" Background="Transparent">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="m:MtAddress">
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
+                                <TextBlock Text="{Binding Address}" FontWeight="SemiBold" Width="160" />
+                                <TextBlock Text="{Binding Interface}" Foreground="{DynamicResource AppMutedTextBrush}" Width="120" />
+                                <TextBlock Text="{Binding Network}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </TabItem>
+
+            <TabItem Header="DHCP Leases">
+                <ListBox ItemsSource="{Binding Leases}" Background="Transparent">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="m:MtLease">
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
+                                <TextBlock Text="{Binding Address}" FontWeight="SemiBold" Width="140" />
+                                <TextBlock Text="{Binding Mac}" Foreground="{DynamicResource AppMutedTextBrush}" Width="150" />
+                                <TextBlock Text="{Binding HostName}" Width="160" />
+                                <TextBlock Text="{Binding Status}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </TabItem>
+
+            <TabItem Header="Config">
+                <Grid RowDefinitions="Auto,*">
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="8">
+                        <Button Content="Export" Command="{Binding ExportConfigCommand}" />
+                        <Button Content="Apply as script" Command="{Binding ApplyConfigCommand}" />
+                        <TextBlock Text="Edit and apply as a RouterOS script (/import equivalent)."
+                                   Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBox Grid.Row="1" Text="{Binding ConfigText}" AcceptsReturn="True"
+                             FontFamily="Menlo,Consolas,monospace" TextWrapping="NoWrap"
+                             Margin="8,0,8,8" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Explorer">
+                <Grid RowDefinitions="Auto,*">
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="8">
+                        <TextBox Text="{Binding MenuPath}" Watermark="ip/firewall/filter" Width="240" />
+                        <Button Content="List" Command="{Binding ListMenuCommand}" />
+                    </StackPanel>
+                    <ListBox Grid.Row="1" ItemsSource="{Binding MenuRows}" Background="Transparent"
+                             FontFamily="Menlo,Consolas,monospace" FontSize="11" />
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Status -->
+        <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" Padding="10,3" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0">
+            <TextBlock Text="{Binding StatusText}" Foreground="#999" FontSize="11" />
+        </Border>
+    </Grid>
+</UserControl>

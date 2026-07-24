@@ -1,0 +1,70 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="RemoteStuff.Views.RedisTabView"
+             x:DataType="vm:RedisTabViewModel">
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto">
+
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBox Text="{Binding KeyFilter}" Width="220" Watermark="key pattern (*)" />
+                <Button Content="Scan" Command="{Binding RefreshKeysCommand}" />
+                <Button Content="Reconnect" Command="{Binding ReconnectCommand}" />
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="1" ColumnDefinitions="280,*">
+            <!-- Keys -->
+            <ListBox Grid.Column="0" ItemsSource="{Binding Keys}"
+                     SelectedItem="{Binding SelectedKey, Mode=TwoWay}"
+                     Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,1,0"
+                     FontFamily="Menlo, Consolas, monospace" />
+
+            <!-- Value -->
+            <DockPanel Grid.Column="1">
+                <Border DockPanel.Dock="Top" Padding="8,6" Background="{DynamicResource AppSurfaceBrush}">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="{Binding SelectedKey}" Foreground="#7FB0DE" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding KeyType}" Foreground="{DynamicResource AppMutedTextBrush}" />
+                        <TextBlock Text="{Binding KeyTtl}" Foreground="#C8A05A" />
+                        <Button Content="Format JSON" Command="{Binding FormatJsonCommand}" />
+                        <Button Content="Save" Command="{Binding SaveValueCommand}" />
+                        <Button Content="Delete" Command="{Binding DeleteKeyCommand}" />
+                    </StackPanel>
+                </Border>
+                <TextBox Text="{Binding SelectedValue}" AcceptsReturn="True"
+                         FontFamily="Menlo, Consolas, monospace"
+                         TextWrapping="NoWrap"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            </DockPanel>
+        </Grid>
+
+        <!-- Raw command -->
+        <Border Grid.Row="2" Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="8,6">
+            <StackPanel Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="CLI" VerticalAlignment="Center" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                    <TextBox Text="{Binding CommandText}" Width="360" Watermark="e.g. INCR counter"
+                             FontFamily="Menlo, Consolas, monospace" />
+                    <Button Content="Run" Command="{Binding RunCommandCommand}" />
+                </StackPanel>
+                <TextBox Text="{Binding CommandResult}" IsReadOnly="True" MaxHeight="80"
+                         Background="#0E0E0E" Foreground="#9FD3A0" BorderThickness="0"
+                         FontFamily="Menlo, Consolas, monospace"
+                         TextWrapping="NoWrap"
+                         IsVisible="{Binding CommandResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="3" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="10,4">
+            <TextBlock Text="{Binding StatusText}" Foreground="#9FD3A0" />
+        </Border>
+    </Grid>
+</UserControl>

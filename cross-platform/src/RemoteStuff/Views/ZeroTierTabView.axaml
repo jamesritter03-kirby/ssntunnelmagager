@@ -1,0 +1,279 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:m="using:RemoteStuff.Models"
+             mc:Ignorable="d" d:DesignWidth="820" d:DesignHeight="620"
+             x:Class="RemoteStuff.Views.ZeroTierTabView"
+             x:DataType="vm:ZeroTierTabViewModel">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8">
+            <StackPanel Spacing="6">
+                <Grid ColumnDefinitions="*,Auto,Auto">
+                    <Border Grid.Column="0" Background="{DynamicResource AppPillBrush}" CornerRadius="6" Padding="6,3"
+                            VerticalAlignment="Center">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="&#x1F50D;" FontSize="11"
+                                       Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" Margin="2,0,6,0" />
+                            <TextBox Grid.Column="1" Text="{Binding FilterText, Mode=TwoWay}"
+                                     Watermark="Filter networks &amp; devices…" BorderThickness="0"
+                                     Background="Transparent" Padding="0" MinHeight="0"
+                                     VerticalAlignment="Center" VerticalContentAlignment="Center" />
+                            <Button Grid.Column="2" Content="✕" FontSize="10" Padding="4,0"
+                                    Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppMutedTextBrush}"
+                                    IsVisible="{Binding FilterText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                    Command="{Binding ClearFilterCommand}" />
+                        </Grid>
+                    </Border>
+                    <Button Grid.Column="1" Content="🔑" Click="OnManageAccounts" FontSize="14"
+                            MinHeight="0" Padding="8,3" Margin="6,0,0,0" VerticalAlignment="Center"
+                            ToolTip.Tip="Manage accounts — add or remove ZeroTier accounts" />
+                    <Button Grid.Column="2" Content="⟳" Command="{Binding RefreshCommand}" FontSize="15"
+                            Classes.refreshing="{Binding IsBusy}"
+                            MinHeight="0" Padding="8,3" Margin="6,0,0,0" VerticalAlignment="Center"
+                            ToolTip.Tip="Refresh networks and members">
+                        <Button.Styles>
+                            <!-- Tint the icon while a (periodic) refresh runs instead of
+                                 popping a progress bar into the toolbar, which reflows the
+                                 layout and makes the panel jump around. -->
+                            <Style Selector="Button.refreshing">
+                                <Setter Property="Foreground" Value="{DynamicResource AppAccentBrush}" />
+                            </Style>
+                        </Button.Styles>
+                    </Button>
+                </Grid>
+                <!-- Credentials used for one-click SSH / SFTP connections to a device -->
+                <Grid ColumnDefinitions="Auto,*,Auto,*,Auto">
+                    <TextBlock Grid.Column="0" Text="Connect as" FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}"
+                               VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox Grid.Column="1" Text="{Binding ConnectUsername, Mode=TwoWay}"
+                             Watermark="username" MinHeight="0" Padding="6,3" Margin="0,0,6,0"
+                             VerticalContentAlignment="Center"
+                             ToolTip.Tip="Username for SSH / SFTP connections (remembered for next time)" />
+                    <TextBlock Grid.Column="2" Text="Password" FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}"
+                               VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox Grid.Column="3" Text="{Binding ConnectPassword, Mode=TwoWay}"
+                             PasswordChar="{Binding PasswordChar}" Watermark="optional"
+                             MinHeight="0" Padding="6,3" Margin="0,0,6,0" VerticalContentAlignment="Center"
+                             ToolTip.Tip="Password sent when connecting (this session only)" />
+                    <ToggleButton Grid.Column="4" IsChecked="{Binding ShowPassword, Mode=TwoWay}"
+                                  Content="👁" FontSize="12" Padding="6,2" MinHeight="0"
+                                  ToolTip.Tip="Show / hide password" />
+                </Grid>
+                <WrapPanel Orientation="Horizontal">
+                    <Border CornerRadius="6" Background="{DynamicResource AppPillBrush}" Padding="2" Margin="0,0,10,6"
+                            VerticalAlignment="Center"
+                            ToolTip.Tip="Choose which devices to show">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <StackPanel.Styles>
+                                <Style Selector="ToggleButton.segment">
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                    <Setter Property="Foreground" Value="{DynamicResource AppSecondaryTextBrush}" />
+                                    <Setter Property="Padding" Value="11,3" />
+                                    <Setter Property="FontSize" Value="11" />
+                                    <Setter Property="CornerRadius" Value="4" />
+                                    <Setter Property="MinHeight" Value="0" />
+                                </Style>
+                                <Style Selector="ToggleButton.segment:checked /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#0A84FF" />
+                                </Style>
+                                <Style Selector="ToggleButton.segment:checked">
+                                    <Setter Property="Foreground" Value="White" />
+                                </Style>
+                            </StackPanel.Styles>
+                            <ToggleButton Classes="segment" Content="All"
+                                          IsChecked="{Binding !ShowOnlineOnly, Mode=TwoWay}"
+                                          ToolTip.Tip="Show every device" />
+                            <ToggleButton Classes="segment" Content="Online"
+                                          IsChecked="{Binding ShowOnlineOnly, Mode=TwoWay}"
+                                          ToolTip.Tip="Show only online devices" />
+                        </StackPanel>
+                    </Border>
+                    <Border CornerRadius="6" Background="{DynamicResource AppPillBrush}" Padding="2" Margin="0,0,10,6"
+                            VerticalAlignment="Center"
+                            ToolTip.Tip="Choose which networks to show">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <StackPanel.Styles>
+                                <Style Selector="ToggleButton.segment">
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                    <Setter Property="Foreground" Value="{DynamicResource AppSecondaryTextBrush}" />
+                                    <Setter Property="Padding" Value="11,3" />
+                                    <Setter Property="FontSize" Value="11" />
+                                    <Setter Property="CornerRadius" Value="4" />
+                                    <Setter Property="MinHeight" Value="0" />
+                                </Style>
+                                <Style Selector="ToggleButton.segment:checked /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#0A84FF" />
+                                </Style>
+                                <Style Selector="ToggleButton.segment:checked">
+                                    <Setter Property="Foreground" Value="White" />
+                                </Style>
+                            </StackPanel.Styles>
+                            <ToggleButton Classes="segment" Content="All"
+                                          IsChecked="{Binding !ShowMemberOfOnly, Mode=TwoWay}"
+                                          ToolTip.Tip="Show every network" />
+                            <ToggleButton Classes="segment" Content="Member of"
+                                          IsChecked="{Binding ShowMemberOfOnly, Mode=TwoWay}"
+                                          ToolTip.Tip="Show only networks this device has joined" />
+                        </StackPanel>
+                    </Border>
+                    <Button Content="⇊" Command="{Binding ExpandAllCommand}"
+                            IsVisible="{Binding HasNetworks}" FontSize="15"
+                            ToolTip.Tip="Expand every network" Margin="0,0,6,6" />
+                    <Button Content="⇈" Command="{Binding CollapseAllCommand}"
+                            IsVisible="{Binding HasNetworks}" FontSize="15"
+                            ToolTip.Tip="Collapse every network" Margin="0,0,6,6" />
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Networks + members, grouped by account -->
+        <ScrollViewer Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}">
+            <ItemsControl ItemsSource="{Binding AccountGroups}" Margin="8">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ZtAccountGroupViewModel">
+                        <StackPanel Margin="0,0,0,14">
+                            <!-- Account header -->
+                            <Button Command="{Binding ToggleCollapseCommand}"
+                                    Background="{DynamicResource AppPillBrush}" BorderThickness="0"
+                                    Padding="8,6" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Left" Cursor="Hand">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{Binding ChevronGlyph}" FontSize="13"
+                                               Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" Width="14" />
+                                    <TextBlock Text="&#x1F464;" FontSize="13" VerticalAlignment="Center" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="15" />
+                                        <TextBlock Text="{Binding Subtitle}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Networks in this account -->
+                            <ItemsControl ItemsSource="{Binding Networks}" Margin="14,6,0,0"
+                                          IsVisible="{Binding IsExpanded}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ZtNetworkRowViewModel">
+                                        <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
+                                                CornerRadius="6" Padding="10" Margin="0,0,0,10">
+                                            <StackPanel Spacing="6">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <!-- Collapse toggle: chevron + name -->
+                                                    <Button Grid.Column="0" Command="{Binding ToggleCollapseCommand}"
+                                                            Background="Transparent" BorderThickness="0"
+                                                            Padding="0" HorizontalAlignment="Left"
+                                                            HorizontalContentAlignment="Left" Cursor="Hand">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <TextBlock Text="{Binding ChevronGlyph}" FontSize="13"
+                                                                       Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" Width="14" />
+                                                            <TextBlock Text="{Binding Name}" FontWeight="Bold"
+                                                                       FontSize="14" VerticalAlignment="Center" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <!-- This device's connection to the network (dot + tooltip) -->
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5"
+                                                                VerticalAlignment="Center"
+                                                                ToolTip.Tip="{Binding LocalStatusText}">
+                                                        <Ellipse Width="8" Height="8" Fill="{Binding LocalStatusBrush}"
+                                                                 VerticalAlignment="Center" />
+                                                    </StackPanel>
+                                                </Grid>
+                                                <!-- Copyable network id + device count -->
+                                                <StackPanel Orientation="Horizontal" Spacing="4" Margin="22,0,0,0">
+                                                    <Button Content="{Binding Id}" Command="{Binding CopyIdCommand}"
+                                                            Background="Transparent" BorderThickness="0" Padding="0"
+                                                            Foreground="#7FB0DE" FontSize="11" Cursor="Hand"
+                                                            FontFamily="Menlo, Consolas, monospace"
+                                                            ToolTip.Tip="Click to copy network ID" />
+                                                    <TextBlock Text="·" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding DeviceCountText}" Foreground="{DynamicResource AppMutedTextBrush}"
+                                                               FontSize="11" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                                <ItemsControl ItemsSource="{Binding Members}" Margin="0,4,0,0"
+                                                              IsVisible="{Binding IsExpanded}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:ZtMemberRowViewModel">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,3">
+                                                                <Panel Grid.Column="0" Width="8" Height="8"
+                                                                       Margin="0,0,8,0" VerticalAlignment="Center">
+                                                                    <Ellipse Fill="#3FB950" IsVisible="{Binding IsOnline}" />
+                                                                    <Ellipse Fill="#484848" IsVisible="{Binding !IsOnline}" />
+                                                                </Panel>
+                                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding Name}" />
+                                                                    <Button Content="{Binding Ip}" Command="{Binding CopyIpCommand}"
+                                                                            Background="Transparent" BorderThickness="0" Padding="0"
+                                                                            HorizontalAlignment="Left" Foreground="#9FD3A0"
+                                                                            FontFamily="Menlo, Consolas, monospace" FontSize="11"
+                                                                            Cursor="Hand" ToolTip.Tip="Click to copy IP" />
+                                                                </StackPanel>
+                                                                <Border Grid.Column="2" Background="{Binding AuthBadgeBackground}"
+                                                                        CornerRadius="4" Padding="5,1" Margin="4,0"
+                                                                        VerticalAlignment="Center"
+                                                                        ToolTip.Tip="{Binding AuthTooltip}">
+                                                                    <TextBlock Text="{Binding LockGlyph}"
+                                                                               Foreground="{Binding LockBrush}"
+                                                                               FontSize="12" FontWeight="Bold"
+                                                                               VerticalAlignment="Center" />
+                                                                </Border>
+                                                                <Button Grid.Column="3" Content="&#x2699;" FontSize="14"
+                                                                        Background="Transparent" BorderThickness="0"
+                                                                        Foreground="{DynamicResource AppSecondaryTextBrush}" Padding="6,2" Margin="2,0,0,0"
+                                                                        VerticalAlignment="Center" Cursor="Hand"
+                                                                        ToolTip.Tip="Device settings">
+                                                                    <Button.Flyout>
+                                                                        <MenuFlyout>
+                                                                            <MenuItem Header="Authorize" IsVisible="{Binding !Authorized}"
+                                                                                      Command="{Binding ToggleAuthorizedCommand}" />
+                                                                            <MenuItem Header="Deauthorize" IsVisible="{Binding Authorized}"
+                                                                                      Command="{Binding ToggleAuthorizedCommand}" />
+                                                                            <Separator />
+                                                                            <MenuItem Header="Set Description…" Command="{Binding SetDescriptionCommand}" />
+                                                                            <MenuItem Header="Copy IP Address" Command="{Binding CopyIpCommand}" />
+                                                                            <MenuItem Header="Copy Node ID" Command="{Binding CopyNodeIdCommand}" />
+                                                                        </MenuFlyout>
+                                                                    </Button.Flyout>
+                                                                </Button>
+                                                                <Button Grid.Column="4" Content="&#xFF0B;" FontSize="14"
+                                                                        Padding="8,2" Margin="6,0,0,0"
+                                                                        ToolTip.Tip="Open a connection to this device">
+                                                                    <Button.Flyout>
+                                                                        <MenuFlyout>
+                                                                            <MenuItem Header="SSH Terminal" Command="{Binding OpenSshCommand}" />
+                                                                            <MenuItem Header="SFTP" Command="{Binding OpenSftpCommand}" />
+                                                                            <MenuItem Header="VNC" Command="{Binding OpenVncCommand}" />
+                                                                            <MenuItem Header="MQTT Explorer" Command="{Binding OpenMqttCommand}" />
+                                                                            <MenuItem Header="Redis Client" Command="{Binding OpenRedisCommand}" />
+                                                                            <Separator />
+                                                                            <MenuItem Header="New Remote Terminal Profile…"
+                                                                                      Command="{Binding NewProfileCommand}" />
+                                                                        </MenuFlyout>
+                                                                    </Button.Flyout>
+                                                                </Button>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Status -->
+        <Border Grid.Row="2" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="10,4">
+            <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,75 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             mc:Ignorable="d"
+             x:Class="RemoteStuff.Views.SpreadsheetTabView"
+             x:DataType="vm:SpreadsheetTabViewModel"
+             x:CompileBindings="True">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" Padding="8,5" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Content="New" Command="{Binding NewSheetCommand}" ToolTip.Tip="New empty sheet" />
+                <Button Content="Open" Command="{Binding OpenCommand}" ToolTip.Tip="Open a CSV, TSV, or Excel file" />
+                <Button Content="Save" Command="{Binding SaveCommand}" ToolTip.Tip="Save" />
+                <Button Content="Save As" Command="{Binding SaveAsCommand}" ToolTip.Tip="Save As…" />
+                <Rectangle Width="1" Fill="{DynamicResource AppDividerBrush}" Margin="4,2" />
+                <Button Content="Add Row" Command="{Binding AddRowCommand}" ToolTip.Tip="Add a row below the selection" />
+                <Button Content="Delete Row" Command="{Binding DeleteRowCommand}" ToolTip.Tip="Delete the selected row" />
+                <Button Content="Add Column" Command="{Binding AddColumnCommand}" ToolTip.Tip="Add a column on the right" />
+                <Button Content="Delete Column" Command="{Binding DeleteLastColumnCommand}" ToolTip.Tip="Delete the last column" />
+                <Rectangle Width="1" Fill="{DynamicResource AppDividerBrush}" Margin="4,2" />
+                <ToggleButton Content="Header Row" IsChecked="{Binding HasHeaderRow, Mode=OneWay}"
+                              Command="{Binding ToggleHeaderCommand}"
+                              ToolTip.Tip="Treat the first row as column headers" />
+                <ComboBox x:Name="DelimiterBox" IsVisible="{Binding !IsExcel}" MinWidth="120"
+                          ItemsSource="{Binding Delimiters}"
+                          SelectionChanged="OnDelimiterChanged"
+                          ToolTip.Tip="Field delimiter" />
+                <TextBlock Text="Excel workbook" VerticalAlignment="Center" Margin="6,0,0,0"
+                           Foreground="{DynamicResource AppMutedTextBrush}" IsVisible="{Binding IsExcel}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Column tools -->
+        <Border Grid.Row="1" Background="{DynamicResource AppChromeBrush}" Padding="8,4" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1"
+                IsVisible="{Binding !IsExcel}">
+            <TextBlock Text="Tip: double-click a cell to edit. Use the header context menu to sort or rename."
+                       Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+        </Border>
+
+        <!-- Grid -->
+        <DataGrid x:Name="Grid" Grid.Row="2"
+                  ItemsSource="{Binding GridRows}"
+                  SelectedIndex="{Binding SelectedRowIndex, Mode=TwoWay}"
+                  CanUserResizeColumns="True"
+                  CanUserReorderColumns="False"
+                  CanUserSortColumns="False"
+                  GridLinesVisibility="All"
+                  HeadersVisibility="All"
+                  IsReadOnly="False"
+                  AutoGenerateColumns="False" />
+
+        <!-- Sheet bar (Excel workbooks) -->
+        <Border Grid.Row="3" Background="{DynamicResource AppChromeBrush}" Padding="8,4" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0"
+                IsVisible="{Binding IsExcel}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="Sheets:" VerticalAlignment="Center" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                <ComboBox MinWidth="140" ItemsSource="{Binding Sheets}"
+                          SelectedIndex="{Binding ActiveSheetIndex, Mode=TwoWay}" />
+                <Button Content="+" Command="{Binding AddWorksheetCommand}" ToolTip.Tip="Add worksheet" />
+                <Button Content="Rename" Command="{Binding RenameWorksheetCommand}" ToolTip.Tip="Rename worksheet" />
+                <Button Content="Delete" Command="{Binding DeleteWorksheetCommand}" ToolTip.Tip="Delete worksheet" />
+            </StackPanel>
+        </Border>
+
+        <!-- Status bar -->
+        <Border Grid.Row="4" Background="{DynamicResource AppSurfaceBrush}" Padding="8,3" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0">
+            <TextBlock Text="{Binding StatusText}" Foreground="#999" FontSize="11" />
+        </Border>
+    </Grid>
+</UserControl>

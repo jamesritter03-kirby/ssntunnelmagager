@@ -1,0 +1,163 @@
+name: Desktop release (Velopack)
+
+# Build + publish the cross-platform "Remote Stuff" desktop app auto-update
+# packages for Windows, macOS (Apple Silicon + Intel) and Linux, then upload the
+# Velopack feeds + installers to the rolling "desktop-updates" GitHub release
+# that the in-app updater (cross-platform/src/RemoteStuff/Services/UpdateService.cs)
+# reads. One Velopack channel per runtime keeps each OS/arch on its own package.
+#
+# Each platform builds on its NATIVE runner (no cross-compiling), which is the
+# most reliable path and lets macOS builds be signed/notarized later.
+#
+# Trigger:
+#   • Push a tag like `desktop-v1.9.42`  → version = 1.9.42
+#   • Or run manually (workflow_dispatch) and optionally override the version;
+#     if left blank the <Version> from the .csproj is used.
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (blank = use <Version> from the .csproj)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  VELOPACK_VERSION: '1.2.0'
+  PACK_ID: RemoteStuff
+  PACK_TITLE: Remote Stuff
+  PACK_AUTHORS: Remote Stuff
+  BUNDLE_ID: com.remotestuff.desktop
+  RELEASE_TAG: desktop-updates
+  PROJECT: cross-platform/src/RemoteStuff/RemoteStuff.csproj
+
+jobs:
+  # ---- Resolve the version and make sure the rolling release exists ----
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          INPUT="${{ github.event.inputs.version }}"
+          REF="${{ github.ref }}"
+          if [[ -n "$INPUT" ]]; then
+            V="$INPUT"
+          elif [[ "$REF" == refs/tags/desktop-v* ]]; then
+            V="${REF#refs/tags/desktop-v}"
+          else
+            V="$(grep -oE '<Version>[^<]+</Version>' "$PROJECT" | sed -E 's#</?Version>##g')"
+          fi
+          echo "Resolved version: $V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure rolling release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Remote Stuff (desktop auto-update)" \
+              --notes "Velopack update feeds for the cross-platform Remote Stuff desktop app (Windows/macOS/Linux). Managed automatically by the Desktop release workflow." \
+              --latest=false
+          fi
+
+  # ---- Build, package and upload each platform on its native runner ----
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            rid: osx-arm64
+            mainexe: RemoteStuff
+            mac: true
+          - os: macos-latest
+            rid: osx-x64
+            mainexe: RemoteStuff
+            mac: true
+          - os: ubuntu-latest
+            rid: linux-x64
+            mainexe: RemoteStuff
+            mac: false
+          - os: windows-latest
+            rid: win-x64
+            mainexe: RemoteStuff.exe
+            mac: false
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: cross-platform
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Linux packaging deps
+        if: matrix.rid == 'linux-x64'
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version "$VELOPACK_VERSION"
+
+      - name: Publish, package and upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RID: ${{ matrix.rid }}
+          MAIN_EXE: ${{ matrix.mainexe }}
+          IS_MAC: ${{ matrix.mac }}
+        run: |
+          set -euo pipefail
+          export PATH="$PATH:$HOME/.dotnet/tools"
+
+          PUB_DIR="pub/$RID"
+          OUT_DIR="releases"
+          mkdir -p "$OUT_DIR"
+
+          echo "==> Publishing $RID @ $VERSION"
+          dotnet publish src/RemoteStuff/RemoteStuff.csproj \
+            -c Release -r "$RID" --self-contained true \
+            -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=none \
+            -o "$PUB_DIR" -v quiet
+
+          ARGS=(pack
+            --packId "$PACK_ID"
+            --packVersion "$VERSION"
+            --packDir "$PUB_DIR"
+            --packTitle "$PACK_TITLE"
+            --packAuthors "$PACK_AUTHORS"
+            --mainExe "$MAIN_EXE"
+            --channel "$RID"
+            --outputDir "$OUT_DIR")
+
+          if [[ "$IS_MAC" == "true" ]]; then
+            ARGS+=(--bundleId "$BUNDLE_ID")
+            # Signing/notarization can be added later via
+            #   --signAppIdentity "$SIGN_IDENTITY" --notaryProfile "$NOTARY_PROFILE"
+          fi
+
+          echo "==> Packaging $RID"
+          vpk "${ARGS[@]}"
+
+          echo "==> Uploading $RID assets to $RELEASE_TAG"
+          gh release upload "$RELEASE_TAG" "$OUT_DIR"/* \
+            --repo "$GITHUB_REPOSITORY" --clobber

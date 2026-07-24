@@ -1,0 +1,103 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             mc:Ignorable="d"
+             x:Class="RemoteStuff.Views.NetworkTabView"
+             x:DataType="vm:NetworkTabViewModel"
+             x:CompileBindings="True">
+
+    <Grid ColumnDefinitions="*,*">
+
+        <!-- Left: this machine -->
+        <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" Margin="0,0,1,0">
+            <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" Padding="10,8" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="This machine" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+                    <ProgressBar IsIndeterminate="True" Width="80" Height="4"
+                                 IsVisible="{Binding IsRefreshing}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Padding="10,8" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                <StackPanel Spacing="3">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Host:" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
+                        <TextBlock Text="{Binding HostName}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Gateway:" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
+                        <TextBlock Text="{Binding DefaultGateway}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="DNS:" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
+                        <TextBlock Text="{Binding DnsServers}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Public IP:" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
+                        <TextBlock Text="{Binding PublicIp}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <ListBox Grid.Row="2" ItemsSource="{Binding Interfaces}" Background="Transparent">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:NetworkTabViewModel+InterfaceRow">
+                        <StackPanel Spacing="1" Margin="2">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="{Binding StatusGlyph}" />
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding TypeLabel}" Foreground="{DynamicResource AppMutedTextBrush}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding Ipv4}" Foreground="#bbb" FontSize="11" Margin="18,0,0,0"
+                                       IsVisible="{Binding Ipv4, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <TextBlock Text="{Binding Ipv6}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" Margin="18,0,0,0"
+                                       IsVisible="{Binding Ipv6, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <TextBlock Text="{Binding Mac}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" Margin="18,0,0,0"
+                                       IsVisible="{Binding Mac, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+
+        <!-- Right: LAN scanner -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*,Auto">
+            <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" Padding="10,8" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                <TextBlock Text="LAN scanner (ping sweep /24)" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </Border>
+
+            <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Padding="10,8" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="Subnet:" Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" />
+                    <TextBox Text="{Binding ScanSubnet}" Watermark="192.168.1" Width="140" />
+                    <TextBlock Text=".0/24" Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" />
+                    <Button Content="{Binding ScanButtonText}"
+                            Command="{Binding ScanCommand}" />
+                </StackPanel>
+            </Border>
+
+            <ListBox Grid.Row="2" ItemsSource="{Binding ScanResults}" Background="Transparent">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:NetworkTabViewModel+ScanHit">
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
+                            <TextBlock Text="🟢" />
+                            <TextBlock Text="{Binding Display}" />
+                            <TextBlock Text="{Binding LatencyMs, StringFormat='{}{0} ms'}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Border Grid.Row="3" Background="{DynamicResource AppSurfaceBrush}" Padding="10,4" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0">
+                <StackPanel Spacing="3">
+                    <ProgressBar Value="{Binding ScanProgress}" Maximum="100" Height="4"
+                                 IsVisible="{Binding IsScanning}" />
+                    <TextBlock Text="{Binding ScanStatus}" Foreground="#999" FontSize="11" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

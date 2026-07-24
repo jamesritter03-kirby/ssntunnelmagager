@@ -1,0 +1,160 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="RemoteStuff.Views.SftpTabView"
+             x:DataType="vm:SftpTabViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+            <StackPanel Orientation="Horizontal" Spacing="3">
+                <Button Content="↑" FontSize="14" Padding="8,3" ToolTip.Tip="Up one folder" Command="{Binding GoUpCommand}" />
+                <Button Content="⟳" FontSize="14" Padding="8,3" ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}" />
+                <Rectangle Width="1" Fill="{DynamicResource AppDividerBrush}" Margin="4,2" />
+                <Button Content="📤" FontSize="14" Padding="8,3" ToolTip.Tip="Upload…" Command="{Binding UploadCommand}" />
+                <Button Content="📥" FontSize="14" Padding="8,3" ToolTip.Tip="Download…" Command="{Binding DownloadCommand}" />
+                <Button Content="✎" FontSize="14" Padding="8,3" ToolTip.Tip="Edit" Command="{Binding EditCommand}" />
+                <Button Content="🏷" FontSize="14" Padding="8,3" ToolTip.Tip="Rename…" Command="{Binding RenameCommand}" />
+                <Button Content="📄" FontSize="14" Padding="8,3" ToolTip.Tip="New file…" Command="{Binding NewFileCommand}" />
+                <Button Content="📁" FontSize="14" Padding="8,3" ToolTip.Tip="New folder…" Command="{Binding NewFolderCommand}" />
+                <Button Content="🗑" FontSize="14" Padding="8,3" ToolTip.Tip="Delete" Command="{Binding DeleteCommand}" />
+                <Rectangle Width="1" Fill="{DynamicResource AppDividerBrush}" Margin="4,2" IsVisible="{Binding CanMount}" />
+                <Button Content="💽 Mount" FontSize="13" Padding="8,3"
+                        Command="{Binding ToggleMountCommand}" IsEnabled="{Binding !IsMountBusy}"
+                        ToolTip.Tip="Mount the remote home folder locally via sshfs" >
+                    <Button.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="CanMount" />
+                            <Binding Path="!IsMounted" />
+                        </MultiBinding>
+                    </Button.IsVisible>
+                </Button>
+                <Button Content="⏏ Unmount" FontSize="13" Padding="8,3" IsVisible="{Binding IsMounted}"
+                        Command="{Binding ToggleMountCommand}" IsEnabled="{Binding !IsMountBusy}"
+                        ToolTip.Tip="Unmount the remote folder" />
+                <Button Content="📂" FontSize="13" Padding="8,3" IsVisible="{Binding IsMounted}"
+                        Command="{Binding RevealMountCommand}" ToolTip.Tip="Reveal the mounted folder" />
+                <TextBlock Text="{Binding MountStatus}" Opacity="0.75" FontSize="11"
+                           VerticalAlignment="Center" MaxWidth="320" TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding MountStatus}" IsVisible="{Binding CanMount}" />
+                <ProgressBar IsIndeterminate="True" Width="80" Height="6"
+                             IsVisible="{Binding IsBusy}" VerticalAlignment="Center" Margin="8,0,0,0" />
+            </StackPanel>
+        </Border>
+
+        <!-- Breadcrumb + editable path -->
+        <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <ItemsControl ItemsSource="{Binding Crumbs}" VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SftpCrumb">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="{Binding Name}" Padding="6,2" Background="Transparent"
+                                        Command="{Binding $parent[ItemsControl].((vm:SftpTabViewModel)DataContext).NavigateCrumbCommand}"
+                                        CommandParameter="{Binding}" />
+                                <TextBlock Text="›" Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBox Width="260" Watermark="Go to path…" Text="{Binding PathInput, Mode=TwoWay}"
+                         KeyDown="OnPathKeyDown" VerticalAlignment="Center"
+                         FontFamily="Menlo, Consolas, monospace" />
+                <Button Content="Go" Command="{Binding GoToPathCommand}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Reconnect / authentication bar (shown when the connection is down) -->
+        <Border Grid.Row="2" Background="#2A1F1F" BorderBrush="#5A3A3A" BorderThickness="1"
+                CornerRadius="6" Padding="14" Margin="16"
+                VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                IsVisible="{Binding ShowReconnect}" ZIndex="10">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Couldn't connect over SFTP" FontWeight="Bold" Foreground="#E88" />
+                <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppTextBrush}" TextWrapping="Wrap" />
+                <TextBlock Foreground="#999" FontSize="11" TextWrapping="Wrap"
+                           Text="SFTP can't use ssh-agent or interactive prompts. Enter the account password (or key passphrase) and retry." />
+                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                    <TextBox Grid.Column="0" Text="{Binding ReconnectPassword, Mode=TwoWay}"
+                             PasswordChar="•" Watermark="Password or key passphrase"
+                             VerticalContentAlignment="Center" Margin="0,0,8,0"
+                             KeyDown="OnReconnectKeyDown" />
+                    <Button Grid.Column="1" Content="Reconnect" Command="{Binding ReconnectCommand}"
+                            Background="#0E639C" Foreground="White" Padding="16,6" />
+                </Grid>
+                <CheckBox Content="Save password to this profile"
+                          IsChecked="{Binding SavePassword, Mode=TwoWay}"
+                          IsVisible="{Binding CanSavePassword}"
+                          Foreground="{DynamicResource AppTextBrush}" FontSize="12" />
+            </StackPanel>
+        </Border>
+
+        <!-- Listing -->
+        <ListBox Grid.Row="2" x:Name="EntryList" ItemsSource="{Binding Entries}"
+                 SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
+                 DoubleTapped="OnRowDoubleTapped" Background="{DynamicResource AppSurfaceBrush}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:SftpEntryViewModel">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="28" />
+                            <ColumnDefinition Width="*" MinWidth="120" />
+                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="170" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Open"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).OpenCommand}"
+                                          CommandParameter="{Binding}" />
+                                <MenuItem Header="Edit…"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).EditCommand}"
+                                          CommandParameter="{Binding}" />
+                                <MenuItem Header="Download…"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).DownloadCommand}"
+                                          CommandParameter="{Binding}" />
+                                <MenuItem Header="Rename…"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).RenameCommand}"
+                                          CommandParameter="{Binding}" />
+                                <Separator />
+                                <MenuItem Header="New File…"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).NewFileCommand}" />
+                                <MenuItem Header="New Folder…"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).NewFolderCommand}" />
+                                <Separator />
+                                <MenuItem Header="Delete"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).DeleteCommand}"
+                                          CommandParameter="{Binding}" />
+                            </ContextMenu>
+                        </Grid.ContextMenu>
+                        <TextBlock Grid.Column="0" Text="{Binding Glyph}" />
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="2" Text="{Binding Permissions}" Foreground="#7FA7C7"
+                                   FontFamily="Menlo, Consolas, monospace" />
+                        <TextBlock Grid.Column="3" Text="{Binding SizeText}" Foreground="{DynamicResource AppSecondaryTextBrush}" HorizontalAlignment="Right" Margin="0,0,12,0" />
+                        <TextBlock Grid.Column="4" Text="{Binding ModifiedText}" Foreground="{DynamicResource AppMutedTextBrush}" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- Status -->
+        <Border Grid.Row="3" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="10,4">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="{Binding CurrentPath}" Foreground="#9FD3A0" FontFamily="Menlo, Consolas, monospace" />
+                <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

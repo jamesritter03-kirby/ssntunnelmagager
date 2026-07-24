@@ -1,0 +1,1099 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:RemoteStuff.ViewModels"
+        xmlns:m="using:RemoteStuff.Models"
+        xmlns:conv="using:Avalonia.Data.Converters"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
+        x:Class="RemoteStuff.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Width="1100" Height="720"
+        MinWidth="760" MinHeight="480"
+        Title="Remote Stuff">
+
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+K" Command="{Binding OpenPaletteCommand}" />
+        <KeyBinding Gesture="Cmd+K" Command="{Binding OpenPaletteCommand}" />
+    </Window.KeyBindings>
+
+    <Window.Resources>
+        <!-- One docked/tiled session cell: a slim header (glyph + title + dock menu
+             + close) above the tab's own view (resolved via the ViewLocator). -->
+        <DataTemplate x:Key="DockCellTemplate" x:DataType="vm:TabViewModel">
+            <Border BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" Margin="1">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}" Padding="6,2">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,6,0">
+                                <Border Width="4" Height="14" CornerRadius="2" VerticalAlignment="Center"
+                                        Background="{Binding TabColorBrush}" IsVisible="{Binding HasTabColor}" />
+                                <TextBlock Text="{Binding Glyph}" Foreground="#7FB0DE" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                        VerticalAlignment="Center" IsVisible="{Binding !IsBrowserTab}">
+                                <TextBlock Text="{Binding DisplayTitle}" FontSize="11" Foreground="{DynamicResource AppTextBrush}"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Host}" FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           IsVisible="{Binding Host, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           ToolTip.Tip="Connected host / IP" />
+                            </StackPanel>
+                            <!-- Browser navigation bar (moved out of the per-tab toolbar) -->
+                            <DockPanel Grid.Column="1" LastChildFill="True"
+                                       IsVisible="{Binding IsBrowserTab}" x:CompileBindings="False"
+                                       Margin="0,0,4,0">
+                                <Button DockPanel.Dock="Left" Content="◀" Command="{Binding GoBackCommand}"
+                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                        Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Back" />
+                                <Button DockPanel.Dock="Left" Content="▶" Command="{Binding GoForwardCommand}"
+                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                        Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Forward" />
+                                <Button DockPanel.Dock="Left" Content="⟳" Command="{Binding ReloadCommand}"
+                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                        Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Reload" />
+                                <Button DockPanel.Dock="Left" Content="✕" Command="{Binding StopCommand}"
+                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                        Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Stop"
+                                        IsVisible="{Binding IsLoading}" />
+                                <Button DockPanel.Dock="Right" Content="Go" Command="{Binding NavigateCommand}"
+                                        Padding="8,1" FontSize="11" Margin="4,0,0,0" />
+                                <Button DockPanel.Dock="Right" Content="&#x1F527;" Command="{Binding OpenDevToolsCommand}"
+                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                        Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Developer Tools" />
+                                <TextBox Watermark="Enter a URL or search" Text="{Binding AddressText, Mode=TwoWay}"
+                                         VerticalAlignment="Center" MinHeight="0" Padding="6,1" FontSize="11">
+                                    <TextBox.KeyBindings>
+                                        <KeyBinding Gesture="Enter" Command="{Binding NavigateCommand}" />
+                                    </TextBox.KeyBindings>
+                                </TextBox>
+                            </DockPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                <Button Content="❏" IsVisible="{Binding HasSnippets}" x:CompileBindings="False"
+                                        Padding="4,0" FontSize="11"
+                                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                        ToolTip.Tip="Snippets">
+                                    <Button.Flyout>
+                                        <Flyout>
+                                            <ItemsControl ItemsSource="{Binding Snippets}" MaxWidth="360">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="m:CommandSnippet">
+                                                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                                Background="Transparent" BorderThickness="0" Padding="8,4"
+                                                                Content="{Binding Label}" x:CompileBindings="False"
+                                                                Command="{Binding $parent[ItemsControl].DataContext.InsertSnippetCommand}"
+                                                                CommandParameter="{Binding}" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                                <Button Content="🕘" IsVisible="{Binding HasHistory}" x:CompileBindings="False"
+                                        Padding="4,0" FontSize="11"
+                                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                        ToolTip.Tip="Command history">
+                                    <Button.Flyout>
+                                        <Flyout>
+                                            <ScrollViewer MaxHeight="360">
+                                                <ItemsControl ItemsSource="{Binding History}" MaxWidth="420">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="x:String">
+                                                            <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                                    Background="Transparent" BorderThickness="0" Padding="8,4"
+                                                                    Content="{Binding}" FontFamily="Menlo, Consolas, monospace"
+                                                                    x:CompileBindings="False"
+                                                                    Command="{Binding $parent[ItemsControl].DataContext.RunHistoryCommand}"
+                                                                    CommandParameter="{Binding}" />
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </ScrollViewer>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                                <Button Content="A−" IsVisible="{Binding SupportsTheme}" x:CompileBindings="False"
+                                        Command="{Binding ZoomOutCommand}" Padding="4,0" FontSize="11"
+                                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                        ToolTip.Tip="Decrease font size" />
+                                <Button Content="A" IsVisible="{Binding SupportsTheme}" x:CompileBindings="False"
+                                        Command="{Binding ZoomResetCommand}" Padding="4,0" FontSize="11"
+                                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                        ToolTip.Tip="Reset font size" />
+                                <Button Content="A+" IsVisible="{Binding SupportsTheme}" x:CompileBindings="False"
+                                        Command="{Binding ZoomInCommand}" Padding="4,0" FontSize="11"
+                                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                        ToolTip.Tip="Increase font size" />
+                                <Button Content="🎨" IsVisible="{Binding SupportsTheme}" Padding="4,0" FontSize="11"
+                                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                        ToolTip.Tip="Colour theme">
+                                    <Button.Flyout>
+                                        <Flyout>
+                                            <ScrollViewer MaxHeight="420">
+                                                <ItemsControl ItemsSource="{Binding ThemeMenuItems}" MinWidth="160">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:ThemeMenuItem">
+                                                            <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                                    Background="Transparent" BorderThickness="0" Padding="8,4"
+                                                                    Content="{Binding Name}" Command="{Binding ApplyCommand}" />
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </ScrollViewer>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                                <Button Content="{Binding CollapseGlyph}" Padding="4,0" FontSize="12"
+                                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                        IsVisible="{Binding IsDocked}"
+                                        ToolTip.Tip="Collapse this panel to the edge"
+                                        Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).CollapseTabDockCommand}"
+                                        CommandParameter="{Binding}" />
+                                <Button Content="⋮" Padding="4,0" FontSize="12"
+                                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                        ToolTip.Tip="Dock…">
+                                    <Button.Flyout>
+                                        <MenuFlyout>
+                                            <MenuItem Header="Move to Center" Command="{Binding DockCenterCommand}" />
+                                            <MenuItem Header="Dock Left" Command="{Binding DockLeftCommand}" />
+                                            <MenuItem Header="Dock Right" Command="{Binding DockRightCommand}" />
+                                            <MenuItem Header="Dock Top" Command="{Binding DockTopCommand}" />
+                                            <MenuItem Header="Dock Bottom" Command="{Binding DockBottomCommand}" />
+                                            <Separator IsVisible="{Binding SupportsTheme}" />
+                                            <MenuItem Header="Copy Scrollback" IsVisible="{Binding SupportsTheme}"
+                                                      x:CompileBindings="False"
+                                                      Command="{Binding CopyScrollbackCommand}" />
+                                            <MenuItem Header="Clear Scrollback" IsVisible="{Binding SupportsTheme}"
+                                                      x:CompileBindings="False"
+                                                      Command="{Binding ClearScrollbackCommand}" />
+                                            <MenuItem Header="Save Log…" IsVisible="{Binding SupportsTheme}"
+                                                      x:CompileBindings="False"
+                                                      Command="{Binding SaveScrollbackCommand}" />
+                                            <Separator />
+                                            <MenuItem Header="Tab Colour" ItemsSource="{Binding TabColorMenuItems}">
+                                                <MenuItem.ItemContainerTheme>
+                                                    <ControlTheme TargetType="MenuItem" x:DataType="vm:TabColorMenuItem"
+                                                                  BasedOn="{StaticResource {x:Type MenuItem}}">
+                                                        <Setter Property="Header" Value="{Binding Name}" />
+                                                        <Setter Property="Command" Value="{Binding ApplyCommand}" />
+                                                    </ControlTheme>
+                                                </MenuItem.ItemContainerTheme>
+                                            </MenuItem>
+                                            <Separator />
+                                            <MenuItem Header="Duplicate Tab" Command="{Binding DuplicateCommand}" />
+                                            <MenuItem Header="Close" Command="{Binding CloseCommand}" />
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
+                                <Button Content="✕" Padding="4,0" FontSize="11"
+                                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                        Command="{Binding CloseCommand}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <ContentControl Content="{Binding}" />
+                </DockPanel>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" Padding="6,3" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+            <DockPanel LastChildFill="False">
+                <Button DockPanel.Dock="Left" Content="{Binding SidebarToggleGlyph}"
+                        Command="{Binding ToggleSidebarCommand}"
+                        ToolTip.Tip="Show/hide profile panel" Padding="8,2"
+                        Background="Transparent" BorderThickness="0" VerticalAlignment="Center" />
+
+                <Menu DockPanel.Dock="Left" VerticalAlignment="Center">
+                    <MenuItem Header="_New">
+                        <MenuItem Header="Remote Terminal" Command="{Binding NewRemoteTerminalCommand}" />
+                        <MenuItem Header="Local Shell" Command="{Binding NewLocalShellCommand}" />
+                        <Separator />
+                        <MenuItem Header="Editor" Command="{Binding NewEditorCommand}" />
+                        <MenuItem Header="Spreadsheet" Command="{Binding NewSpreadsheetCommand}" />
+                        <MenuItem Header="Finder" Command="{Binding NewFinderCommand}" />
+                        <MenuItem Header="Browser" Command="{Binding NewBrowserCommand}" />
+                        <MenuItem Header="VNC" Command="{Binding NewVncCommand}" />
+                        <Separator />
+                        <MenuItem Header="Network" Command="{Binding NewNetworkCommand}" />
+                        <MenuItem Header="MikroTik" Command="{Binding NewMikroTikCommand}" />
+                    </MenuItem>
+                    <MenuItem Header="_Profile">
+                        <MenuItem Header="New…" Command="{Binding NewProfileCommand}" />
+                        <Separator />
+                        <MenuItem Header="Edit…" Command="{Binding EditProfileCommand}" />
+                        <MenuItem Header="Duplicate" Command="{Binding DuplicateProfileCommand}" />
+                        <Separator />
+                        <MenuItem Header="Delete" Command="{Binding DeleteProfileCommand}" />
+                        <Separator />
+                        <MenuItem Header="Compare &amp; Bulk Edit…" Command="{Binding CompareProfilesCommand}" />
+                        <MenuItem Header="Sync Profiles with Git…" Command="{Binding SyncProfilesGitCommand}" />
+                    </MenuItem>
+                    <MenuItem Header="_Workspace">
+                        <MenuItem Header="New Workspace" Command="{Binding NewWorkspaceCommand}" />
+                        <MenuItem Header="Rename Workspace…" Command="{Binding RenameCurrentWorkspaceCommand}" />
+                        <MenuItem Header="Close Workspace" Command="{Binding CloseCurrentWorkspaceCommand}"
+                                  IsEnabled="{Binding CanCloseWorkspace}" />
+                        <Separator />
+                        <MenuItem Header="Next Workspace" Command="{Binding NextWorkspaceCommand}" />
+                        <MenuItem Header="Previous Workspace" Command="{Binding PreviousWorkspaceCommand}" />
+                        <Separator />
+                        <MenuItem Header="Save Current Workspace…" Command="{Binding SaveCurrentWorkspaceCommand}" />
+                        <MenuItem Header="Save Current Workspace As…" Command="{Binding SaveCurrentWorkspaceAsCommand}" />
+                        <MenuItem Header="Save Current Workspace as Profile…" Command="{Binding SaveCurrentWorkspaceAsProfileCommand}" />
+                        <MenuItem Header="Open Saved Workspace" ItemsSource="{Binding SavedWorkspaces}"
+                                  IsEnabled="{Binding HasSavedWorkspaces}">
+                            <MenuItem.ItemContainerTheme>
+                                <ControlTheme TargetType="MenuItem" x:DataType="vm:SavedWorkspaceMenuItem"
+                                              BasedOn="{StaticResource {x:Type MenuItem}}">
+                                    <Setter Property="Header" Value="{Binding Name}" />
+                                    <Setter Property="Command" Value="{Binding OpenCommand}" />
+                                </ControlTheme>
+                            </MenuItem.ItemContainerTheme>
+                        </MenuItem>
+                        <MenuItem Header="Delete Saved Workspace" ItemsSource="{Binding SavedWorkspaces}"
+                                  IsEnabled="{Binding HasSavedWorkspaces}">
+                            <MenuItem.ItemContainerTheme>
+                                <ControlTheme TargetType="MenuItem" x:DataType="vm:SavedWorkspaceMenuItem"
+                                              BasedOn="{StaticResource {x:Type MenuItem}}">
+                                    <Setter Property="Header" Value="{Binding Name}" />
+                                    <Setter Property="Command" Value="{Binding DeleteCommand}" />
+                                </ControlTheme>
+                            </MenuItem.ItemContainerTheme>
+                        </MenuItem>
+                    </MenuItem>
+                    <MenuItem Header="_Tools">
+                        <MenuItem Header="Import profiles…" Command="{Binding ImportProfilesCommand}" />
+                        <MenuItem Header="Export profiles…" Command="{Binding ExportProfilesCommand}" />
+                        <MenuItem Header="Import from ~/.ssh/config" Command="{Binding ImportSshConfigCommand}" />
+                        <Separator />
+                        <MenuItem Header="Preferences…" Command="{Binding OpenSettingsCommand}" />
+                        <MenuItem Header="Manage Known Hosts…" Command="{Binding OpenKnownHostsCommand}" />
+                        <Separator />
+                        <MenuItem Header="Developer Tools…" Command="{Binding OpenDeveloperToolsCommand}" />
+                        <MenuItem Header="Check for Updates…" Command="{Binding CheckForUpdatesCommand}" />
+                        <MenuItem Header="Help…" Command="{Binding OpenHelpCommand}" />
+                    </MenuItem>
+                </Menu>
+
+                <ToggleButton DockPanel.Dock="Right" IsChecked="{Binding IsZeroTierVisible, Mode=OneWay}"
+                        Command="{Binding ToggleZeroTierCommand}"
+                        Content="{Binding ZeroTierToggleGlyph}" FontSize="15"
+                        ToolTip.Tip="Show/hide ZeroTier panel" Padding="8,2"
+                        Background="Transparent" BorderThickness="0" VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+
+        <!-- Body -->
+        <Grid Grid.Row="1" x:Name="BodyGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />                     <!-- sidebar -->
+                <ColumnDefinition Width="*" />                        <!-- right pane -->
+                <ColumnDefinition Width="Auto" />                     <!-- ZeroTier splitter -->
+                <ColumnDefinition Width="0" />                        <!-- ZeroTier panel -->
+            </Grid.ColumnDefinitions>
+
+            <!-- Sidebar (collapses/slides out via animated Width) -->
+            <Border Grid.Column="0" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,1,0"
+                    Width="{Binding SidebarWidth}" ClipToBounds="True">
+                <Border.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Width" Duration="0:0:0.2" Easing="CubicEaseOut" />
+                    </Transitions>
+                </Border.Transitions>
+                <Grid Width="{Binding ExpandedSidebarWidth}" HorizontalAlignment="Left"
+                      ColumnDefinitions="*,5">
+                    <DockPanel Grid.Column="0">
+                    <!-- Search + new profile -->
+                    <Border DockPanel.Dock="Top" Padding="8" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Border Grid.Column="0" Background="{DynamicResource AppPillBrush}" CornerRadius="6" Padding="6,3">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <TextBlock Grid.Column="0" Text="&#x1F50D;" FontSize="11"
+                                               Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" Margin="2,0,6,0" />
+                                    <TextBox Grid.Column="1" Text="{Binding SearchText, Mode=TwoWay}"
+                                             Watermark="Search profiles…" BorderThickness="0"
+                                             Background="Transparent" Padding="0" MinHeight="0"
+                                             VerticalAlignment="Center" VerticalContentAlignment="Center" />
+                                    <Button Grid.Column="2" Content="✕" FontSize="10" Padding="4,0"
+                                            Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppMutedTextBrush}"
+                                            IsVisible="{Binding SearchText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                            Command="{Binding ClearSearchCommand}" />
+                                </Grid>
+                            </Border>
+                            <Button Grid.Column="1" Content="+" FontSize="16" Padding="10,2" Margin="6,0,0,0"
+                                    ToolTip.Tip="New profile" Command="{Binding NewProfileCommand}" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Online-only filter -->
+                    <Border DockPanel.Dock="Top" Padding="10,5" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                        <Border CornerRadius="6" Background="{DynamicResource AppPillBrush}" Padding="2" HorizontalAlignment="Left"
+                                ToolTip.Tip="Choose which profiles to show">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <StackPanel.Styles>
+                                    <Style Selector="ToggleButton.segment">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Setter Property="BorderThickness" Value="0" />
+                                        <Setter Property="Foreground" Value="{DynamicResource AppSecondaryTextBrush}" />
+                                        <Setter Property="Padding" Value="11,3" />
+                                        <Setter Property="FontSize" Value="11" />
+                                        <Setter Property="CornerRadius" Value="4" />
+                                        <Setter Property="MinHeight" Value="0" />
+                                    </Style>
+                                    <Style Selector="ToggleButton.segment:checked /template/ ContentPresenter">
+                                        <Setter Property="Background" Value="#0A84FF" />
+                                    </Style>
+                                    <Style Selector="ToggleButton.segment:checked">
+                                        <Setter Property="Foreground" Value="White" />
+                                    </Style>
+                                </StackPanel.Styles>
+                                <ToggleButton Classes="segment" Content="All"
+                                              IsChecked="{Binding !ShowOnlineOnly, Mode=TwoWay}"
+                                              ToolTip.Tip="Show every profile" />
+                                <ToggleButton Classes="segment" Content="Online"
+                                              IsChecked="{Binding ShowOnlineOnly, Mode=TwoWay}"
+                                              ToolTip.Tip="Show only online profiles" />
+                            </StackPanel>
+                        </Border>
+                    </Border>
+
+                    <!-- Bottom status bar -->
+                    <Border DockPanel.Dock="Bottom" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}"
+                            BorderThickness="0,1,0,0" Padding="10,5">
+                        <StackPanel Orientation="Horizontal" Spacing="14">
+                            <TextBlock FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}">
+                                <Run Text="{Binding TotalProfileCount, Mode=OneWay}" />
+                                <Run Text="profiles" />
+                            </TextBlock>
+                            <TextBlock FontSize="11" Foreground="#3FB950">
+                                <Run Text="{Binding ConnectedProfileCount, Mode=OneWay}" />
+                                <Run Text="connected" />
+                            </TextBlock>
+                            <TextBlock FontSize="11" Foreground="#7FA7C7">
+                                <Run Text="{Binding OnlineProfileCount, Mode=OneWay}" />
+                                <Run Text="online" />
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Grouped, collapsible profile sections -->
+                    <ScrollViewer>
+                        <StackPanel>
+                            <ItemsControl ItemsSource="{Binding SidebarSections}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SidebarSectionViewModel">
+                                        <StackPanel Margin="0,2">
+                                            <!-- Divider between sections -->
+                                            <Border Height="1" Margin="8,2,8,3"
+                                                    Background="{DynamicResource AppDividerBrush}" />
+                                            <!-- Section header (click to collapse) -->
+                                            <Button Command="{Binding ToggleCollapseCommand}"
+                                                    Background="Transparent" BorderThickness="0"
+                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                    Padding="8,4">
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="Expand All Groups"
+                                                                  Command="{Binding ExpandAllGroupsCommand}" />
+                                                        <MenuItem Header="Collapse All Groups"
+                                                                  Command="{Binding CollapseAllGroupsCommand}" />
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
+                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                                    <TextBlock Grid.Column="0" Text="{Binding ChevronGlyph}"
+                                                               Foreground="{DynamicResource AppMutedTextBrush}" FontSize="10"
+                                                               Width="12" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding HeaderGlyph}"
+                                                               IsVisible="{Binding ShowGlyph}"
+                                                               Foreground="#E3B341" FontSize="11"
+                                                               Margin="0,0,4,0" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding Title}"
+                                                               Foreground="{DynamicResource AppSecondaryTextBrush}" FontSize="11" FontWeight="Bold"
+                                                               VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding Count}"
+                                                               Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11"
+                                                               VerticalAlignment="Center" />
+                                                </Grid>
+                                            </Button>
+
+                                            <!-- Rows -->
+                                            <ListBox IsVisible="{Binding IsExpanded}"
+                                                     ItemsSource="{Binding Rows}"
+                                                     SelectedItem="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).SelectedRow, Mode=TwoWay}"
+                                                     Background="Transparent" BorderThickness="0" Padding="0">
+                                                <ListBox.Styles>
+                                                    <Style Selector="ListBoxItem">
+                                                        <Setter Property="Padding" Value="0" />
+                                                        <Setter Property="MinHeight" Value="0" />
+                                                    </Style>
+                                                </ListBox.Styles>
+                                                <ListBox.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:ProfileRowViewModel">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="4,2"
+                                                              DoubleTapped="OnProfileRowDoubleTapped" Background="Transparent">
+                                                            <Panel Grid.Column="0" Width="8" Height="8"
+                                                                   Margin="2,0,8,0" VerticalAlignment="Center">
+                                                                <Ellipse Fill="#484848" IsVisible="{Binding !IsConnected}" />
+                                                                <Ellipse Stroke="#3FB950" StrokeThickness="1.5"
+                                                                         IsVisible="{Binding IsOnline}" />
+                                                                <Ellipse Fill="#3FB950" IsVisible="{Binding IsConnected}" />
+                                                                <Ellipse Fill="{Binding HealthBrush}" IsVisible="{Binding ShowHealthDot}"
+                                                                         ToolTip.Tip="{Binding HealthTip}" />
+                                                            </Panel>
+                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                    <TextBlock Text="{Binding Icon}" IsVisible="{Binding HasIcon}"
+                                                                               FontSize="13" LineHeight="15" VerticalAlignment="Center" />
+                                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                                                               FontSize="13" LineHeight="15" />
+                                                                </StackPanel>
+                                                                <TextBlock Text="{Binding Subtitle}" FontSize="10"
+                                                                           LineHeight="12"
+                                                                           Foreground="#999" TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+                                                            <Button Grid.Column="2" Content="{Binding FavoriteGlyph}"
+                                                                    Command="{Binding ToggleFavoriteCommand}"
+                                                                    Background="Transparent" BorderThickness="0"
+                                                                    Foreground="{Binding FavoriteBrush}"
+                                                                    FontSize="{Binding FavoriteFontSize}" Padding="4,0"
+                                                                    VerticalAlignment="Center"
+                                                                    ToolTip.Tip="Toggle favourite" />
+                                                            <Grid.ContextMenu>
+                                                                <ContextMenu>
+                                                                    <MenuItem Header="Connect" Command="{Binding ConnectCommand}" />
+                                                                    <MenuItem Header="Disconnect" Command="{Binding DisconnectCommand}" />
+                                                                    <MenuItem Header="Open SFTP" Command="{Binding SftpCommand}"
+                                                                              IsVisible="{Binding !IsLocal}" />
+                                                                    <MenuItem Header="Open VNC" Command="{Binding VncCommand}"
+                                                                              IsVisible="{Binding !IsLocal}" />
+                                                                    <Separator />
+                                                                    <MenuItem Header="Edit…" Command="{Binding EditCommand}" />
+                                                                    <MenuItem Header="Duplicate" Command="{Binding DuplicateCommand}" />
+                                                                    <MenuItem Header="Toggle Favourite" Command="{Binding ToggleFavoriteCommand}" />
+                                                                    <MenuItem Header="Copy IP Address" Command="{Binding CopyIpCommand}"
+                                                                              IsVisible="{Binding !IsLocal}" />
+                                                                    <Separator />
+                                                                    <MenuItem Header="Move Up" Command="{Binding MoveUpCommand}" />
+                                                                    <MenuItem Header="Move Down" Command="{Binding MoveDownCommand}" />
+                                                                    <Separator />
+                                                                    <MenuItem Header="Delete" Command="{Binding DeleteCommand}" />
+                                                                </ContextMenu>
+                                                            </Grid.ContextMenu>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ListBox.ItemTemplate>
+                                            </ListBox>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock IsVisible="{Binding SidebarEmpty}"
+                                       Text="No profiles. Click + to add one."
+                                       Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" Margin="14,16" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </ScrollViewer>
+                    </DockPanel>
+
+                    <!-- Drag to resize the sidebar -->
+                    <Thumb Grid.Column="1" x:Name="SidebarResizeThumb"
+                           Background="Transparent" Cursor="SizeWestEast"
+                           DragDelta="OnSidebarResize"
+                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                        <Thumb.Template>
+                            <ControlTemplate>
+                                <Border Background="Transparent" />
+                            </ControlTemplate>
+                        </Thumb.Template>
+                    </Thumb>
+                </Grid>
+            </Border>
+
+            <!-- ZeroTier resize handle -->
+            <GridSplitter Grid.Column="2" Width="5" ResizeDirection="Columns"
+                          Background="{DynamicResource AppDividerBrush}" ShowsPreview="False"
+                          IsVisible="{Binding IsZeroTierVisible}"
+                          HorizontalAlignment="Center" VerticalAlignment="Stretch" />
+
+            <!-- ZeroTier side panel (persists across workspaces; resizable & collapsible) -->
+            <Border Grid.Column="3" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1,0,0,0"
+                    ClipToBounds="True" IsVisible="{Binding IsZeroTierVisible}">
+                <DockPanel MinWidth="260">
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}"
+                            BorderThickness="0,0,0,1" Padding="8,5">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="🌎 ZeroTier" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource AppTextBrush}" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Content="✕" Padding="6,0" FontSize="12"
+                                    Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                    ToolTip.Tip="Hide ZeroTier panel"
+                                    Command="{Binding HideZeroTierCommand}" />
+                        </Grid>
+                    </Border>
+                    <ContentControl Content="{Binding ZeroTierPanel}" />
+                </DockPanel>
+            </Border>
+
+            <!-- Right pane -->
+            <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*">
+
+                <!-- Workspace bar -->
+                <Border Grid.Row="0" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1"
+                        Padding="8,4">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <ItemsControl ItemsSource="{Binding Workspaces}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="4" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkspaceViewModel">
+                                    <Border CornerRadius="6" Padding="2"
+                                            Background="{Binding PillBrush}">
+                                        <Button Command="{Binding SelectCommand}"
+                                                Padding="10,4" CornerRadius="5"
+                                                Background="{Binding IsCurrent, Converter={x:Static vm:BoolBrushConverter.Accent}}">
+                                            <Button.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Rename…" Command="{Binding RenameCommand}" />
+                                                    <MenuItem Header="Save Workspace" Command="{Binding SaveCommand}" />
+                                                    <MenuItem Header="Save as Workspace…" Command="{Binding SaveAsCommand}" />
+                                                    <MenuItem Header="Save as Profile…" Command="{Binding SaveAsProfileCommand}" />
+                                                    <Separator />
+                                                    <MenuItem Header="Connection Health…" Command="{Binding ConnectionHealthCommand}" />
+                                                    <Separator />
+                                                    <MenuItem Header="Close" Command="{Binding CloseCommand}" />
+                                                </ContextMenu>
+                                            </Button.ContextMenu>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                                <TextBlock Text="✓" FontSize="10" Foreground="#3FB950"
+                                                           VerticalAlignment="Center"
+                                                           IsVisible="{Binding IsSaved}" />
+                                                <Button Content="✕" Padding="3,0" FontSize="10"
+                                                        Background="Transparent" BorderThickness="0"
+                                                        Command="{Binding CloseCommand}"
+                                                        IsVisible="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).CanCloseWorkspace}" />
+                                            </StackPanel>
+                                        </Button>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Content="＋" Padding="8,4" Command="{Binding NewWorkspaceCommand}"
+                                ToolTip.Tip="New workspace" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Session tab strip -->
+                <Border Grid.Row="1" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1"
+                        IsVisible="{Binding HasWorkspaceTabs}">
+                    <DockPanel Margin="8,4" LastChildFill="True">
+                        <Button Content="＋ New" Padding="8,3" DockPanel.Dock="Right" Margin="6,0,0,0"
+                                ToolTip.Tip="Add a tab to this workspace">
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuItem Header="{Binding NewTerminalHereLabel}"
+                                              IsVisible="{Binding HasWorkspaceServer}"
+                                              Command="{Binding NewTerminalHereCommand}" />
+                                    <MenuItem Header="{Binding NewSftpHereLabel}"
+                                              IsVisible="{Binding HasWorkspaceServer}"
+                                              Command="{Binding NewSftpHereCommand}" />
+                                    <MenuItem Header="{Binding NewVncHereLabel}"
+                                              IsVisible="{Binding HasWorkspaceServer}"
+                                              Command="{Binding NewVncHereCommand}" />
+                                    <Separator IsVisible="{Binding HasWorkspaceServer}" />
+                                    <MenuItem Header="New Local Terminal" Command="{Binding NewLocalShellCommand}" />
+                                    <MenuItem Header="New Browser Tab" Command="{Binding NewBrowserCommand}" />
+                                    <MenuItem Header="New Finder Tab" Command="{Binding NewFinderCommand}" />
+                                    <MenuItem Header="New Text Editor" Command="{Binding NewEditorCommand}" />
+                                    <MenuItem Header="New Spreadsheet" Command="{Binding NewSpreadsheetCommand}" />
+                                    <Separator />
+                                    <MenuItem Header="New Remote Terminal…" Command="{Binding NewRemoteTerminalCommand}" />
+                                    <MenuItem Header="New SFTP Connection…" Command="{Binding NewSftpConnectionCommand}" />
+                                    <MenuItem Header="New VNC Connection…" Command="{Binding NewVncConnectionCommand}" />
+                                    <MenuItem Header="New MQTT Connection…" Command="{Binding NewMqttConnectionCommand}" />
+                                    <MenuItem Header="New Redis Connection…" Command="{Binding NewRedisConnectionCommand}" />
+                                    <Separator />
+                                    <MenuItem Header="SSH to Profile" ItemsSource="{Binding ConnectMenuItems}">
+                                        <MenuItem.ItemContainerTheme>
+                                            <ControlTheme TargetType="MenuItem" x:DataType="vm:ProfileMenuItem"
+                                                          BasedOn="{StaticResource {x:Type MenuItem}}">
+                                                <Setter Property="Header" Value="{Binding Name}" />
+                                                <Setter Property="Command" Value="{Binding Command}" />
+                                            </ControlTheme>
+                                        </MenuItem.ItemContainerTheme>
+                                    </MenuItem>
+                                    <MenuItem Header="SFTP to Profile" ItemsSource="{Binding SftpMenuItems}">
+                                        <MenuItem.ItemContainerTheme>
+                                            <ControlTheme TargetType="MenuItem" x:DataType="vm:ProfileMenuItem"
+                                                          BasedOn="{StaticResource {x:Type MenuItem}}">
+                                                <Setter Property="Header" Value="{Binding Name}" />
+                                                <Setter Property="Command" Value="{Binding Command}" />
+                                            </ControlTheme>
+                                        </MenuItem.ItemContainerTheme>
+                                    </MenuItem>
+                                    <MenuItem Header="VNC to Profile" ItemsSource="{Binding VncMenuItems}">
+                                        <MenuItem.ItemContainerTheme>
+                                            <ControlTheme TargetType="MenuItem" x:DataType="vm:ProfileMenuItem"
+                                                          BasedOn="{StaticResource {x:Type MenuItem}}">
+                                                <Setter Property="Header" Value="{Binding Name}" />
+                                                <Setter Property="Command" Value="{Binding Command}" />
+                                            </ControlTheme>
+                                        </MenuItem.ItemContainerTheme>
+                                    </MenuItem>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <ListBox ItemsSource="{Binding WorkspaceTabList}"
+                                 x:Name="TabStrip"
+                                 SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+                                 Background="Transparent" BorderThickness="0">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:TabViewModel">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <StackPanel.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Rename Tab…"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).RenameTabCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <Separator />
+                                                <MenuItem Header="Connect" IsVisible="{Binding ShowConnectAction}"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).ConnectTabCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <MenuItem Header="Disconnect" IsVisible="{Binding ShowDisconnectAction}"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).DisconnectTabCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <MenuItem Header="Edit Connection Settings…" IsVisible="{Binding SupportsEditConnection}"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).EditTabConnectionCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <MenuItem Header="Copy IP Address" IsVisible="{Binding SupportsConnection}"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).CopyTabHostCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <MenuItem Header="Broadcast Typing to All Terminals"
+                                                          ToggleType="CheckBox" IsVisible="{Binding SupportsTheme}"
+                                                          IsChecked="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).BroadcastInput, Mode=TwoWay}" />
+                                                <Separator IsVisible="{Binding SupportsConnection}" />
+                                                <MenuItem Header="Theme" IsVisible="{Binding SupportsTheme}"
+                                                          ItemsSource="{Binding ThemeMenuItems}">
+                                                    <MenuItem.ItemContainerTheme>
+                                                        <ControlTheme TargetType="MenuItem" x:DataType="vm:ThemeMenuItem"
+                                                                      BasedOn="{StaticResource {x:Type MenuItem}}">
+                                                            <Setter Property="Header" Value="{Binding Name}" />
+                                                            <Setter Property="Command" Value="{Binding ApplyCommand}" />
+                                                        </ControlTheme>
+                                                    </MenuItem.ItemContainerTheme>
+                                                </MenuItem>
+                                                <Separator IsVisible="{Binding SupportsTheme}" />
+                                                <MenuItem Header="Tab Colour" ItemsSource="{Binding TabColorMenuItems}">
+                                                    <MenuItem.ItemContainerTheme>
+                                                        <ControlTheme TargetType="MenuItem" x:DataType="vm:TabColorMenuItem"
+                                                                      BasedOn="{StaticResource {x:Type MenuItem}}">
+                                                            <Setter Property="Header" Value="{Binding Name}" />
+                                                            <Setter Property="Command" Value="{Binding ApplyCommand}" />
+                                                        </ControlTheme>
+                                                    </MenuItem.ItemContainerTheme>
+                                                </MenuItem>
+                                                <MenuItem Header="Detach into New Window"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).DetachTabCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <MenuItem Header="Duplicate Tab"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).DuplicateTabCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <MenuItem Header="Copy Scrollback"
+                                                          IsVisible="{Binding SupportsTheme}"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).CopyTerminalScrollbackCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <MenuItem Header="Clear Scrollback"
+                                                          IsVisible="{Binding SupportsTheme}"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).ClearTerminalScrollbackCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <MenuItem Header="Save Log…"
+                                                          IsVisible="{Binding SupportsTheme}"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).SaveTerminalScrollbackCommand}"
+                                                          CommandParameter="{Binding}" />
+                                                <Separator />
+                                                <MenuItem Header="Close" Command="{Binding CloseCommand}" />
+                                            </ContextMenu>
+                                        </StackPanel.ContextMenu>
+                                        <Border Width="4" Height="14" CornerRadius="2" VerticalAlignment="Center"
+                                                Background="{Binding TabColorBrush}" IsVisible="{Binding HasTabColor}" />
+                                        <TextBlock Text="{Binding Glyph}" VerticalAlignment="Center" Foreground="#7FB0DE" />
+                                        <TextBlock Text="📢" VerticalAlignment="Center" FontSize="10"
+                                                   ToolTip.Tip="Broadcast input is on">
+                                            <TextBlock.IsVisible>
+                                                <MultiBinding Converter="{x:Static conv:BoolConverters.And}">
+                                                    <Binding Path="SupportsTheme" />
+                                                    <Binding Path="$parent[ListBox].((vm:MainWindowViewModel)DataContext).BroadcastInput" />
+                                                </MultiBinding>
+                                            </TextBlock.IsVisible>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding DisplayTitle}" VerticalAlignment="Center" />
+                                        <Button Content="✕" Padding="4,0" FontSize="11"
+                                                Command="{Binding CloseCommand}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </Border>
+
+                <!-- Content: profile detail OR terminal -->
+                <Panel Grid.Row="2">
+
+                    <!-- Detail pane -->
+                    <ScrollViewer IsVisible="{Binding ShowDetail}">
+                        <StackPanel Spacing="16" MaxWidth="760" HorizontalAlignment="Left" Margin="24">
+                            <StackPanel IsVisible="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        Spacing="16">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <TextBlock Text="{Binding SelectedProfile.DisplayIcon}" FontSize="24"
+                                               VerticalAlignment="Center"
+                                               IsVisible="{Binding SelectedProfile.IconIsEmoji}" />
+                                    <TextBlock Text="{Binding SelectedProfile.Name}" FontSize="24" FontWeight="Bold" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding SelectedProfile.Subtitle}" Foreground="{DynamicResource AppSecondaryTextBrush}" FontSize="14" />
+
+                                <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="14">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Command preview" FontWeight="Bold" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" />
+                                        <SelectableTextBlock Text="{Binding CommandPreview}"
+                                                             FontFamily="Menlo, Consolas, monospace"
+                                                             TextWrapping="Wrap" Foreground="{DynamicResource AppTextBrush}" />
+                                        <Button Content="Copy" HorizontalAlignment="Left"
+                                                Command="{Binding CopyCommandPreviewCommand}" />
+                                    </StackPanel>
+                                </Border>
+
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Connect ▶" Command="{Binding ConnectCommand}"
+                                            Background="#0E639C" Foreground="White" Padding="16,8" />
+                                    <Button Content="SFTP" Command="{Binding OpenSftpCommand}" Padding="16,8" />
+                                    <Button Content="Edit" Command="{Binding EditProfileCommand}" Padding="16,8" />
+                                </StackPanel>
+
+                                <Button Content="Set Up Passwordless Login" HorizontalAlignment="Left"
+                                        Command="{Binding SetupPasswordlessLoginCommand}"
+                                        IsVisible="{Binding !SelectedProfile.IsLocal}" Padding="16,8" Margin="0,4,0,0" />
+
+                                <!-- Launchable forwards -->
+                                <ItemsControl ItemsSource="{Binding SelectedProfile.Forwards}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="m:PortForward">
+                                            <Border IsVisible="{Binding IsLaunchable}"
+                                                    Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
+                                                    CornerRadius="6" Padding="10" Margin="0,4">
+                                                <Border.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="Start on Live Tunnel"
+                                                                  Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).StartForwardLiveCommand}"
+                                                                  CommandParameter="{Binding}" />
+                                                        <MenuItem Header="Stop on Live Tunnel"
+                                                                  Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).StopForwardLiveCommand}"
+                                                                  CommandParameter="{Binding}" />
+                                                    </ContextMenu>
+                                                </Border.ContextMenu>
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <StackPanel Grid.Column="0">
+                                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                                        <TextBlock Text="{Binding Summary}" Foreground="#999" FontSize="11" />
+                                                    </StackPanel>
+                                                    <Button Grid.Column="1" Content="{Binding LaunchLabel}"
+                                                            VerticalAlignment="Center"
+                                                            Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).LaunchForwardCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- Profile links -->
+                                <ItemsControl ItemsSource="{Binding SelectedProfile.Links}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="m:ProfileLink">
+                                            <Button HorizontalAlignment="Left" Margin="0,2"
+                                                    Content="{Binding Label}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).OpenLinkCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+
+                            <TextBlock IsVisible="{Binding ShowSelectProfileHint}"
+                                       Text="Select a profile, or create a new one."
+                                       Foreground="{DynamicResource AppMutedTextBrush}" FontSize="16" />
+
+                            <!-- Welcome screen (shown when the current workspace is empty) -->
+                            <StackPanel IsVisible="{Binding ShowWelcome}" Spacing="20" Margin="0,8,0,0" HorizontalAlignment="Left">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Remote Stuff" FontSize="28" FontWeight="Bold" />
+                                    <TextBlock Text="Open a local terminal, connect to a server, or click a profile to get started."
+                                               Foreground="{DynamicResource AppSecondaryTextBrush}" FontSize="14" TextWrapping="Wrap" MaxWidth="520" />
+                                </StackPanel>
+
+                                <WrapPanel>
+                                    <Button Content="🖥  New Local Terminal" Margin="0,0,8,8" Command="{Binding NewLocalShellCommand}" />
+                                    <Button Content="🌐  New Browser Tab" Margin="0,0,8,8" Command="{Binding NewBrowserCommand}" />
+                                    <Button Content="📁  New Finder Tab" Margin="0,0,8,8" Command="{Binding NewFinderCommand}" />
+                                    <Button Content="📄  New Text Editor" Margin="0,0,8,8" Command="{Binding NewEditorCommand}" />
+                                    <Button Content="🧮  New Spreadsheet" Margin="0,0,8,8" Command="{Binding NewSpreadsheetCommand}" />
+                                </WrapPanel>
+
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Connect to a server" FontWeight="SemiBold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                                    <WrapPanel>
+                                        <Button Content="🔗  Remote Terminal…" Margin="0,0,8,8" Command="{Binding NewRemoteTerminalCommand}" />
+                                        <Button Content="⬆⬇  SFTP…" Margin="0,0,8,8" Command="{Binding NewSftpConnectionCommand}" />
+                                        <Button Content="🖳  VNC…" Margin="0,0,8,8" Command="{Binding NewVncConnectionCommand}" />
+                                        <Button Content="📡  MQTT…" Margin="0,0,8,8" Command="{Binding NewMqttConnectionCommand}" />
+                                        <Button Content="🗄  Redis…" Margin="0,0,8,8" Command="{Binding NewRedisConnectionCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+
+                                <StackPanel Spacing="8" IsVisible="{Binding HasProfiles}" MaxWidth="600">
+                                    <TextBlock Text="Profiles" FontWeight="SemiBold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                                    <ItemsControl ItemsSource="{Binding ConnectMenuItems}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:ProfileMenuItem">
+                                                <Button Margin="0,0,8,8" Command="{Binding Command}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <TextBlock Text="🔌" Foreground="#7FB0DE" />
+                                                        <TextBlock Text="{Binding Name}" />
+                                                    </StackPanel>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <!-- Recently closed tabs -->
+                            <Border IsVisible="{Binding HasRecentlyClosed}"
+                                    Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
+                                    CornerRadius="6" Padding="14" Margin="0,8,0,0">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Recently closed" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                                    <ItemsControl ItemsSource="{Binding RecentlyClosed}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:ClosedItem">
+                                                <Button HorizontalAlignment="Left" Margin="0,2"
+                                                        Background="Transparent" BorderThickness="0"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).ReopenClosedCommand}"
+                                                        CommandParameter="{Binding}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <TextBlock Text="{Binding Glyph}" Foreground="#7FB0DE" />
+                                                        <TextBlock Text="{Binding Title}" />
+                                                    </StackPanel>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Text="{Binding StoragePath, StringFormat='Profiles stored at: {0}'}"
+                                       Foreground="#555" FontSize="11" TextWrapping="Wrap" Margin="0,24,0,0" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Session host: a center tab area with collapsible, resizable
+                         drawers docked to any of the four edges. VisibleTabs holds
+                         only the center tabs to show now, so each terminal control is
+                         hosted exactly once. -->
+                    <Grid IsVisible="{Binding HasWorkspaceTabs}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="{Binding TopDockHeight, Mode=TwoWay}" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="{Binding BottomDockHeight, Mode=TwoWay}" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{Binding LeftDockWidth, Mode=TwoWay}" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="{Binding RightDockWidth, Mode=TwoWay}" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Top drawer -->
+                        <ItemsControl Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="5"
+                                      IsVisible="{Binding ShowTopDrawer}"
+                                      ItemsSource="{Binding TopTabs}"
+                                      ItemTemplate="{StaticResource DockCellTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <Button Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="5"
+                                IsVisible="{Binding ShowTopReopen}"
+                                Command="{Binding ToggleTopDockCommand}"
+                                Background="{DynamicResource AppPillBrush}" Foreground="{DynamicResource AppTextBrush}" BorderThickness="0"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                HorizontalContentAlignment="Center" ToolTip.Tip="Show top panel">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="⌄" FontSize="13" VerticalAlignment="Center" />
+                                <TextBlock Text="Show panel" FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5"
+                                      Height="4" Background="{DynamicResource AppDividerBrush}" ResizeDirection="Rows"
+                                      IsVisible="{Binding ShowTopDrawer}" />
+
+                        <!-- Left drawer -->
+                        <ItemsControl Grid.Row="2" Grid.Column="0"
+                                      IsVisible="{Binding ShowLeftDrawer}"
+                                      ItemsSource="{Binding LeftTabs}"
+                                      ItemTemplate="{StaticResource DockCellTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><UniformGrid Columns="1" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <Button Grid.Row="2" Grid.Column="0"
+                                IsVisible="{Binding ShowLeftReopen}"
+                                Command="{Binding ToggleLeftDockCommand}"
+                                Background="{DynamicResource AppPillBrush}" Foreground="{DynamicResource AppTextBrush}" BorderThickness="0"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                ToolTip.Tip="Show left panel">
+                            <StackPanel Orientation="Vertical" Spacing="6" VerticalAlignment="Center">
+                                <TextBlock Text="›" FontSize="13" HorizontalAlignment="Center" />
+                                <LayoutTransformControl HorizontalAlignment="Center">
+                                    <LayoutTransformControl.LayoutTransform>
+                                        <RotateTransform Angle="90" />
+                                    </LayoutTransformControl.LayoutTransform>
+                                    <TextBlock Text="Show panel" FontSize="11" />
+                                </LayoutTransformControl>
+                            </StackPanel>
+                        </Button>
+                        <GridSplitter Grid.Row="2" Grid.Column="1"
+                                      Width="4" Background="{DynamicResource AppDividerBrush}" ResizeDirection="Columns"
+                                      IsVisible="{Binding ShowLeftDrawer}" />
+
+                        <!-- Center tiled/single area -->
+                        <ItemsControl Grid.Row="2" Grid.Column="2"
+                                      ItemsSource="{Binding CenterCells}"
+                                      ItemTemplate="{StaticResource DockCellTemplate}">
+                            <ItemsControl.Styles>
+                                <!-- Every center tab stays mounted so a browser's native web view
+                                     isn't destroyed on tab switch; hide the non-selected cells at
+                                     the container level so the UniformGrid collapses to one cell in
+                                     single mode. -->
+                                <Style Selector="ContentPresenter" x:DataType="vm:TabViewModel">
+                                    <Setter Property="IsVisible" Value="{Binding IsCellVisible}" />
+                                </Style>
+                            </ItemsControl.Styles>
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><UniformGrid /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+
+                        <!-- Right drawer -->
+                        <GridSplitter Grid.Row="2" Grid.Column="3"
+                                      Width="4" Background="{DynamicResource AppDividerBrush}" ResizeDirection="Columns"
+                                      IsVisible="{Binding ShowRightDrawer}" />
+                        <ItemsControl Grid.Row="2" Grid.Column="4"
+                                      IsVisible="{Binding ShowRightDrawer}"
+                                      ItemsSource="{Binding RightTabs}"
+                                      ItemTemplate="{StaticResource DockCellTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><UniformGrid Columns="1" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <Button Grid.Row="2" Grid.Column="4"
+                                IsVisible="{Binding ShowRightReopen}"
+                                Command="{Binding ToggleRightDockCommand}"
+                                Background="{DynamicResource AppPillBrush}" Foreground="{DynamicResource AppTextBrush}" BorderThickness="0"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                ToolTip.Tip="Show right panel">
+                            <StackPanel Orientation="Vertical" Spacing="6" VerticalAlignment="Center">
+                                <TextBlock Text="‹" FontSize="13" HorizontalAlignment="Center" />
+                                <LayoutTransformControl HorizontalAlignment="Center">
+                                    <LayoutTransformControl.LayoutTransform>
+                                        <RotateTransform Angle="90" />
+                                    </LayoutTransformControl.LayoutTransform>
+                                    <TextBlock Text="Show panel" FontSize="11" />
+                                </LayoutTransformControl>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Bottom drawer -->
+                        <GridSplitter Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="5"
+                                      Height="4" Background="{DynamicResource AppDividerBrush}" ResizeDirection="Rows"
+                                      IsVisible="{Binding ShowBottomDrawer}" />
+                        <ItemsControl Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="5"
+                                      IsVisible="{Binding ShowBottomDrawer}"
+                                      ItemsSource="{Binding BottomTabs}"
+                                      ItemTemplate="{StaticResource DockCellTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <Button Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="5"
+                                IsVisible="{Binding ShowBottomReopen}"
+                                Command="{Binding ToggleBottomDockCommand}"
+                                Background="{DynamicResource AppPillBrush}" Foreground="{DynamicResource AppTextBrush}" BorderThickness="0"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                HorizontalContentAlignment="Center" ToolTip.Tip="Show bottom panel">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="⌃" FontSize="13" VerticalAlignment="Center" />
+                                <TextBlock Text="Show panel" FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Panel>
+            </Grid>
+        </Grid>
+
+        <!-- Status bar -->
+        <Border Grid.Row="2" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0"
+                Padding="12,4" IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <TextBlock Text="{Binding StatusMessage}" Foreground="#9FD3A0" FontSize="12" />
+        </Border>
+
+        <!-- Command palette overlay -->
+        <Border Grid.Row="0" Grid.RowSpan="3" Background="#B0000000"
+                IsVisible="{Binding IsPaletteOpen}">
+            <Border Width="560" MaxHeight="440" VerticalAlignment="Top" Margin="0,80,0,0"
+                    Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="8">
+                <DockPanel Margin="10">
+                    <TextBox DockPanel.Dock="Top" Name="PaletteBox"
+                             Text="{Binding PaletteQuery, Mode=TwoWay}"
+                             Watermark="Type a command or profile…  (Esc to close)"
+                             FontSize="15" Padding="8" />
+                    <ListBox Margin="0,8,0,0"
+                             ItemsSource="{Binding PaletteResults}"
+                             SelectedItem="{Binding SelectedPaletteItem, Mode=TwoWay}"
+                             Background="Transparent" BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PaletteItem">
+                                <StackPanel Margin="2,4">
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="#999" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+        </Border>
+    </Grid>
+</Window>

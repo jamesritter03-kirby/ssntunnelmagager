@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:m="using:RemoteStuff.Models"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="RemoteStuff.Views.TerminalTabView"
+             x:DataType="vm:TerminalTabViewModel">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Terminal surface -->
+        <ContentControl Grid.Row="1" Content="{Binding Terminal}" />
+
+        <!-- Host-key-changed warning -->
+        <Border Grid.Row="1" VerticalAlignment="Top" IsVisible="{Binding HostKeyChangedDetected}"
+                Background="#3A1F1F" BorderBrush="#7A3A3A" BorderThickness="0,0,0,1" Padding="10,6">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="⚠ Remote host identification has changed — a key mismatch could indicate a problem."
+                           Foreground="#E6A9A9" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <Button Content="Remove Key &amp; Reconnect" Command="{Binding RemoveKeyAndReconnectCommand}" Padding="10,2" />
+                <Button Content="Dismiss" Command="{Binding DismissHostKeyBannerCommand}" Padding="10,2" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,138 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RemoteStuff.ViewModels"
+        x:Class="RemoteStuff.Views.ProfileComparisonWindow"
+        x:DataType="vm:ProfileComparisonViewModel"
+        Width="960" Height="620"
+        MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppSurfaceBrush}"
+        Title="Compare &amp; Bulk Edit Profiles">
+
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Padding="14,10"
+                Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+            <StackPanel Spacing="2">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="🧮" FontSize="15" VerticalAlignment="Center" />
+                    <TextBlock Text="Compare &amp; Bulk Edit Profiles" FontWeight="Bold" FontSize="15"
+                               Foreground="{DynamicResource AppTextBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="Tick profiles, choose a setting and a value, then apply it to the whole selection."
+                           FontSize="12" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Bulk-edit panel -->
+        <Border DockPanel.Dock="Bottom" Padding="14,10"
+                Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0">
+            <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Content="Select all" Command="{Binding SelectAllCommand}" />
+                    <Button Content="Select none" Command="{Binding SelectNoneCommand}" />
+                    <TextBlock Text="{Binding SelectionSummary}" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppSecondaryTextBrush}" FontSize="12" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="Setting" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" />
+                    <ComboBox MinWidth="160" ItemsSource="{Binding EditableFields}"
+                              SelectedItem="{Binding SelectedField}" />
+
+                    <TextBlock Text="Value" VerticalAlignment="Center" Margin="8,0,0,0"
+                               Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" />
+                    <TextBox MinWidth="180" IsVisible="{Binding FieldIsText}"
+                             Text="{Binding TextValue}" Watermark="new value" />
+                    <ComboBox MinWidth="180" IsVisible="{Binding FieldIsOptions}"
+                              ItemsSource="{Binding CurrentOptions}"
+                              SelectedItem="{Binding OptionValue}" />
+
+                    <Button Content="Copy from selected" Command="{Binding UseFirstSelectedValueCommand}"
+                            ToolTip.Tip="Fill the value box from the first ticked profile" />
+                    <Button Content="Apply to selected" Classes="accent"
+                            Command="{Binding ApplyCommand}" />
+                </StackPanel>
+
+                <TextBlock Text="{Binding StatusText}" FontSize="11"
+                           Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Comparison table -->
+        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="0">
+
+                <!-- Column headers -->
+                <Border Background="{DynamicResource AppInsetBrush}"
+                        BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="30" />
+                        <TextBlock Text="Profile" Width="180" Padding="8,6" FontWeight="Bold" FontSize="12"
+                                   Foreground="{DynamicResource AppMutedTextBrush}" />
+                        <TextBlock Text="Host" Width="170" Padding="8,6" FontWeight="Bold" FontSize="12"
+                                   Foreground="{DynamicResource AppMutedTextBrush}" />
+                        <ItemsControl ItemsSource="{Binding Fields}" x:CompileBindings="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Name}" Width="120" Padding="8,6"
+                                               FontWeight="Bold" FontSize="12" TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource AppMutedTextBrush}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Rows -->
+                <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ProfileCompareRow">
+                            <Border BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox Width="30" Margin="8,0,0,0"
+                                              IsChecked="{Binding IsSelected}" VerticalAlignment="Center" />
+                                    <StackPanel Orientation="Horizontal" Width="180" Spacing="4"
+                                                VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Icon}" FontSize="13" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Name}" Padding="0,6" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource AppTextBrush}"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding Host}" Width="170" Padding="8,6" FontSize="12"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                               VerticalAlignment="Center" />
+                                    <ItemsControl ItemsSource="{Binding Values}" x:CompileBindings="False">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding}" Width="120" Padding="8,6" FontSize="12"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Foreground="{DynamicResource AppTextBrush}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

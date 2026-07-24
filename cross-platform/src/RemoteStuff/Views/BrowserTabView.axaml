@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="640"
+             x:Class="RemoteStuff.Views.BrowserTabView"
+             x:DataType="vm:BrowserTabViewModel">
+
+    <Grid RowDefinitions="Auto,*">
+        <ProgressBar Grid.Row="0" IsIndeterminate="True" Height="2"
+                     IsVisible="{Binding IsLoading}" Foreground="#0E639C" Background="Transparent" />
+
+        <ContentControl Name="WebHost" Grid.Row="1" Content="{Binding Web}"
+                        Background="{DynamicResource AppInsetBrush}" />
+    </Grid>
+</UserControl>

@@ -1,0 +1,350 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:RemoteStuff.ViewModels"
+        xmlns:m="using:RemoteStuff.Models"
+        xmlns:conv="using:Avalonia.Data.Converters"
+        xmlns:views="using:RemoteStuff.Views"
+        mc:Ignorable="d" d:DesignWidth="620" d:DesignHeight="760"
+        x:Class="RemoteStuff.Views.ProfileEditorWindow"
+        x:DataType="vm:ProfileEditorViewModel"
+        Width="640" Height="780" MinWidth="520" MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Title="{Binding WindowTitle}">
+
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer Grid.Row="0">
+            <StackPanel Spacing="14" MaxWidth="600" Margin="20">
+
+                <TextBlock Text="{Binding WindowTitle}" FontSize="20" FontWeight="Bold" />
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Name" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                    <TextBox Text="{Binding Name}" />
+                </StackPanel>
+
+                <CheckBox Content="Local shell (no SSH — opens your login shell)" IsChecked="{Binding IsLocal}" />
+
+                <!-- Local shell fields -->
+                <StackPanel Spacing="4" IsVisible="{Binding IsLocal}">
+                    <TextBlock Text="Start folder (supports ~)" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                    <TextBox Text="{Binding StartPath}" Watermark="~/Projects" />
+                </StackPanel>
+
+                <!-- SSH fields -->
+                <StackPanel Spacing="14" IsVisible="{Binding !IsLocal}">
+                    <Grid ColumnDefinitions="*,110" >
+                        <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
+                            <TextBlock Text="Host" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Grid.Column="0" Text="{Binding Host}" Watermark="server.example.com" />
+                                <views:ZeroTierPicker Grid.Column="1" Text="{Binding Host, Mode=TwoWay}"
+                                                      VerticalAlignment="Center" Margin="2,0,0,0" />
+                            </Grid>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Port" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                            <TextBox Text="{Binding Port}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Username" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <TextBox Text="{Binding Username}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Identity file (private key, optional)" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <TextBox Text="{Binding IdentityFile}" Watermark="~/.ssh/id_ed25519" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Password (stored encrypted; auto-typed at prompt)" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <TextBox Text="{Binding Password}" PasswordChar="•"
+                                 Watermark="Leave blank to keep any saved password" />
+                        <CheckBox Content="Clear saved password" IsChecked="{Binding ClearSavedPassword}"
+                                  IsVisible="{Binding HasSavedPassword}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Jump host (-J, optional)" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <TextBox Text="{Binding JumpHost}" Watermark="user@bastion" />
+                    </StackPanel>
+
+                    <WrapPanel Orientation="Horizontal">
+                        <CheckBox Content="Open shell" IsChecked="{Binding OpenShell}" Margin="0,0,16,0" />
+                        <CheckBox Content="Compression (-C)" IsChecked="{Binding Compression}" Margin="0,0,16,0" />
+                        <CheckBox Content="Keep alive" IsChecked="{Binding KeepAlive}" Margin="0,0,16,0" />
+                        <CheckBox Content="Verbose (-v)" IsChecked="{Binding Verbose}" Margin="0,0,16,0" />
+                        <CheckBox Content="Forward agent (-A)" IsChecked="{Binding ForwardAgent}" Margin="0,0,16,0" />
+                        <CheckBox Content="Add keys to agent" IsChecked="{Binding AddKeysToAgent}" Margin="0,0,16,0" />
+                        <CheckBox Content="Force TTY (-tt)" IsChecked="{Binding RequestTty}" Margin="0,0,16,0" />
+                    </WrapPanel>
+
+                    <Grid ColumnDefinitions="*,*">
+                        <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
+                            <TextBlock Text="Connect timeout (s, 0 = default)" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                            <TextBox Text="{Binding ConnectTimeout}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Host-key checking" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                            <ComboBox ItemsSource="{Binding HostKeyOptions}"
+                                      SelectedItem="{Binding StrictHostKeyChecking}"
+                                      HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Remote command (optional)" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <TextBox Text="{Binding RemoteCommand}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Run on connect (typed into the shell)" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <TextBox Text="{Binding RunOnConnect}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Extra ssh options" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <TextBox Text="{Binding ExtraOptions}" Watermark="-o StrictHostKeyChecking=accept-new" />
+                    </StackPanel>
+
+                    <!-- Port forwards -->
+                    <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Text="Port forwards" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="+ Add" Command="{Binding AddForwardCommand}" />
+                            </Grid>
+                            <ItemsControl ItemsSource="{Binding Forwards}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ForwardRowViewModel">
+                                        <Border Background="{DynamicResource AppPillBrush}" CornerRadius="4" Padding="8" Margin="0,4">
+                                            <StackPanel Spacing="6">
+                                                <Grid ColumnDefinitions="120,*,Auto">
+                                                    <ComboBox Grid.Column="0" ItemsSource="{Binding ForwardTypes}"
+                                                              SelectedItem="{Binding Type}" HorizontalAlignment="Stretch" />
+                                                    <ComboBox Grid.Column="1" ItemsSource="{Binding Categories}"
+                                                              SelectedItem="{Binding Category}" Margin="8,0,0,0"
+                                                              HorizontalAlignment="Stretch" />
+                                                    <Button Grid.Column="2" Content="Remove" Margin="8,0,0,0"
+                                                            Command="{Binding $parent[ItemsControl].((vm:ProfileEditorViewModel)DataContext).RemoveForwardCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                </Grid>
+                                                <Grid ColumnDefinitions="*,*,*,*">
+                                                    <TextBox Grid.Column="0" Text="{Binding BindAddress}" Watermark="bind" Margin="0,0,4,0" />
+                                                    <TextBox Grid.Column="1" Text="{Binding ListenPort}" Watermark="listen port" Margin="0,0,4,0" />
+                                                    <Grid Grid.Column="2" ColumnDefinitions="*,Auto" Margin="0,0,4,0">
+                                                        <TextBox Grid.Column="0" Text="{Binding TargetHost}" Watermark="target host" />
+                                                        <views:ZeroTierPicker Grid.Column="1" Text="{Binding TargetHost, Mode=TwoWay}"
+                                                                              VerticalAlignment="Center" />
+                                                    </Grid>
+                                                    <TextBox Grid.Column="3" Text="{Binding TargetPort}" Watermark="target port" />
+                                                </Grid>
+                                                <Grid ColumnDefinitions="*,*,*">
+                                                    <TextBox Grid.Column="0" Text="{Binding Name}" Watermark="label (optional)" Margin="0,0,4,0" />
+                                                    <TextBox Grid.Column="1" Text="{Binding ServiceUsername}" Watermark="service user" Margin="0,0,4,0" />
+                                                    <TextBox Grid.Column="2" Text="{Binding ServicePassword}" Watermark="service password"
+                                                             PasswordChar="•" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Common -->
+                <WrapPanel>
+                    <CheckBox Content="Favourite" IsChecked="{Binding IsFavorite}" Margin="0,0,16,0" />
+                    <CheckBox Content="Auto-connect on launch" IsChecked="{Binding AutoConnectOnLaunch}" />
+                </WrapPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Group (optional)" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                    <TextBox Text="{Binding Group}" />
+                </StackPanel>
+
+                <!-- Appearance -->
+                <Grid ColumnDefinitions="*,140">
+                    <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
+                        <TextBlock Text="Terminal theme" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <ComboBox ItemsSource="{Binding Themes}"
+                                  SelectedItem="{Binding SelectedTheme}"
+                                  HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="m:TerminalTheme">
+                                    <TextBlock Text="{Binding Name}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <TextBlock Text="Font size" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <ComboBox ItemsSource="{Binding FontSizes}"
+                                  SelectedItem="{Binding FontSize}"
+                                  HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Icon & tab colour -->
+                <Grid ColumnDefinitions="*,*">
+                    <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
+                        <TextBlock Text="Icon" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <ComboBox ItemsSource="{Binding IconChoices}"
+                                  SelectedItem="{Binding Icon}"
+                                  MaxDropDownHeight="320"
+                                  HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <Panel>
+                                        <TextBlock Text="(none)" Foreground="{DynamicResource AppMutedTextBrush}"
+                                                   IsVisible="{Binding Converter={x:Static conv:StringConverters.IsNullOrEmpty}}" />
+                                        <TextBlock Text="{Binding}" FontSize="17" />
+                                    </Panel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <TextBlock Text="Tab colour" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <ComboBox ItemsSource="{Binding ColorChoices}"
+                                  SelectedItem="{Binding TabColor}"
+                                  HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Border Width="14" Height="14" CornerRadius="3"
+                                                Background="{Binding, Converter={x:Static m:HexColorConverter.Instance}}"
+                                                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" />
+                                        <TextBlock Text="{Binding}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Behaviour -->
+                <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="12"
+                        IsVisible="{Binding !IsLocal}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Session behaviour" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        <WrapPanel>
+                            <CheckBox Content="Use mosh" IsChecked="{Binding UseMosh}" Margin="0,0,16,0" />
+                            <CheckBox Content="Auto-reconnect if dropped" IsChecked="{Binding AutoReconnect}" Margin="0,0,16,0" />
+                            <CheckBox Content="Log session to file" IsChecked="{Binding LogSession}" />
+                        </WrapPanel>
+                        <Grid ColumnDefinitions="200,*">
+                            <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
+                                <TextBlock Text="Launch into" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                                <ComboBox ItemsSource="{Binding WorkspaceLaunchChoices}"
+                                          SelectedItem="{Binding SelectedLaunchChoice}"
+                                          HorizontalAlignment="Stretch" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="4" IsVisible="{Binding ShowWorkspaceName}">
+                                <TextBlock Text="Workspace name (optional)" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                                <TextBox Text="{Binding WorkspaceName}" Watermark="Leave blank to use the profile name" />
+                                <TextBlock Text="The name for this profile's workspace. Leave it blank to name the workspace after the profile — handy when several profiles recreate the same saved workspace."
+                                           Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Environment variables -->
+                <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="Environment variables (SetEnv)" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Content="+ Add" Command="{Binding AddEnvVarCommand}" />
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding EnvVars}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:EnvVarRowViewModel">
+                                    <Grid ColumnDefinitions="180,*,Auto" Margin="0,4">
+                                        <TextBox Grid.Column="0" Text="{Binding Name}" Watermark="NAME"
+                                                 FontFamily="Menlo, Consolas, monospace" Margin="0,0,4,0" />
+                                        <TextBox Grid.Column="1" Text="{Binding Value}" Watermark="value"
+                                                 FontFamily="Menlo, Consolas, monospace" Margin="0,0,4,0" />
+                                        <Button Grid.Column="2" Content="Remove"
+                                                Command="{Binding $parent[ItemsControl].((vm:ProfileEditorViewModel)DataContext).RemoveEnvVarCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Links -->
+                <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="Links" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Content="+ Add" Command="{Binding AddLinkCommand}" />
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding Links}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LinkRowViewModel">
+                                    <Grid ColumnDefinitions="160,*,Auto" Margin="0,4">
+                                        <TextBox Grid.Column="0" Text="{Binding Label}" Watermark="label" Margin="0,0,4,0" />
+                                        <TextBox Grid.Column="1" Text="{Binding Url}" Watermark="https://…"
+                                                 FontFamily="Menlo, Consolas, monospace" Margin="0,0,4,0" />
+                                        <Button Grid.Column="2" Content="Remove"
+                                                Command="{Binding $parent[ItemsControl].((vm:ProfileEditorViewModel)DataContext).RemoveLinkCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Snippets -->
+                <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="Command snippets" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Content="+ Add" Command="{Binding AddSnippetCommand}" />
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding Snippets}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SnippetRowViewModel">
+                                    <Grid ColumnDefinitions="160,*,Auto" Margin="0,4">
+                                        <TextBox Grid.Column="0" Text="{Binding Label}" Watermark="label" Margin="0,0,4,0" />
+                                        <TextBox Grid.Column="1" Text="{Binding Command}" Watermark="command text"
+                                                 FontFamily="Menlo, Consolas, monospace" Margin="0,0,4,0" />
+                                        <Button Grid.Column="2" Content="Remove"
+                                                Command="{Binding $parent[ItemsControl].((vm:ProfileEditorViewModel)DataContext).RemoveSnippetCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Preview -->
+                <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Command preview" FontWeight="Bold" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" />
+                        <SelectableTextBlock Text="{Binding CommandPreview}"
+                                             FontFamily="Menlo, Consolas, monospace"
+                                             TextWrapping="Wrap" Foreground="{DynamicResource AppTextBrush}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="1" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="16,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="Cancel" Command="{Binding CancelCommand}" Padding="16,6" />
+                <Button Content="Save" Command="{Binding SaveCommand}" Padding="16,6"
+                        Background="#0E639C" Foreground="White" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

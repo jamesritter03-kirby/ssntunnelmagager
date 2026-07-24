@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RemoteStuff.ViewModels"
+        x:Class="RemoteStuff.Views.DetachedTerminalWindow"
+        x:DataType="vm:TerminalTabViewModel"
+        Width="820" Height="520" MinWidth="360" MinHeight="240"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource AppSurfaceBrush}"
+        Title="{Binding Title}">
+
+    <Grid RowDefinitions="Auto,*">
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Glyph}" Foreground="#7FB0DE" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Title}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBlock Text="— detached (close to re-attach)" Foreground="{DynamicResource AppMutedTextBrush}"
+                           FontSize="11" VerticalAlignment="Center" />
+                <ToggleButton x:Name="PinButton" Content="📌 Keep on top" FontSize="11" Padding="6,2" />
+            </StackPanel>
+        </Border>
+        <ContentControl Grid.Row="1" Content="{Binding}" />
+    </Grid>
+</Window>

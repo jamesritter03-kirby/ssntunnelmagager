@@ -1,0 +1,64 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:svc="using:RemoteStuff.Services"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="RemoteStuff.Views.DiffTabView"
+             x:DataType="vm:DiffTabViewModel">
+
+    <UserControl.Resources>
+        <vm:DiffStatusToBrushConverter x:Key="DiffBrush" />
+    </UserControl.Resources>
+
+    <Grid RowDefinitions="Auto,Auto,*">
+
+        <!-- Headers -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,1,*"
+              Background="{DynamicResource AppChromeBrush}">
+            <TextBlock Grid.Column="0" Text="{Binding LeftHeader}" FontWeight="SemiBold"
+                       Padding="10,6" TextTrimming="CharacterEllipsis" />
+            <Rectangle Grid.Column="1" Fill="{DynamicResource AppDividerBrush}" />
+            <TextBlock Grid.Column="2" Text="{Binding RightHeader}" FontWeight="SemiBold"
+                       Padding="10,6" TextTrimming="CharacterEllipsis" />
+        </Grid>
+
+        <!-- Summary -->
+        <Border Grid.Row="1" Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,1" Padding="10,4">
+            <TextBlock Text="{Binding Summary}" Opacity="0.8" FontSize="12" />
+        </Border>
+
+        <!-- Aligned rows -->
+        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Rows}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="svc:DiffRow">
+                        <Grid ColumnDefinitions="44,*,1,44,*">
+                            <!-- Left gutter + text -->
+                            <TextBlock Grid.Column="0" Text="{Binding LeftNumberText}"
+                                       Foreground="#777" FontFamily="Menlo, Consolas, monospace"
+                                       FontSize="12" TextAlignment="Right" Padding="0,1,8,1"
+                                       Background="{Binding LeftStatus, Converter={StaticResource DiffBrush}}" />
+                            <TextBlock Grid.Column="1" Text="{Binding LeftText}"
+                                       FontFamily="Menlo, Consolas, monospace" FontSize="12"
+                                       Padding="4,1" TextWrapping="NoWrap"
+                                       Background="{Binding LeftStatus, Converter={StaticResource DiffBrush}}" />
+                            <Rectangle Grid.Column="2" Fill="{DynamicResource AppDividerBrush}" />
+                            <!-- Right gutter + text -->
+                            <TextBlock Grid.Column="3" Text="{Binding RightNumberText}"
+                                       Foreground="#777" FontFamily="Menlo, Consolas, monospace"
+                                       FontSize="12" TextAlignment="Right" Padding="0,1,8,1"
+                                       Background="{Binding RightStatus, Converter={StaticResource DiffBrush}}" />
+                            <TextBlock Grid.Column="4" Text="{Binding RightText}"
+                                       FontFamily="Menlo, Consolas, monospace" FontSize="12"
+                                       Padding="4,1" TextWrapping="NoWrap"
+                                       Background="{Binding RightStatus, Converter={StaticResource DiffBrush}}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

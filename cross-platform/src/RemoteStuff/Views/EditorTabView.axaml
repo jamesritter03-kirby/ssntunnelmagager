@@ -1,0 +1,151 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:ae="using:AvaloniaEdit"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="RemoteStuff.Views.EditorTabView"
+             x:DataType="vm:EditorTabViewModel">
+
+    <UserControl.Styles>
+        <Style Selector="Button.tool">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Padding" Value="7,3" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ToggleButton.tool">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Padding" Value="7,3" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Rectangle.sep">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Fill" Value="{DynamicResource AppDividerBrush}" />
+            <Setter Property="Margin" Value="3,2" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="6,3">
+            <StackPanel Orientation="Horizontal" Spacing="1">
+                <Button Content="🆕" Classes="tool" Command="{Binding NewCommand}" ToolTip.Tip="New document" />
+                <Button Content="📂" Classes="tool" Command="{Binding OpenCommand}" ToolTip.Tip="Open a file…" />
+                <Button Content="💾" Classes="tool" Command="{Binding SaveCommand}" ToolTip.Tip="Save (Ctrl+S)" />
+                <Button Content="🗄" Classes="tool" Command="{Binding SaveAsCommand}" ToolTip.Tip="Save As…" />
+
+                <Rectangle Classes="sep" />
+
+                <Button Content="🔍" Classes="tool" Click="OnFind" ToolTip.Tip="Find / Replace (Ctrl+F)" />
+                <Button Content="↧" Classes="tool" Command="{Binding GoToLineCommand}" ToolTip.Tip="Go to line… (Ctrl+G)" />
+                <Button Content="⇄" Classes="tool" IsVisible="{Binding HasCompareTargets}"
+                        ToolTip.Tip="Compare with another open file">
+                    <Button.Flyout>
+                        <Flyout>
+                            <ItemsControl ItemsSource="{Binding CompareTargets}" MaxWidth="360">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:CompareTarget">
+                                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                Background="Transparent" BorderThickness="0" Padding="8,4"
+                                                Content="{Binding Title}"
+                                                Command="{Binding CompareCommand}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+
+                <Rectangle Classes="sep" />
+
+                <ToggleButton Content="↩" Classes="tool" IsChecked="{Binding WordWrap, Mode=TwoWay}"
+                              ToolTip.Tip="Wrap long lines" />
+                <ToggleButton Content="#" Classes="tool" IsChecked="{Binding ShowLineNumbers, Mode=TwoWay}"
+                              ToolTip.Tip="Show line numbers" />
+                <ToggleButton Content="▤" Classes="tool" IsChecked="{Binding HighlightCurrentLine, Mode=TwoWay}"
+                              ToolTip.Tip="Highlight current line" />
+                <ToggleButton Content="␣" Classes="tool" IsChecked="{Binding ShowWhitespace, Mode=TwoWay}"
+                              ToolTip.Tip="Show whitespace" />
+                <ToggleButton Content="📏" Classes="tool" IsChecked="{Binding ShowColumnRuler, Mode=TwoWay}"
+                              ToolTip.Tip="Column ruler (80)" />
+
+                <Rectangle Classes="sep" />
+
+                <Button Content="A－" Classes="tool" Command="{Binding DecreaseFontCommand}"
+                        ToolTip.Tip="Decrease font size" />
+                <Button Content="A＋" Classes="tool" Command="{Binding IncreaseFontCommand}"
+                        ToolTip.Tip="Increase font size" />
+
+                <Rectangle Classes="sep" />
+
+                <Button Content="✨" Classes="tool" ToolTip.Tip="Editing actions">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Move Line Up" Command="{Binding MoveLineUpCommand}"
+                                      InputGesture="Alt+Up" />
+                            <MenuItem Header="Move Line Down" Command="{Binding MoveLineDownCommand}"
+                                      InputGesture="Alt+Down" />
+                            <MenuItem Header="Duplicate Line" Command="{Binding DuplicateLineCommand}"
+                                      InputGesture="Ctrl+Shift+D" />
+                            <MenuItem Header="Delete Line" Command="{Binding DeleteLineCommand}"
+                                      InputGesture="Ctrl+Shift+K" />
+                            <Separator />
+                            <MenuItem Header="Toggle Comment" Command="{Binding ToggleCommentCommand}"
+                                      InputGesture="Ctrl+OemQuestion" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+
+                <Rectangle Classes="sep" />
+
+                <TextBlock Text="Language" VerticalAlignment="Center" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                <ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding Language, Mode=TwoWay}"
+                          Width="130" />
+                <TextBlock Text="EOL" VerticalAlignment="Center" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                <ComboBox ItemsSource="{Binding LineEndings}" SelectedItem="{Binding LineEnding, Mode=TwoWay}"
+                          Width="80" />
+                <TextBlock Text="Encoding" VerticalAlignment="Center" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                <ComboBox ItemsSource="{Binding Encodings}" SelectedItem="{Binding Encoding, Mode=TwoWay}"
+                          Width="130" />
+                <CheckBox Content="Backup" IsChecked="{Binding KeepBackup, Mode=TwoWay}"
+                          ToolTip.Tip="Write a .bak copy before overwriting" />
+            </StackPanel>
+        </Border>
+
+        <ae:TextEditor Name="Editor" Grid.Row="1"
+                       FontFamily="Menlo, Consolas, monospace"
+                       FontSize="{Binding FontSize}"
+                       WordWrap="{Binding WordWrap}"
+                       ShowLineNumbers="{Binding ShowLineNumbers}"
+                       HorizontalScrollBarVisibility="Auto"
+                       VerticalScrollBarVisibility="Auto" />
+
+        <Border Grid.Row="1" VerticalAlignment="Top" IsVisible="{Binding DiskChanged}"
+                Background="#3A3016" BorderBrush="#8A6D1E" BorderThickness="0,0,0,1" Padding="10,6">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="⚠ This file changed on disk." Foreground="#F0D98C"
+                           VerticalAlignment="Center" />
+                <Button Content="Reload" Command="{Binding ReloadFromDiskCommand}" Padding="10,2" />
+                <Button Content="Keep Mine" Command="{Binding KeepMineCommand}" Padding="10,2" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" VerticalAlignment="Top" IsVisible="{Binding DiskDeleted}"
+                Background="#3A1F1F" BorderBrush="#7A3A3A" BorderThickness="0,0,0,1" Padding="10,6">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="⚠ This file was moved or deleted on disk." Foreground="#E6A9A9"
+                           VerticalAlignment="Center" />
+                <Button Content="Keep in Editor" Command="{Binding KeepInEditorCommand}" Padding="10,2" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="10,4">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="{Binding FilePath}" Foreground="#9FD3A0" FontFamily="Menlo, Consolas, monospace" />
+                <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

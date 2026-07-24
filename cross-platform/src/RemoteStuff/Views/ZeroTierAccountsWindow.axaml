@@ -1,0 +1,83 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RemoteStuff.ViewModels"
+        xmlns:m="using:RemoteStuff.Models"
+        x:Class="RemoteStuff.Views.ZeroTierAccountsWindow"
+        x:DataType="vm:ZeroTierTabViewModel"
+        Width="620" Height="520" MinWidth="480" MinHeight="380"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppSurfaceBrush}"
+        Title="ZeroTier Accounts">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+
+        <StackPanel Grid.Row="0" Spacing="6">
+            <TextBlock Text="ZeroTier accounts" FontSize="20" FontWeight="Bold" />
+            <TextBlock Text="Connect ZeroTier Central or a self-hosted ZTNET controller. Networks and devices are grouped by account."
+                       Foreground="{DynamicResource AppSecondaryTextBrush}" TextWrapping="Wrap" FontSize="12" />
+        </StackPanel>
+
+        <!-- Add account form -->
+        <Border Grid.Row="1" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
+                CornerRadius="6" Padding="12" Margin="0,12">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Add an account" FontWeight="SemiBold" Foreground="{DynamicResource AppTextBrush}" />
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Label" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppSecondaryTextBrush}" Margin="0,0,8,6" />
+                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding NewLabel, Mode=TwoWay}"
+                             Watermark="e.g. Work ZeroTier" Margin="0,0,0,6" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="API base URL" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppSecondaryTextBrush}" Margin="0,0,8,6" />
+                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding NewBaseUrl, Mode=TwoWay}"
+                             Watermark="https://api.zerotier.com/api/v1" Margin="0,0,0,6" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="API token" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppSecondaryTextBrush}" Margin="0,0,8,0" />
+                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding NewToken, Mode=TwoWay}"
+                             Watermark="Personal API token" PasswordChar="•" />
+                </Grid>
+                <Button Content="Add account" HorizontalAlignment="Right"
+                        Command="{Binding AddAccountCommand}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Existing accounts -->
+        <Border Grid.Row="2" Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
+                CornerRadius="6" Padding="4">
+            <Grid>
+                <TextBlock IsVisible="{Binding !HasAccounts}"
+                           Text="No accounts yet. Add one above to begin."
+                           Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" Margin="14,16"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <ScrollViewer IsVisible="{Binding HasAccounts}">
+                    <ItemsControl ItemsSource="{Binding Accounts}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="m:ZeroTierAccount">
+                                <Border Background="{DynamicResource AppPillBrush}" CornerRadius="4" Padding="10" Margin="4,3">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="{Binding DisplayLabel}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding ServerDisplay}" Foreground="#999" FontSize="11" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Remove" VerticalAlignment="Center"
+                                                Command="{Binding $parent[ItemsControl].((vm:ZeroTierTabViewModel)DataContext).RemoveAccountCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- Footer -->
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+            <TextBlock Grid.Column="0" Text="{Binding StatusText}" Foreground="{DynamicResource AppMutedTextBrush}"
+                       FontSize="12" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="Close" Click="OnClose" Padding="16,4" />
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,77 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="RemoteStuff.Views.FinderTabView"
+             x:DataType="vm:FinderTabViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+            <StackPanel Orientation="Horizontal" Spacing="3">
+                <Button Content="↑" FontSize="14" Padding="8,3" ToolTip.Tip="Up one folder" Command="{Binding GoUpCommand}" />
+                <Button Content="⌂" FontSize="14" Padding="8,3" ToolTip.Tip="Home" Command="{Binding GoHomeCommand}" />
+                <Button Content="⟳" FontSize="14" Padding="8,3" ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}" />
+                <Rectangle Width="1" Fill="{DynamicResource AppDividerBrush}" Margin="4,2" />
+                <Button Content="📂" FontSize="14" Padding="8,3" ToolTip.Tip="Open" Command="{Binding OpenCommand}" />
+                <Button Content="🔎" FontSize="14" Padding="8,3" ToolTip.Tip="Reveal in Finder" Command="{Binding RevealInFinderCommand}" />
+                <Button Content="⧉" FontSize="14" Padding="8,3" ToolTip.Tip="Copy path" Command="{Binding CopyPathCommand}" />
+                <Button Content="📁" FontSize="14" Padding="8,3" ToolTip.Tip="New folder…" Command="{Binding NewFolderCommand}" />
+                <Button Content="🗑" FontSize="14" Padding="8,3" ToolTip.Tip="Delete" Command="{Binding DeleteCommand}" />
+                <ProgressBar IsIndeterminate="True" Width="80" Height="6"
+                             IsVisible="{Binding IsBusy}" VerticalAlignment="Center" Margin="8,0,0,0" />
+            </StackPanel>
+        </Border>
+
+        <!-- Path + sort/filter bar -->
+        <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBox Text="{Binding PathInput}" Watermark="Path…" Width="260"
+                         KeyDown="OnPathKeyDown" />
+                <Button Content="Go" Command="{Binding GoToPathCommand}" />
+                <Rectangle Width="1" Fill="{DynamicResource AppDividerBrush}" Margin="4,2" />
+                <TextBlock Text="Sort:" Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" />
+                <ComboBox MinWidth="110" ItemsSource="{Binding SortModes}"
+                          SelectedItem="{Binding SortMode, Mode=TwoWay}" />
+                <Button Content="⇅" Command="{Binding ToggleSortDirectionCommand}" ToolTip.Tip="Toggle sort direction" />
+                <CheckBox Content="Hidden" IsChecked="{Binding ShowHidden}" VerticalAlignment="Center"
+                          ToolTip.Tip="Show hidden files" />
+                <TextBox Text="{Binding FilterText}" Watermark="Filter…" Width="160" />
+            </StackPanel>
+        </Border>
+
+        <!-- Listing -->
+        <ListBox Grid.Row="2" x:Name="EntryList" ItemsSource="{Binding Entries}"
+                 SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
+                 DoubleTapped="OnRowDoubleTapped" Background="{DynamicResource AppSurfaceBrush}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:LocalEntryViewModel">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="28" />
+                            <ColumnDefinition Width="*" MinWidth="120" />
+                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="170" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{Binding Glyph}" />
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="2" Text="{Binding SizeText}" Foreground="{DynamicResource AppSecondaryTextBrush}" HorizontalAlignment="Right" Margin="0,0,12,0" />
+                        <TextBlock Grid.Column="3" Text="{Binding ModifiedText}" Foreground="{DynamicResource AppMutedTextBrush}" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- Status -->
+        <Border Grid.Row="3" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="10,4">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="{Binding CurrentPath}" Foreground="#9FD3A0" FontFamily="Menlo, Consolas, monospace" />
+                <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>
