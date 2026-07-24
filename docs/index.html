@@ -75,6 +75,23 @@
   a.inline { color: #58a6ff; text-decoration: none; }
   a.inline:hover { text-decoration: underline; }
   code { background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+  .divider { height: 1px; background: rgba(255,255,255,0.08); margin: 40px 0 30px; }
+  .xplat h2 { font-size: 20px; margin: 0 0 8px; letter-spacing: -0.3px; }
+  .xplat p { font-size: 14px; color: #9aa7b2; margin: 0 0 18px; line-height: 1.5; }
+  .xbtns { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .btn2 {
+    display: inline-block;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.14);
+    color: #e6edf3;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 10px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .btn2:hover { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.24); }
   footer { margin-top: 32px; font-size: 12px; color: #59636e; }
 </style>
 </head>
@@ -114,6 +131,26 @@
       .dmg window or Downloads) so it can keep itself up to date — if you open it from the
       wrong place it will offer to move itself there for you.
     </p>
+
+    <div class="divider"></div>
+
+    <div class="xplat">
+      <h2>Also available: cross-platform version</h2>
+      <p>
+        The same app rebuilt to run on Windows, macOS and Linux, with built-in
+        automatic updates. Great if you're not on a Mac — or want to try the new
+        build alongside the native macOS app.
+      </p>
+      <div class="xbtns">
+        <a class="btn2" href="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/desktop-updates/RemoteStuff-win-x64-Setup.exe">Windows</a>
+        <a class="btn2" href="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/desktop-updates/RemoteStuff-osx-arm64-Setup.pkg">macOS · Apple Silicon</a>
+        <a class="btn2" href="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/desktop-updates/RemoteStuff-osx-x64-Setup.pkg">macOS · Intel</a>
+        <a class="btn2" href="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/desktop-updates/RemoteStuff-linux-x64.AppImage">Linux</a>
+      </div>
+      <div class="sub">
+        <a class="inline" href="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/tag/desktop-updates">all cross-platform downloads</a>
+      </div>
+    </div>
 
     <footer>
       Open source · <a class="inline" href="https://github.com/jamesritter03-kirby/ssntunnelmagager">github.com/jamesritter03-kirby/ssntunnelmagager</a>
