@@ -32,6 +32,9 @@ __pycache__/
 # Editor
 .vscode/
 
+# Saved connection profiles — kept in a separate private repo, never committed here.
+profiles.json
+
 # Secrets & credentials — never commit these. API tokens (e.g. ZeroTier/ZTNET)
 # live in the macOS Keychain, and the Sparkle EdDSA signing key stays in the
 # Keychain too; these patterns just stop an accidental export/paste from landing
