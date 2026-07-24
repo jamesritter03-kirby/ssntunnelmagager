@@ -5,7 +5,7 @@
         Width="820" Height="580"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource AppSurfaceBrush}"
-        Title="Remote Stuff Help">
+        Title="Remote Stuff CP Help">
 
     <Grid ColumnDefinitions="240,*">
 
@@ -13,7 +13,7 @@
         <DockPanel Grid.Column="0" Background="{DynamicResource AppChromeBrush}">
             <Border DockPanel.Dock="Top" Padding="14,12" Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="Remote Stuff" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource AppTextBrush}" />
+                    <TextBlock Text="Remote Stuff CP" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource AppTextBrush}" />
                     <TextBlock x:Name="VersionText" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" />
                 </StackPanel>
             </Border>

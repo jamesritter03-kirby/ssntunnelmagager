@@ -39,14 +39,14 @@ export PATH="$PATH:$HOME/.dotnet/tools"
 PROJECT="src/RemoteStuff/RemoteStuff.csproj"
 CONFIG="Release"
 PACK_ID="RemoteStuff"
-PACK_TITLE="Remote Stuff"
-PACK_AUTHORS="Remote Stuff"
+PACK_TITLE="Remote Stuff CP"
+PACK_AUTHORS="Remote Stuff CP"
 BUNDLE_ID="com.remotestuff.desktop"
 REPO="jamesritter03-kirby/ssntunnelmagager"
 RELEASE_TAG="desktop-updates"
 
 # Version defaults to the app's assembly version (keep in sync with the .csproj).
-VERSION="${VERSION:-1.9.42}"
+VERSION="${VERSION:-1.9.43}"
 
 PUB_ROOT="pub"          # per-RID `dotnet publish` output (scratch)
 OUT_ROOT="releases"     # Velopack feeds + installers to upload

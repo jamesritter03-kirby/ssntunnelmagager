@@ -1494,7 +1494,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var target = info.TargetFullRelease.Version.ToString();
         var confirm = await DialogService.ConfirmAsync(
             "Update available",
-            $"Remote Stuff {target} is available (you have {_updates.CurrentVersion ?? "an older version"}). " +
+            $"Remote Stuff CP {target} is available (you have {_updates.CurrentVersion ?? "an older version"}). " +
             "Download and install it now? The app will restart to finish.",
             "Install & Restart", "Later");
         if (!confirm) return;

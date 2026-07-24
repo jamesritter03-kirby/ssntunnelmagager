@@ -10,7 +10,7 @@
         x:DataType="vm:MainWindowViewModel"
         Width="1100" Height="720"
         MinWidth="760" MinHeight="480"
-        Title="Remote Stuff">
+        Title="Remote Stuff CP">
 
     <Window.KeyBindings>
         <KeyBinding Gesture="Ctrl+K" Command="{Binding OpenPaletteCommand}" />
@@ -838,7 +838,7 @@
                             <!-- Welcome screen (shown when the current workspace is empty) -->
                             <StackPanel IsVisible="{Binding ShowWelcome}" Spacing="20" Margin="0,8,0,0" HorizontalAlignment="Left">
                                 <StackPanel Spacing="8">
-                                    <TextBlock Text="Remote Stuff" FontSize="28" FontWeight="Bold" />
+                                    <TextBlock Text="Remote Stuff CP" FontSize="28" FontWeight="Bold" />
                                     <TextBlock Text="Open a local terminal, connect to a server, or click a profile to get started."
                                                Foreground="{DynamicResource AppSecondaryTextBrush}" FontSize="14" TextWrapping="Wrap" MaxWidth="520" />
                                 </StackPanel>

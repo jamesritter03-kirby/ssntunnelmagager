@@ -41,7 +41,7 @@ public sealed class TrayService : IDisposable
         _tray = new TrayIcon
         {
             Icon = MakeIcon(0),
-            ToolTipText = "Remote Stuff",
+            ToolTipText = "Remote Stuff CP",
             IsVisible = true
         };
         BuildMenu();
@@ -63,7 +63,7 @@ public sealed class TrayService : IDisposable
         if (_tray is null) return;
         var menu = new NativeMenu();
 
-        var show = new NativeMenuItem("Show Remote Stuff");
+        var show = new NativeMenuItem("Show Remote Stuff CP");
         show.Click += (_, _) => ShowWindow();
         menu.Add(show);
         menu.Add(new NativeMenuItemSeparator());
@@ -150,7 +150,7 @@ public sealed class TrayService : IDisposable
         var count = _vm.LiveSessionCount;
         if (_tray is not null)
         {
-            _tray.ToolTipText = count == 0 ? "Remote Stuff" : $"Remote Stuff — {count} connected";
+            _tray.ToolTipText = count == 0 ? "Remote Stuff CP" : $"Remote Stuff CP — {count} connected";
             _tray.Icon = MakeIcon(count);
         }
     }

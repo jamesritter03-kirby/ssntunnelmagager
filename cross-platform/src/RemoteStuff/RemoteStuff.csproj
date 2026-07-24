@@ -10,8 +10,8 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyName>RemoteStuff</AssemblyName>
     <RootNamespace>RemoteStuff</RootNamespace>
-    <Version>1.9.42</Version>
-    <Product>Remote Stuff</Product>
+    <Version>1.9.43</Version>
+    <Product>Remote Stuff CP</Product>
     <RuntimeIdentifiers>osx-arm64;osx-x64;linux-x64;linux-arm64;win-x64;win-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 

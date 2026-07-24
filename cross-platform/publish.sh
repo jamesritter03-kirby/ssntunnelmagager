@@ -52,7 +52,7 @@ else
 fi
 
 # App-bundle metadata for macOS.
-APP_NAME="Remote Stuff"
+APP_NAME="Remote Stuff CP"
 BUNDLE_ID="com.remotestuff.app"
 VERSION="1.0.0"
 

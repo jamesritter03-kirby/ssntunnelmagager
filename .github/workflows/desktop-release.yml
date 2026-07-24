@@ -31,8 +31,8 @@ permissions:
 env:
   VELOPACK_VERSION: '1.2.0'
   PACK_ID: RemoteStuff
-  PACK_TITLE: Remote Stuff
-  PACK_AUTHORS: Remote Stuff
+  PACK_TITLE: Remote Stuff CP
+  PACK_AUTHORS: Remote Stuff CP
   BUNDLE_ID: com.remotestuff.desktop
   RELEASE_TAG: desktop-updates
   PROJECT: cross-platform/src/RemoteStuff/RemoteStuff.csproj
