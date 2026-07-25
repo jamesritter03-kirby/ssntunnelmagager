@@ -485,6 +485,12 @@ private struct DockPaneView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if session.isLoggingSession {
+                Image(systemName: "record.circle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .help("Recording session output to a log")
+            }
             if session.isPaused {
                 Image(systemName: "pause.circle.fill")
                     .font(.system(size: 10))
@@ -2168,6 +2174,12 @@ private struct TabChip: View {
             Text(session.title)
                 .lineLimit(1)
                 .font(.callout)
+            if session.isLoggingSession {
+                Image(systemName: "record.circle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .help("Recording session output to a log")
+            }
             if session.isPaused {
                 Image(systemName: "pause.circle.fill")
                     .font(.system(size: 10))

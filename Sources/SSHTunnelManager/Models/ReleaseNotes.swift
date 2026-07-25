@@ -45,6 +45,13 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.58", build: 68, date: "Jul 25, 2026",
+            highlights: [
+                "Terminal tabs now show a red record indicator while session logging is on, so you can see at a glance which terminals are being recorded — on both the tab and its docked header.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.57", build: 67, date: "Jul 25, 2026",
             highlights: [
                 "Session logging on demand: right-click a local or SSH terminal tab (or its dock header) and use the new Session Log menu to start or stop recording that terminal's output, then open, reveal in Finder, or share the transcript.",
@@ -53,7 +60,7 @@ enum ReleaseCatalog {
                 "Removed the redundant \"open a local shell\" button from the bottom of the profile sidebar (⌘T still opens one).",
                 "Bulk profile editor: the frozen first column now has a full-height resize handle on its edge, so it's easy to grab and stays locked to its header.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.56", build: 66, date: "Jul 25, 2026",
