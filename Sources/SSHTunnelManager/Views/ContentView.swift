@@ -53,6 +53,7 @@ struct ContentView: View {
             TerminalAreaView()
                 .navigationTitle("Remote Stuff")
                 .modifier(ReliableSidebarToggleToolbar())
+                .modifier(ZeroTierToolbarButton())
                 // Keep the window's unified toolbar permanently present. Presenting
                 // or dismissing a sheet (e.g. the profile editor) otherwise lets
                 // AppKit briefly collapse the toolbar, which re-measures the
@@ -60,6 +61,11 @@ struct ContentView: View {
                 // shift seen on both Save and Cancel. Pinning it visible removes the
                 // collapse, so the content never moves.
                 .toolbar(.visible, for: .windowToolbar)
+                // Host the ZeroTier browser as a right-hand inspector panel here in
+                // the detail column (not on the whole split view) so it can't
+                // disturb the sidebar's toggle button or the titlebar layout.
+                .modifier(ZeroTierPanelPresenter(isPresented: $zerotier.isPresented,
+                                                 sessions: sessions))
         }
         .background(WindowAccessor())
         .task {
@@ -125,8 +131,6 @@ struct ContentView: View {
             RemoteConnectionView(model: remoteConnection)
                 .environmentObject(sessions)
         }
-        .modifier(ZeroTierPanelPresenter(isPresented: $zerotier.isPresented,
-                                         sessions: sessions))
         .sheet(isPresented: $networkBrowser.isPresented) {
             NetworkBrowserView()
         }
@@ -162,6 +166,23 @@ struct ContentView: View {
 // On macOS 14+ the ZeroTier browser is presented as a native right-hand
 // `inspector` — a resizable slide-out panel matching the cross-platform app.
 // On macOS 13 it falls back to a modal sheet.
+
+/// Adds a globe button to the detail toolbar that toggles the ZeroTier panel,
+/// so it's reachable even when the sidebar (with its own globe) is hidden.
+private struct ZeroTierToolbarButton: ViewModifier {
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    ZeroTierBrowserModel.shared.isPresented.toggle()
+                } label: {
+                    Image(systemName: "globe.americas.fill")
+                }
+                .help("Show or hide the ZeroTier devices panel")
+            }
+        }
+    }
+}
 
 /// Hosts `ZeroTierBrowserView` as an inspector panel (macOS 14+) or a sheet.
 private struct ZeroTierPanelPresenter: ViewModifier {

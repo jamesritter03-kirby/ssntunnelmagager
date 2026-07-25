@@ -49,6 +49,8 @@ struct ZeroTierBrowserView: View {
     /// Show only networks this Mac has actually joined (matches the cross-platform
     /// "Member of" filter switch). Persisted across launches.
     @AppStorage("zeroTierMemberOfOnly") private var memberOfOnly = false
+    /// Accounts whose collapsible group is currently collapsed in the panel.
+    @State private var collapsedAccounts: Set<UUID> = []
     /// The "Connect as" username, remembered across launches. Defaults to the
     /// macOS login name until the user changes it.
     @AppStorage("zeroTierConnectAsUsername") private var username = NSUserName()
@@ -162,17 +164,6 @@ struct ZeroTierBrowserView: View {
                 }
             }
             filterSegments
-            HStack(spacing: 6) {
-                Text("Network").font(.caption).foregroundStyle(.secondary)
-                Picker("Network", selection: $selection) {
-                    Text("All Networks").tag(NetworkFilter.all)
-                    ForEach(panelVisibleNetworks) { net in
-                        Text(net.displayName).tag(NetworkFilter.network(net.id))
-                    }
-                }
-                .labelsHidden()
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
             connectAsRow
         }
         .padding(.horizontal, 14)
@@ -553,14 +544,23 @@ struct ZeroTierBrowserView: View {
 
     @ViewBuilder
     private var memberContent: some View {
-        let members = filteredMembers
         if store.isLoadingNetworks && store.networks.isEmpty {
             centered { ProgressView("Loading networks…") }
         } else if store.networks.isEmpty {
             centered {
                 emptyState("No networks", "Your ZeroTier accounts have no networks, or their tokens can’t see any.")
             }
-        } else if members.isEmpty {
+        } else if presentation == .panel {
+            panelGroupedList
+        } else {
+            sheetMemberList
+        }
+    }
+
+    @ViewBuilder
+    private var sheetMemberList: some View {
+        let members = filteredMembers
+        if members.isEmpty {
             centered {
                 emptyState("No matching devices",
                            search.isEmpty && !onlineOnly
@@ -577,6 +577,120 @@ struct ZeroTierBrowserView: View {
                 .padding(14)
             }
         }
+    }
+
+    // Panel: networks grouped under a collapsible section per ZeroTier account.
+    @ViewBuilder
+    private var panelGroupedList: some View {
+        let accounts = store.accounts.filter { !visibleNetworks(for: $0.id).isEmpty }
+        if accounts.isEmpty {
+            centered {
+                emptyState("No networks",
+                           memberOfOnly
+                           ? "This Mac hasn’t joined any of these networks."
+                           : "No networks are available for these accounts.")
+            }
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(accounts) { account in
+                        accountGroup(account)
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func accountGroup(_ account: ZeroTierAccount) -> some View {
+        let nets = visibleNetworks(for: account.id)
+        DisclosureGroup(isExpanded: accountExpansion(account.id)) {
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(nets) { net in
+                    networkGroup(net)
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "person.crop.circle")
+                    .foregroundStyle(.secondary)
+                Text(account.displayLabel)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(accountMemberCount(account))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Devices shown across this account")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func networkGroup(_ net: ZeroTierNetwork) -> some View {
+        let mem = members(inNetwork: net.id)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                localBadge(for: net.id)
+                Text(net.displayName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(onlineCount(for: net.id)) online · \(totalCount(for: net)) total")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if mem.isEmpty {
+                Text(store.loadingMembers.contains(net.id)
+                     ? "Loading…"
+                     : (search.isEmpty && !onlineOnly
+                        ? "No members yet."
+                        : "No devices match your filter."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 2)
+            } else {
+                ForEach(mem) { member in
+                    memberCard(member)
+                }
+            }
+        }
+    }
+
+    /// A binding that expands an account group unless the user collapsed it.
+    private func accountExpansion(_ id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedAccounts.contains(id) },
+            set: { expanded in
+                if expanded { collapsedAccounts.remove(id) }
+                else { collapsedAccounts.insert(id) }
+            }
+        )
+    }
+
+    /// Members of one network after the search / online filters.
+    private func members(inNetwork id: String) -> [ZeroTierMember] {
+        (store.membersByNetwork[id] ?? []).filter(passesFilter)
+    }
+
+    /// Total devices shown across an account under the current filters.
+    private func accountMemberCount(_ account: ZeroTierAccount) -> Int {
+        visibleNetworks(for: account.id).reduce(0) { $0 + members(inNetwork: $1.id).count }
+    }
+
+    /// Whether a member passes the current search / online-only filters.
+    private func passesFilter(_ member: ZeroTierMember) -> Bool {
+        if onlineOnly && !member.isOnline { return false }
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return true }
+        if member.displayName.lowercased().contains(q) { return true }
+        if member.nodeId.lowercased().contains(q) { return true }
+        if (member.physicalAddress ?? "").lowercased().contains(q) { return true }
+        if store.networkName(for: member.networkId).lowercased().contains(q) { return true }
+        return member.ipAssignments.contains { $0.lowercased().contains(q) }
     }
 
     private func memberCard(_ member: ZeroTierMember) -> some View {
@@ -631,13 +745,36 @@ struct ZeroTierBrowserView: View {
                 .foregroundStyle(.secondary)
             CopyableText(text: ip)
             Spacer()
-            connectButton("Open in browser", "globe") { connect(.web, ip: ip) }
-            connectButton("Open SSH terminal", "terminal") { connect(.ssh, ip: ip) }
-            connectButton("Open SFTP file browser", "arrow.up.arrow.down") { connect(.sftp, ip: ip) }
-            connectButton("Open VNC screen", "display") { connect(.vnc, ip: ip) }
-            connectButton("Open MQTT explorer", "antenna.radiowaves.left.and.right") { connect(.mqtt, ip: ip) }
-            connectButton("Open Redis browser", "cylinder.split.1x2") { connect(.redis, ip: ip) }
+            if presentation == .panel {
+                // The narrow panel can't fit six buttons per row, so collapse the
+                // connect actions into a single dropdown menu.
+                connectMenu(ip)
+            } else {
+                connectButton("Open in browser", "globe") { connect(.web, ip: ip) }
+                connectButton("Open SSH terminal", "terminal") { connect(.ssh, ip: ip) }
+                connectButton("Open SFTP file browser", "arrow.up.arrow.down") { connect(.sftp, ip: ip) }
+                connectButton("Open VNC screen", "display") { connect(.vnc, ip: ip) }
+                connectButton("Open MQTT explorer", "antenna.radiowaves.left.and.right") { connect(.mqtt, ip: ip) }
+                connectButton("Open Redis browser", "cylinder.split.1x2") { connect(.redis, ip: ip) }
+            }
         }
+    }
+
+    /// A single dropdown that offers every connect action for one IP address.
+    private func connectMenu(_ ip: String) -> some View {
+        Menu {
+            Button { connect(.web, ip: ip) } label: { Label("Open in browser", systemImage: "globe") }
+            Button { connect(.ssh, ip: ip) } label: { Label("Open SSH terminal", systemImage: "terminal") }
+            Button { connect(.sftp, ip: ip) } label: { Label("Open SFTP file browser", systemImage: "arrow.up.arrow.down") }
+            Button { connect(.vnc, ip: ip) } label: { Label("Open VNC screen", systemImage: "display") }
+            Button { connect(.mqtt, ip: ip) } label: { Label("Open MQTT explorer", systemImage: "antenna.radiowaves.left.and.right") }
+            Button { connect(.redis, ip: ip) } label: { Label("Open Redis browser", systemImage: "cylinder.split.1x2") }
+        } label: {
+            Label("Connect", systemImage: "bolt.horizontal.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Connect to \(ip)")
     }
 
     private func connectButton(_ help: String, _ symbol: String, action: @escaping () -> Void) -> some View {
@@ -957,11 +1094,6 @@ struct ZeroTierBrowserView: View {
         return nets.filter { store.localStatus(for: $0.id) != nil }
     }
 
-    /// Networks offered in the compact panel picker (respecting "Member of").
-    private var panelVisibleNetworks: [ZeroTierNetwork] {
-        visibleNetworkList
-    }
-
     /// If the "Member of" filter hides the currently selected network, fall back
     /// to "All Networks" so the member list isn't stuck on a hidden selection.
     private func resetSelectionIfHidden() {
@@ -979,16 +1111,7 @@ struct ZeroTierBrowserView: View {
         } else {
             base = allMembers
         }
-        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return base.filter { member in
-            if onlineOnly && !member.isOnline { return false }
-            guard !q.isEmpty else { return true }
-            if member.displayName.lowercased().contains(q) { return true }
-            if member.nodeId.lowercased().contains(q) { return true }
-            if (member.physicalAddress ?? "").lowercased().contains(q) { return true }
-            if store.networkName(for: member.networkId).lowercased().contains(q) { return true }
-            return member.ipAssignments.contains { $0.lowercased().contains(q) }
-        }
+        return base.filter(passesFilter)
     }
 
     private func subtitle(for member: ZeroTierMember) -> String {
