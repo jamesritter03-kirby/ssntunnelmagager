@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Presentation state for the **Compare & Bulk Edit Profiles** sheet.
 @MainActor
@@ -7,6 +8,56 @@ final class ProfileComparisonModel: ObservableObject {
     @Published var isPresented = false
     func present() { isPresented = true }
     private init() {}
+}
+
+/// Remembers the user's per-column widths for the compare table across launches.
+/// Keyed by column name ("Profile", "Host", and each `ProfileField.name`).
+@MainActor
+final class ComparisonColumnWidths: ObservableObject {
+    static let shared = ComparisonColumnWidths()
+    @Published private(set) var widths: [String: CGFloat]
+
+    private let storeKey = "profileCompare.columnWidths.v1"
+    private let minWidth: CGFloat = 70
+    private let maxWidth: CGFloat = 640
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: storeKey),
+           let dict = try? JSONDecoder().decode([String: CGFloat].self, from: data) {
+            widths = dict
+        } else {
+            widths = [:]
+        }
+    }
+
+    static func defaultWidth(for key: String) -> CGFloat {
+        switch key {
+        case "Profile": return 190
+        case "Host":    return 160
+        default:        return 120
+        }
+    }
+
+    func width(for key: String) -> CGFloat {
+        widths[key] ?? Self.defaultWidth(for: key)
+    }
+
+    func setWidth(_ w: CGFloat, for key: String) {
+        widths[key] = min(max(w, minWidth), maxWidth)
+    }
+
+    func save() {
+        if let data = try? JSONEncoder().encode(widths) {
+            UserDefaults.standard.set(data, forKey: storeKey)
+        }
+    }
+
+    var hasCustomWidths: Bool { !widths.isEmpty }
+
+    func reset() {
+        widths.removeAll()
+        save()
+    }
 }
 
 /// The kind of editor a `ProfileField` needs.
@@ -141,9 +192,9 @@ struct ProfileComparisonView: View {
     @State private var optionValue: String = ""
     @State private var status: String = ""
 
-    private let nameWidth: CGFloat = 190
-    private let hostWidth: CGFloat = 160
-    private let cellWidth: CGFloat = 120
+    @ObservedObject private var columnWidths = ComparisonColumnWidths.shared
+    /// Width of each column at the moment a resize drag began, keyed by column.
+    @State private var dragStartWidth: [String: CGFloat] = [:]
 
     /// Profiles in a stable, grouped order.
     private var rows: [SSHProfile] {
@@ -190,6 +241,10 @@ struct ProfileComparisonView: View {
                 subtitle: "Tick profiles, choose a setting and a value, then apply it to the whole selection."
             )
             Spacer()
+            if columnWidths.hasCustomWidths {
+                Button("Reset Widths") { columnWidths.reset() }
+                    .help("Restore every column to its default width")
+            }
             Button("Done") { dismiss() }
                 .keyboardShortcut(.defaultAction)
         }
@@ -208,7 +263,7 @@ struct ProfileComparisonView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 0) {
                         Color.clear.frame(width: 28)
-                        columnHeader("Profile", width: nameWidth)
+                        resizableHeader("Profile", key: "Profile")
                     }
                     .background(Color(nsColor: .underPageBackgroundColor))
 
@@ -226,7 +281,7 @@ struct ProfileComparisonView: View {
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                             }
-                            .frame(width: nameWidth, alignment: .leading)
+                            .frame(width: columnWidths.width(for: "Profile"), alignment: .leading)
                             .padding(.horizontal, 8)
                         }
                         .frame(height: 30)
@@ -242,9 +297,9 @@ struct ProfileComparisonView: View {
                 ScrollView(.horizontal) {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 0) {
-                            columnHeader("Host", width: hostWidth)
+                            resizableHeader("Host", key: "Host")
                             ForEach(ProfileField.all) { field in
-                                columnHeader(field.name, width: cellWidth)
+                                resizableHeader(field.name, key: field.name)
                             }
                         }
                         .background(Color(nsColor: .underPageBackgroundColor))
@@ -257,13 +312,13 @@ struct ProfileComparisonView: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
-                                    .frame(width: hostWidth, alignment: .leading)
+                                    .frame(width: columnWidths.width(for: "Host"), alignment: .leading)
                                     .padding(.horizontal, 8)
                                 ForEach(ProfileField.all) { field in
                                     Text(field.get(profile))
                                         .lineLimit(1)
                                         .truncationMode(.tail)
-                                        .frame(width: cellWidth, alignment: .leading)
+                                        .frame(width: columnWidths.width(for: field.name), alignment: .leading)
                                         .padding(.horizontal, 8)
                                 }
                             }
@@ -277,6 +332,26 @@ struct ProfileComparisonView: View {
             }
             .font(.callout)
         }
+    }
+
+    /// A column header with a draggable handle on its trailing edge that resizes
+    /// and persists the column's width.
+    private func resizableHeader(_ title: String, key: String) -> some View {
+        columnHeader(title, width: columnWidths.width(for: key))
+            .overlay(alignment: .trailing) {
+                ColumnResizeHandle(
+                    onChanged: { delta in
+                        if dragStartWidth[key] == nil {
+                            dragStartWidth[key] = columnWidths.width(for: key)
+                        }
+                        let start = dragStartWidth[key] ?? columnWidths.width(for: key)
+                        columnWidths.setWidth(start + delta, for: key)
+                    },
+                    onEnded: {
+                        dragStartWidth[key] = nil
+                        columnWidths.save()
+                    })
+            }
     }
 
     private func columnHeader(_ title: String, width: CGFloat) -> some View {
@@ -391,3 +466,45 @@ struct ProfileComparisonView: View {
         status = "Applied \(field.name) = \"\(value)\" to \(targets.count) profile(s)."
     }
 }
+
+/// A slim draggable handle sitting on a column's trailing edge. Dragging it
+/// reports the horizontal delta so the caller can resize the column; a native
+/// cursor rect shows the left-right resize cursor while hovering.
+private struct ColumnResizeHandle: View {
+    let onChanged: (CGFloat) -> Void
+    let onEnded: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        ZStack {
+            Color.clear.frame(width: 11)
+            Rectangle()
+                .fill(hovering ? Color.accentColor : Color.secondary.opacity(0.25))
+                .frame(width: hovering ? 2 : 1)
+                .padding(.vertical, 3)
+        }
+        .frame(maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .overlay(ColumnResizeCursorRect())
+        .onHover { hovering = $0 }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { onChanged($0.translation.width) }
+                .onEnded { _ in onEnded() }
+        )
+    }
+}
+
+/// Shows the left-right resize cursor over its bounds via an AppKit cursor rect,
+/// which balances enter/exit reliably even if the view is rebuilt mid-hover.
+private struct ColumnResizeCursorRect: NSViewRepresentable {
+    func makeNSView(context: Context) -> CursorRectView { CursorRectView() }
+    func updateNSView(_ nsView: CursorRectView, context: Context) {}
+
+    final class CursorRectView: NSView {
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
+    }
+}
+

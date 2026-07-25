@@ -45,12 +45,25 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.56", build: 66, date: "Jul 25, 2026",
+            highlights: [
+                "Resume now brings back profile-launched workspaces: a workspace opened from a profile (including ones built from a workspace template) is remembered and restored on the next launch, instead of disappearing until you reconnected the profile manually.",
+                "Command palette is easier to navigate: commands are grouped into labelled sections (Custom Commands, Quick Actions, Profiles, Snippets, History) with pinned headers and a category filter menu, so you can jump straight to what you want.",
+                "Command palette scrolling is smoother: hovering rows while you scroll no longer yanks the list around — the view only auto-scrolls when you move the selection with the keyboard.",
+                "Create, edit and delete your own custom commands right inside the palette.",
+                "Bulk profile editor: columns are now resizable and your chosen widths are remembered, with a Reset Widths button.",
+                "Double-click a side drawer's title bar to collapse it to a rail (and back out) — the same as its collapse chevron.",
+                "ZeroTier device list gains an All / Connected-to filter so you can focus on just the peers you're linked with.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.42", build: 52, date: "Jul 15, 2026",
             highlights: [
                 "Mac as Router internet fix: client devices on the Mac's LAN can now reach the internet again. The NAT rules that share your uplink are now loaded reliably (a missing newline was silently causing the firewall ruleset to be rejected, so traffic was forwarded without address translation).",
                 "Router DNS fix: the built-in DNS forwarder no longer picks up malformed upstream servers from IPv6 resolver entries, so client name resolution works correctly.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.41", build: 51, date: "Jul 14, 2026",

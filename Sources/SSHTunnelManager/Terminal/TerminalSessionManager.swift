@@ -2762,42 +2762,28 @@ final class TerminalSessionManager: ObservableObject {
     /// Force-save the current open workspaces (used on app termination).
     func persistOpenSessions() { writeOpenState() }
 
-    /// Whether `ws` is a throwaway workspace spun up by launching a profile that
-    /// has an assigned **workspace template** — the case the user wants kept out
-    /// of the resume snapshot (it's regenerated from the template on relaunch).
-    /// A workspace the user made themselves, or one from a plain "opens in its own
-    /// workspace" profile (no template), returns false so it still persists.
-    private func isEphemeralTemplateWorkspace(_ ws: Workspace) -> Bool {
-        guard let pid = ws.sourceProfileID,
-              let profile = ProfileStore.shared.profiles.first(where: { $0.id == pid })
-        else { return false }
-        return profile.workspaceTemplateID != nil
-    }
-
     private func writeOpenState() {
         // Flush every editor's unsaved text so the snapshots we take reference an
         // up‑to‑date backup, letting the next launch restore exactly what's open.
         for s in sessions { s.textEditorModel?.flushBackup() }
-        // Workspaces launched from a **profile that carries a workspace template**
-        // are ephemeral: they're rebuilt from that template every time the profile
-        // is launched, so persisting them here would just pile up a fresh resumed
-        // copy on each start (the clutter the user asked us to avoid). We skip
-        // them — the profile and its template stay, and relaunching the profile
-        // recreates the workspace — and save the user's own workspaces plus any
-        // plain single‑connection profile workspaces as before.
-        let persistable = workspaces.filter { !isEphemeralTemplateWorkspace($0) }
-        let snaps = persistable.map { ws -> WorkspaceSnapshot in
+        // Persist every open workspace — including ones launched from a profile
+        // that carries a workspace template. Those used to be skipped (they get
+        // rebuilt from the template when the profile is relaunched), but that meant
+        // a template‑launched workspace vanished on the next start unless the user
+        // manually reconnected the profile. We snapshot its live tabs and remember
+        // its `sourceProfileID`; on resume it re‑pairs with the profile so a later
+        // reconnect reuses it instead of piling up a duplicate.
+        let snaps = workspaces.map { ws -> WorkspaceSnapshot in
             let liveTabIDs = ws.tabIDs.filter { id in sessions.contains { $0.id == id } }
             let selIndex = ws.selectedSessionID.flatMap { liveTabIDs.firstIndex(of: $0) }
             return WorkspaceSnapshot(name: ws.name, isTiled: ws.isTiled,
                                      tileLayout: ws.tileLayout,
                                      selectedIndex: selIndex, tabs: snapshotTabs(for: ws),
                                      docks: dockSnapshots(for: ws),
-                                     tabColor: ws.tabColor)
+                                     tabColor: ws.tabColor,
+                                     sourceProfileID: ws.sourceProfileID)
         }
-        // Keep the current workspace selected if it survived the filter; if the
-        // active one was ephemeral (or there are none), fall back to the first.
-        let current = persistable.firstIndex { $0.id == currentWorkspaceID } ?? 0
+        let current = workspaces.firstIndex { $0.id == currentWorkspaceID } ?? 0
         let state = OpenStateSnapshot(workspaces: snaps, currentIndex: current)
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: openStateKey)
@@ -2926,21 +2912,33 @@ final class TerminalSessionManager: ObservableObject {
         // keep holding their forwarded ports and break the next real connection.
         guard sessions.isEmpty else { return }
         guard let state = savedOpenState(), !state.workspaces.isEmpty else { return }
-        let built = state.workspaces.map {
-            Workspace(name: $0.name, isTiled: $0.isTiled,
-                      tileLayout: $0.tileLayout ?? TileLayout(),
-                      tabColor: $0.tabColor)
+        let built = state.workspaces.map { snap -> Workspace in
+            var ws = Workspace(name: snap.name, isTiled: snap.isTiled,
+                               tileLayout: snap.tileLayout ?? TileLayout(),
+                               tabColor: snap.tabColor)
+            // Re-pair a profile's dedicated workspace with its launching profile so
+            // reconnecting the profile reuses this restored workspace.
+            ws.sourceProfileID = snap.sourceProfileID
+            return ws
         }
         workspaces = built
         suppressWorkspaceRouting = true
         defer { suppressWorkspaceRouting = false }
         for (i, snap) in state.workspaces.enumerated() {
             currentWorkspaceID = built[i].id
-            for tab in snap.tabs { recreate(tab) }
+            // Tabs inside a profile-launched workspace autofill from that profile's
+            // saved password (matching how they behaved when first launched).
+            for tab in snap.tabs { recreate(tab, owningProfileID: snap.sourceProfileID) }
             if let w = workspaces.firstIndex(where: { $0.id == built[i].id }) {
                 if let sel = snap.selectedIndex,
                    workspaces[w].tabIDs.indices.contains(sel) {
                     workspaces[w].selectedSessionID = workspaces[w].tabIDs[sel]
+                }
+                // A restored profile workspace that already holds tabs is treated as
+                // fully built, so a later reconnect of its profile reuses it instead
+                // of re-instantiating the template on top (which would duplicate tabs).
+                if snap.sourceProfileID != nil, !workspaces[w].tabIDs.isEmpty {
+                    workspaces[w].templateInstantiated = true
                 }
                 applyDockSnapshots(snap.docks, toWorkspaceAt: w)
             }

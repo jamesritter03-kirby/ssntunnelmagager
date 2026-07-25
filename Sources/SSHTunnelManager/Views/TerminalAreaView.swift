@@ -495,6 +495,11 @@ private struct DockPaneView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .contentShape(Rectangle())
+        // Double-clicking the drawer's title bar collapses it to a rail (and, from
+        // the rail, back out) — the same toggle as the leading collapse chevron.
+        .onTapGesture(count: 2) {
+            sessions.toggleColumnCollapsed(side)
+        }
         .contextMenu { menu }
     }
 

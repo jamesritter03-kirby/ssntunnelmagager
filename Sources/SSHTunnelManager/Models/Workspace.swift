@@ -312,6 +312,11 @@ struct WorkspaceSnapshot: Codable {
     var docks: [DockSnapshot]? = nil
     /// The user-chosen pill tint for this workspace, if any (nil = default).
     var tabColor: TabColor? = nil
+    /// When this workspace was a profile's **dedicated workspace**, the id of that
+    /// launching profile — so on resume it re-pairs with the profile (and a later
+    /// reconnect reuses it) instead of spawning a duplicate. Optional so snapshots
+    /// written by older versions still decode.
+    var sourceProfileID: UUID? = nil
 }
 
 /// A codable description of a docked side drawer; its tabs are referenced by
