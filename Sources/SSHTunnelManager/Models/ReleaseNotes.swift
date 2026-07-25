@@ -45,12 +45,22 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.61", build: 71, date: "Jul 25, 2026",
+            highlights: [
+                "Bulk profile editor: replaced the sticky frozen first column with a pinned header row — the column headers now stay put while you scroll, every column resizes cleanly, and the whole dialog can be resized to fill the window.",
+                "Copy lists between profiles: a new dialog in the bulk editor lets you preview one profile's saved commands, links, SFTP paths, port forwards or environment variables and copy them onto any group of ticked profiles (add-new or replace-all).",
+                "The bulk editor now shows an SFTP Paths count column alongside Snippets, Links, Forwards and Env Vars.",
+                "SFTP path bookmarks now appear for tabs reopened inside a profile-launched workspace, not just freshly opened ones.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.60", build: 70, date: "Jul 25, 2026",
             highlights: [
                 "SFTP path bookmarks: save the remote folders you visit most on a profile (Profile editor → SFTP Paths), then jump to any of them in one click from the new bookmark menu in an SFTP tab's toolbar — or bookmark the folder you're in with Add Current Folder.",
                 "Bulk profile editor: fixed the frozen first column so it resizes smoothly and can be dragged down to its minimum width instead of sticking around half the window.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.59", build: 69, date: "Jul 25, 2026",

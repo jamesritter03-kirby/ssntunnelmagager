@@ -172,6 +172,7 @@ struct ProfileField: Identifiable {
             // Compare-only columns (collections) — shown but not bulk-editable.
             ProfileField("Snippets", .text, get: { String($0.snippets.count) }),
             ProfileField("Links", .text, get: { String($0.links.count) }),
+            ProfileField("SFTP Paths", .text, get: { String($0.sftpBookmarks.count) }),
             ProfileField("Forwards", .text, get: { String($0.forwards.count) }),
             ProfileField("Env Vars", .text, get: { String($0.environment.count) })
         ]
@@ -198,13 +199,12 @@ struct ProfileComparisonView: View {
     /// password that's applied to them.
     @State private var passwordRequireAuth: Bool = true
 
+    /// Drives the "copy lists between profiles" dialog.
+    @State private var showPropagate = false
+
     @ObservedObject private var columnWidths = ComparisonColumnWidths.shared
     /// Width of each column at the moment a resize drag began, keyed by column.
     @State private var dragStartWidth: [String: CGFloat] = [:]
-    /// The frozen column's leading edge in global coordinates, so its resize
-    /// handle can set the width absolutely (the pointer position becomes the new
-    /// right edge) instead of accumulating a delta that chases the moving handle.
-    @State private var frozenColumnLeadingX: CGFloat = 0
 
     /// Profiles in a stable, grouped order.
     private var rows: [SSHProfile] {
@@ -235,9 +235,17 @@ struct ProfileComparisonView: View {
             Divider()
             bulkEditBar
         }
-        .frame(minWidth: 820, idealWidth: 980, minHeight: 520, idealHeight: 640)
+        .frame(minWidth: 720, idealWidth: 980, maxWidth: .infinity,
+               minHeight: 460, idealHeight: 640, maxHeight: .infinity)
         .onAppear {
             if fieldIsOptions { optionValue = currentOptions.first ?? "" }
+        }
+        .sheet(isPresented: $showPropagate) {
+            PropagateCollectionView(
+                targets: rows.filter { selected.contains($0.id) },
+                initialSourceID: rows.first(where: { selected.contains($0.id) })?.id
+            )
+            .environmentObject(store)
         }
     }
 
@@ -264,93 +272,72 @@ struct ProfileComparisonView: View {
     // MARK: - Table
 
     private var comparisonTable: some View {
-        // The first column (checkbox + profile name) stays pinned while the Host
-        // and setting columns scroll horizontally. Both halves live in the same
-        // vertical ScrollView, so they scroll up/down together and stay row-aligned.
-        ScrollView(.vertical) {
-            HStack(spacing: 0) {
-                // Frozen first column.
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 0) {
-                        Color.clear.frame(width: 28)
-                        columnHeader("Profile", width: columnWidths.width(for: "Profile"))
-                    }
-                    .background(Color(nsColor: .underPageBackgroundColor))
-
-                    Divider()
-
+        // One scroll area on both axes. The header row is pinned (frozen) to the
+        // top, so it stays visible while the profile rows scroll under it; all
+        // columns scroll together horizontally.
+        ScrollView([.vertical, .horizontal]) {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                Section {
                     ForEach(rows) { profile in
-                        HStack(spacing: 0) {
-                            Toggle("", isOn: binding(for: profile.id))
-                                .labelsHidden()
-                                .frame(width: 28)
-                            HStack(spacing: 5) {
-                                Image(systemName: profile.displayIcon)
-                                    .foregroundStyle(.secondary)
-                                Text(profile.name)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            .frame(width: columnWidths.width(for: "Profile"), alignment: .leading)
-                            .padding(.horizontal, 8)
-                        }
-                        .frame(height: 30)
-                        .background(selected.contains(profile.id)
-                                    ? Color.accentColor.opacity(0.12) : Color.clear)
+                        tableRow(profile)
                         Divider()
                     }
-                }
-                .background(GeometryReader { geo in
-                    Color.clear.preference(key: FrozenColumnLeadingKey.self,
-                                           value: geo.frame(in: .global).minX)
-                })
-
-                // Full-height handle on the frozen column's edge: drag anywhere
-                // down the boundary to resize the pinned Profile column (its own
-                // header sits flush against the scroll area, so a boundary handle
-                // is easier to grab than a header-only one).
-                resizeHandle(for: "Profile")
-
-                // Horizontally-scrolling columns.
-                ScrollView(.horizontal) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        HStack(spacing: 0) {
-                            resizableHeader("Host", key: "Host")
-                            ForEach(ProfileField.all) { field in
-                                resizableHeader(field.name, key: field.name)
-                            }
-                        }
-                        .background(Color(nsColor: .underPageBackgroundColor))
-
-                        Divider()
-
-                        ForEach(rows) { profile in
-                            HStack(spacing: 0) {
-                                Text(profile.isLocal ? "local shell" : profile.subtitle)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .frame(width: columnWidths.width(for: "Host"), alignment: .leading)
-                                    .padding(.horizontal, 8)
-                                ForEach(ProfileField.all) { field in
-                                    Text(field.get(profile))
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                        .frame(width: columnWidths.width(for: field.name), alignment: .leading)
-                                        .padding(.horizontal, 8)
-                                }
-                            }
-                            .frame(height: 30)
-                            .background(selected.contains(profile.id)
-                                        ? Color.accentColor.opacity(0.12) : Color.clear)
-                            Divider()
-                        }
-                    }
+                } header: {
+                    tableHeaderRow
                 }
             }
             .font(.callout)
-            .onPreferenceChange(FrozenColumnLeadingKey.self) { frozenColumnLeadingX = $0 }
         }
+    }
+
+    /// The pinned header row: the checkbox spacer, then every resizable column.
+    private var tableHeaderRow: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Color.clear.frame(width: 28)
+                resizableHeader("Profile", key: "Profile")
+                resizableHeader("Host", key: "Host")
+                ForEach(ProfileField.all) { field in
+                    resizableHeader(field.name, key: field.name)
+                }
+            }
+            Divider()
+        }
+        .background(Color(nsColor: .underPageBackgroundColor))
+    }
+
+    /// One profile row: checkbox, name, host and every setting column.
+    private func tableRow(_ profile: SSHProfile) -> some View {
+        HStack(spacing: 0) {
+            Toggle("", isOn: binding(for: profile.id))
+                .labelsHidden()
+                .frame(width: 28)
+            HStack(spacing: 5) {
+                Image(systemName: profile.displayIcon)
+                    .foregroundStyle(.secondary)
+                Text(profile.name)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(width: columnWidths.width(for: "Profile"), alignment: .leading)
+            .padding(.horizontal, 8)
+            Text(profile.isLocal ? "local shell" : profile.subtitle)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: columnWidths.width(for: "Host"), alignment: .leading)
+                .padding(.horizontal, 8)
+            ForEach(ProfileField.all) { field in
+                Text(field.get(profile))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: columnWidths.width(for: field.name), alignment: .leading)
+                    .padding(.horizontal, 8)
+            }
+        }
+        .frame(height: 30)
+        .background(selected.contains(profile.id)
+                    ? Color.accentColor.opacity(0.12) : Color.clear)
     }
 
     /// A column header with a draggable handle on its trailing edge that resizes
@@ -364,17 +351,6 @@ struct ProfileComparisonView: View {
     private func resizeHandle(for key: String) -> some View {
         ColumnResizeHandle(
             onChanged: { value in
-                if key == "Profile" {
-                    // The frozen column's handle lives at the boundary and moves
-                    // as the column resizes, so a translation-delta chases the
-                    // cursor. Instead set the width absolutely from the cursor's
-                    // global X relative to the frozen column's leading edge (past
-                    // the 28pt checkbox + 8pt text inset) — the edge simply follows
-                    // the pointer, all the way to the minimum.
-                    let newWidth = value.location.x - frozenColumnLeadingX - 36
-                    columnWidths.setWidth(newWidth, for: key)
-                    return
-                }
                 if dragStartWidth[key] == nil {
                     dragStartWidth[key] = columnWidths.width(for: key)
                 }
@@ -473,6 +449,17 @@ struct ProfileComparisonView: View {
                     .help("Remove the saved password from every ticked profile")
             }
 
+            Divider()
+
+            // Copy list-valued settings (saved commands, links, SFTP paths, port
+            // forwards, environment variables) from one profile onto the ticked ones.
+            HStack(spacing: 8) {
+                Text("Lists")
+                    .foregroundStyle(.secondary)
+                Button("Copy Lists Between Profiles…") { showPropagate = true }
+                    .help("View a profile's saved commands, links, SFTP paths, port forwards or environment variables and copy them onto the ticked profiles")
+            }
+
             if !status.isEmpty {
                 Text(status)
                     .font(.caption)
@@ -562,12 +549,272 @@ struct ProfileComparisonView: View {
     }
 }
 
-/// Carries the frozen column's global leading-edge X up to the view, so its
-/// resize handle can compute an absolute width from the pointer position.
-private struct FrozenColumnLeadingKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+/// How a copied collection is applied to a destination profile.
+enum PropagateMode: String, CaseIterable, Identifiable {
+    case merge = "Add new items"
+    case replace = "Replace all"
+    var id: String { rawValue }
+}
+
+/// The list-valued profile settings the "copy lists between profiles" dialog can
+/// preview and propagate. Each case knows how to describe its items and how to
+/// copy them from one profile onto another.
+enum ProfileCollectionKind: String, CaseIterable, Identifiable {
+    case snippets = "Saved Commands"
+    case links = "Links"
+    case sftpPaths = "SFTP Paths"
+    case forwards = "Port Forwards"
+    case envVars = "Environment Variables"
+
+    var id: String { rawValue }
+
+    /// One-line, human-readable descriptions of each item in `profile`.
+    func items(in profile: SSHProfile) -> [String] {
+        switch self {
+        case .snippets:
+            return profile.snippets.map { s in
+                let l = s.label.trimmingCharacters(in: .whitespaces)
+                return l.isEmpty ? s.command : "\(l) — \(s.command)"
+            }
+        case .links:
+            return profile.links.map { "\($0.displayLabel) — \($0.url)" }
+        case .sftpPaths:
+            return profile.sftpBookmarks.map { b in
+                let l = b.label.trimmingCharacters(in: .whitespaces)
+                return l.isEmpty ? b.trimmedPath : "\(l) — \(b.trimmedPath)"
+            }
+        case .forwards:
+            return profile.forwards.map { f in
+                let n = f.trimmedName
+                return n.isEmpty ? f.summary : "\(n): \(f.summary)"
+            }
+        case .envVars:
+            return profile.environment.map { "\($0.name)=\($0.value)" }
+        }
+    }
+
+    func count(in profile: SSHProfile) -> Int { items(in: profile).count }
+
+    /// Copy this collection from `source` into `dest`. `.replace` overwrites the
+    /// destination's list; `.merge` appends only items not already present.
+    /// Copied items get fresh ids so the two profiles keep independent entries.
+    func copy(from source: SSHProfile, into dest: inout SSHProfile, mode: PropagateMode) {
+        switch self {
+        case .snippets:
+            var incoming = source.snippets.map { s -> CommandSnippet in var c = s; c.id = UUID(); return c }
+            if mode == .merge {
+                let have = Set(dest.snippets.map { "\($0.label)\u{1}\($0.command)" })
+                incoming = incoming.filter { !have.contains("\($0.label)\u{1}\($0.command)") }
+                dest.snippets.append(contentsOf: incoming)
+            } else {
+                dest.snippets = incoming
+            }
+        case .links:
+            var incoming = source.links.map { l -> ProfileLink in var c = l; c.id = UUID(); return c }
+            if mode == .merge {
+                let have = Set(dest.links.map { "\($0.label)\u{1}\($0.url)" })
+                incoming = incoming.filter { !have.contains("\($0.label)\u{1}\($0.url)") }
+                dest.links.append(contentsOf: incoming)
+            } else {
+                dest.links = incoming
+            }
+        case .sftpPaths:
+            var incoming = source.sftpBookmarks.map { b -> SFTPBookmark in var c = b; c.id = UUID(); return c }
+            if mode == .merge {
+                let have = Set(dest.sftpBookmarks.map { $0.trimmedPath })
+                incoming = incoming.filter { !have.contains($0.trimmedPath) }
+                dest.sftpBookmarks.append(contentsOf: incoming)
+            } else {
+                dest.sftpBookmarks = incoming
+            }
+        case .forwards:
+            var incoming = source.forwards.map { f -> PortForward in var c = f; c.id = UUID(); return c }
+            if mode == .merge {
+                let have = Set(dest.forwards.map { $0.summary })
+                incoming = incoming.filter { !have.contains($0.summary) }
+                dest.forwards.append(contentsOf: incoming)
+            } else {
+                dest.forwards = incoming
+            }
+        case .envVars:
+            var incoming = source.environment.map { e -> EnvVar in var c = e; c.id = UUID(); return c }
+            if mode == .merge {
+                let have = Set(dest.environment.map { $0.name })
+                incoming = incoming.filter { !have.contains($0.name) }
+                dest.environment.append(contentsOf: incoming)
+            } else {
+                dest.environment = incoming
+            }
+        }
+    }
+}
+
+/// A dialog that previews one list-valued setting (saved commands, links, SFTP
+/// paths, port forwards or environment variables) from a chosen profile and
+/// copies it onto the profiles ticked in the compare table.
+struct PropagateCollectionView: View {
+    @EnvironmentObject var store: ProfileStore
+    @Environment(\.dismiss) private var dismiss
+
+    /// The profiles ticked in the compare table — the copy targets (a snapshot
+    /// taken when the dialog opened).
+    let targets: [SSHProfile]
+
+    @State private var kind: ProfileCollectionKind = .snippets
+    @State private var sourceID: UUID?
+    @State private var mode: PropagateMode = .merge
+    @State private var status = ""
+
+    init(targets: [SSHProfile], initialSourceID: UUID?) {
+        self.targets = targets
+        _sourceID = State(initialValue: initialSourceID)
+    }
+
+    private var source: SSHProfile? { store.profiles.first { $0.id == sourceID } }
+
+    /// Targets excluding the source profile itself.
+    private var effectiveTargets: [SSHProfile] { targets.filter { $0.id != sourceID } }
+
+    private var sourceIsTicked: Bool {
+        guard let sid = sourceID else { return false }
+        return targets.contains { $0.id == sid }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DialogHeader(
+                icon: "doc.on.doc",
+                title: "Copy Lists Between Profiles",
+                subtitle: "Pick a list and a profile to copy it from, then push it onto the ticked profiles."
+            )
+            .padding(16)
+            Divider()
+
+            VStack(alignment: .leading, spacing: 12) {
+                labelledRow("List") {
+                    Picker("List", selection: $kind) {
+                        ForEach(ProfileCollectionKind.allCases) { k in Text(k.rawValue).tag(k) }
+                    }
+                    .labelsHidden()
+                    .frame(width: 240)
+                    .onChange(of: kind) { _ in status = "" }
+                }
+
+                labelledRow("From") {
+                    Picker("From", selection: $sourceID) {
+                        Text("Choose a profile…").tag(UUID?.none)
+                        ForEach(store.profiles.filter { !$0.isLocal }) { p in
+                            Text(p.name).tag(UUID?.some(p.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 280)
+                }
+
+                GroupBox {
+                    preview
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+                .frame(minHeight: 150, maxHeight: .infinity)
+
+                labelledRow("Mode") {
+                    Picker("Mode", selection: $mode) {
+                        ForEach(PropagateMode.allCases) { m in Text(m.rawValue).tag(m) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 280)
+                }
+
+                Text(copyDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if !status.isEmpty {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+
+            Divider()
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                Button("Copy to Ticked Profiles") { apply() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(source == nil || effectiveTargets.isEmpty)
+            }
+            .padding(16)
+        }
+        .frame(minWidth: 480, idealWidth: 540, minHeight: 480, idealHeight: 560)
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        if let source {
+            let items = kind.items(in: source)
+            if items.isEmpty {
+                Text("“\(source.name)” has no \(kind.rawValue.lowercased()).")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(4)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(.callout, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(4)
+                }
+            }
+        } else {
+            Text("Pick a profile to preview its \(kind.rawValue.lowercased()).")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(4)
+        }
+    }
+
+    private var copyDescription: String {
+        let n = effectiveTargets.count
+        if n == 0 {
+            return sourceIsTicked
+                ? "Tick another profile to copy to (the source profile is skipped)."
+                : "Tick one or more profiles in the table to copy to."
+        }
+        let suffix = sourceIsTicked ? " (the source profile is skipped)" : ""
+        return "Copies to \(n) ticked profile(s)\(suffix)."
+    }
+
+    private func labelledRow<Content: View>(_ title: String,
+                                            @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .frame(width: 56, alignment: .leading)
+                .foregroundStyle(.secondary)
+            content()
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func apply() {
+        guard let src = source else { status = "Choose a profile to copy from."; return }
+        let dests = effectiveTargets
+        guard !dests.isEmpty else {
+            status = "Tick at least one other profile to copy to."
+            return
+        }
+        for var d in dests {
+            kind.copy(from: src, into: &d, mode: mode)
+            store.update(d)
+        }
+        status = "Copied \(kind.rawValue.lowercased()) to \(dests.count) profile(s)."
     }
 }
 

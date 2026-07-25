@@ -164,8 +164,11 @@ struct SFTPBrowserView: View {
     }
 
     /// The saved profile backing this SFTP tab, or nil for an ad-hoc connection.
+    /// Falls back to `autofillSourceProfileID` so tabs rebuilt inside a
+    /// profile-launched workspace (which are technically profile-free) still find
+    /// their profile's saved paths.
     private var profile: SSHProfile? {
-        guard let pid = session.profileID else { return nil }
+        guard let pid = session.profileID ?? session.autofillSourceProfileID else { return nil }
         return ProfileStore.shared.profiles.first { $0.id == pid }
     }
 
