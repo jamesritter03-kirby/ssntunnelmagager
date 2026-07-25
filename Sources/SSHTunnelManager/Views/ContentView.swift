@@ -20,6 +20,8 @@ struct ContentView: View {
     @ObservedObject private var editConnection = EditConnectionModel.shared
     @ObservedObject private var knownHosts = KnownHostsModel.shared
     @ObservedObject private var addForward = AddForwardModel.shared
+    @ObservedObject private var gitSync = GitSyncModel.shared
+    @ObservedObject private var profileCompare = ProfileComparisonModel.shared
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebar.columnVisibility) {
@@ -123,10 +125,8 @@ struct ContentView: View {
             RemoteConnectionView(model: remoteConnection)
                 .environmentObject(sessions)
         }
-        .sheet(isPresented: $zerotier.isPresented) {
-            ZeroTierBrowserView()
-                .environmentObject(sessions)
-        }
+        .modifier(ZeroTierPanelPresenter(isPresented: $zerotier.isPresented,
+                                         sessions: sessions))
         .sheet(isPresented: $networkBrowser.isPresented) {
             NetworkBrowserView()
         }
@@ -136,6 +136,14 @@ struct ContentView: View {
         .sheet(isPresented: $addForward.isPresented) {
             AddForwardView(model: addForward)
                 .environmentObject(sessions)
+        }
+        .sheet(isPresented: $gitSync.isPresented) {
+            GitSyncView()
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $profileCompare.isPresented) {
+            ProfileComparisonView()
+                .environmentObject(store)
         }
         .alert("Save changes to this profile before quitting?",
                isPresented: $editCoordinator.showQuitConfirmation) {
@@ -149,7 +157,34 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Reliable sidebar toggle
+// MARK: - ZeroTier slide-out panel
+//
+// On macOS 14+ the ZeroTier browser is presented as a native right-hand
+// `inspector` — a resizable slide-out panel matching the cross-platform app.
+// On macOS 13 it falls back to a modal sheet.
+
+/// Hosts `ZeroTierBrowserView` as an inspector panel (macOS 14+) or a sheet.
+private struct ZeroTierPanelPresenter: ViewModifier {
+    @Binding var isPresented: Bool
+    let sessions: TerminalSessionManager
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content.inspector(isPresented: $isPresented) {
+                ZeroTierBrowserView(presentation: .panel)
+                    .environmentObject(sessions)
+                    .inspectorColumnWidth(min: 340, ideal: 440, max: 760)
+            }
+        } else {
+            content.sheet(isPresented: $isPresented) {
+                ZeroTierBrowserView()
+                    .environmentObject(sessions)
+            }
+        }
+    }
+}
+
+
 //
 // `NavigationSplitView` auto-injects a show/hide-sidebar button into the toolbar,
 // but AppKit sometimes drops it (e.g. after the sidebar is collapsed by dragging

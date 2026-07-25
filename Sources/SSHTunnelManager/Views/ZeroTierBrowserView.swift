@@ -21,11 +21,23 @@ private enum NetworkFilter: Hashable {
     case network(String)
 }
 
+/// How `ZeroTierBrowserView` is being hosted. A modal `sheet` (the macOS 13
+/// fallback) wants a wide side-by-side layout; a right-hand `panel` (the macOS
+/// 14+ inspector, matching the cross-platform app) is narrow and stacks its
+/// content vertically with a compact network picker.
+enum ZeroTierPresentation {
+    case sheet
+    case panel
+}
+
 /// Browse the devices (members) across all of your ZeroTier networks and connect
 /// (SSH / SFTP / VNC) straight to any of their managed IP addresses. The account
 /// API token is stored in the Keychain; networks and members come from the
 /// ZeroTier Central API.
 struct ZeroTierBrowserView: View {
+    /// Whether this is hosted as a wide modal sheet or a narrow slide-out panel.
+    var presentation: ZeroTierPresentation = .sheet
+
     @ObservedObject var store = ZeroTierStore.shared
     @EnvironmentObject var sessions: TerminalSessionManager
     @Environment(\.dismiss) private var dismiss
@@ -33,7 +45,10 @@ struct ZeroTierBrowserView: View {
     /// The left-list selection (“All Networks” or one network).
     @State private var selection: NetworkFilter = .all
     @State private var search = ""
-    @State private var onlineOnly = false
+    @AppStorage("zeroTierOnlineOnly") private var onlineOnly = false
+    /// Show only networks this Mac has actually joined (matches the cross-platform
+    /// "Member of" filter switch). Persisted across launches.
+    @AppStorage("zeroTierMemberOfOnly") private var memberOfOnly = false
     /// The "Connect as" username, remembered across launches. Defaults to the
     /// macOS login name until the user changes it.
     @AppStorage("zeroTierConnectAsUsername") private var username = NSUserName()
@@ -72,13 +87,7 @@ struct ZeroTierBrowserView: View {
                 accountsManager
             }
         }
-        // A flexible max lets the macOS sheet be dragged larger (and smaller,
-        // down to the mins) instead of locking at the ideal size.
-        .frame(minWidth: 780, idealWidth: 900, maxWidth: .infinity,
-               minHeight: 540, idealHeight: 660, maxHeight: .infinity)
-        // SwiftUI sheets are fixed-size on macOS; this makes the hosting sheet
-        // window user-resizable so the frame's flexible max actually applies.
-        .background(ResizableSheet())
+        .modifier(PresentationFrame(presentation: presentation))
         .task { await store.loadIfNeeded() }
         .task { await store.refreshLocalNode() }
         .onAppear { store.beginAutoRefresh() }
@@ -106,18 +115,99 @@ struct ZeroTierBrowserView: View {
     private var browser: some View {
         VStack(spacing: 0) {
             header
-            if store.localNodeAvailable {
+            if store.localNodeAvailable && presentation == .sheet {
                 Divider()
                 localNodeStrip
             }
             Divider()
-            HStack(spacing: 0) {
-                networkList
-                Divider()
-                memberPane
+            if presentation == .panel {
+                panelBody
+            } else {
+                HStack(spacing: 0) {
+                    networkList
+                    Divider()
+                    memberPane
+                }
             }
             Divider()
             footer
+        }
+        .onChange(of: memberOfOnly) { _ in resetSelectionIfHidden() }
+    }
+
+    // Narrow slide-out layout: a compact network picker on top of the member
+    // list, with the filters stacked vertically so nothing clips.
+    private var panelBody: some View {
+        VStack(spacing: 0) {
+            panelToolbar
+            Divider()
+            if let error = store.lastError {
+                errorBanner(error)
+            }
+            memberContent
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var panelToolbar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Filter by name, node id or IP", text: $search)
+                    .textFieldStyle(.plain)
+                if !search.isEmpty {
+                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            filterSegments
+            HStack(spacing: 6) {
+                Text("Network").font(.caption).foregroundStyle(.secondary)
+                Picker("Network", selection: $selection) {
+                    Text("All Networks").tag(NetworkFilter.all)
+                    ForEach(panelVisibleNetworks) { net in
+                        Text(net.displayName).tag(NetworkFilter.network(net.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            connectAsRow
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .onAppear { loadSavedPassword() }
+    }
+
+    /// The two segmented filter switches: All/Online devices and, when this Mac
+    /// runs ZeroTier, All/Member-of networks (mirrors the cross-platform app).
+    private var filterSegments: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 6) {
+                Text("Devices").font(.caption).foregroundStyle(.secondary)
+                Picker("Devices", selection: $onlineOnly) {
+                    Text("All").tag(false)
+                    Text("Online").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            if store.localNodeAvailable {
+                HStack(spacing: 6) {
+                    Text("Networks").font(.caption).foregroundStyle(.secondary)
+                    Picker("Networks", selection: $memberOfOnly) {
+                        Text("All").tag(false)
+                        Text("Member of").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .help("Show only networks this Mac has joined")
+                }
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -296,7 +386,7 @@ struct ZeroTierBrowserView: View {
 
             ForEach(store.accounts) { account in
                 Section(account.displayLabel) {
-                    let nets = store.networks(for: account.id)
+                    let nets = visibleNetworks(for: account.id)
                     if nets.isEmpty {
                         Text(store.isLoadingNetworks ? "Loading…" : "No networks")
                             .font(.caption)
@@ -415,49 +505,50 @@ struct ZeroTierBrowserView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                 }
-                Toggle("Online only", isOn: $onlineOnly)
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .fixedSize()
+                filterSegments
             }
-            HStack(spacing: 8) {
-                Text("Connect as").font(.caption).foregroundStyle(.secondary)
-                TextField("username", text: $username)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 150)
-                    .onChange(of: username) { _ in loadSavedPassword() }
-                    .help("The username used for SSH / SFTP connections. It's remembered for next time.")
-                Group {
-                    if showPassword {
-                        TextField("password (optional)", text: $password)
-                    } else {
-                        SecureField("password (optional)", text: $password)
-                    }
-                }
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 150)
-                Button {
-                    showPassword.toggle()
-                } label: {
-                    Image(systemName: showPassword ? "eye.slash" : "eye")
-                }
-                .buttonStyle(.borderless)
-                .help(showPassword ? "Hide password" : "Show password")
-                Button {
-                    saveOrClearPassword()
-                } label: {
-                    Image(systemName: "key.fill")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .help("Save this password to your Keychain (or clear it when empty)")
-                Text("for SSH / SFTP").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-            }
+            connectAsRow
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .onAppear { loadSavedPassword() }
+    }
+
+    private var connectAsRow: some View {
+        HStack(spacing: 8) {
+            Text("Connect as").font(.caption).foregroundStyle(.secondary)
+            TextField("username", text: $username)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 150)
+                .onChange(of: username) { _ in loadSavedPassword() }
+                .help("The username used for SSH / SFTP connections. It's remembered for next time.")
+            Group {
+                if showPassword {
+                    TextField("password (optional)", text: $password)
+                } else {
+                    SecureField("password (optional)", text: $password)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 150)
+            Button {
+                showPassword.toggle()
+            } label: {
+                Image(systemName: showPassword ? "eye.slash" : "eye")
+            }
+            .buttonStyle(.borderless)
+            .help(showPassword ? "Hide password" : "Show password")
+            Button {
+                saveOrClearPassword()
+            } label: {
+                Image(systemName: "key.fill")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Save this password to your Keychain (or clear it when empty)")
+            Text("for SSH / SFTP").font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        }
     }
 
     @ViewBuilder
@@ -594,7 +685,7 @@ struct ZeroTierBrowserView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Done") { dismiss() }
+            Button("Done") { close() }
                 .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 16)
@@ -848,8 +939,36 @@ struct ZeroTierBrowserView: View {
     }
 
     /// All cached members across every network, tagged with their network.
+    /// Honors the "Member of" network filter.
     private var allMembers: [ZeroTierMember] {
-        store.networks.flatMap { store.membersByNetwork[$0.id] ?? [] }
+        visibleNetworkList.flatMap { store.membersByNetwork[$0.id] ?? [] }
+    }
+
+    /// The networks visible under the current "Member of" filter.
+    private var visibleNetworkList: [ZeroTierNetwork] {
+        guard memberOfOnly else { return store.networks }
+        return store.networks.filter { store.localStatus(for: $0.id) != nil }
+    }
+
+    /// Networks for one account, filtered by the "Member of" switch.
+    private func visibleNetworks(for accountId: UUID) -> [ZeroTierNetwork] {
+        let nets = store.networks(for: accountId)
+        guard memberOfOnly else { return nets }
+        return nets.filter { store.localStatus(for: $0.id) != nil }
+    }
+
+    /// Networks offered in the compact panel picker (respecting "Member of").
+    private var panelVisibleNetworks: [ZeroTierNetwork] {
+        visibleNetworkList
+    }
+
+    /// If the "Member of" filter hides the currently selected network, fall back
+    /// to "All Networks" so the member list isn't stuck on a hidden selection.
+    private func resetSelectionIfHidden() {
+        guard let id = selectedNetworkID else { return }
+        if store.localStatus(for: id) == nil {
+            selection = .all
+        }
     }
 
     /// Members for the current network selection, after the search / online filter.
@@ -926,6 +1045,38 @@ struct ZeroTierBrowserView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(Color.orange.opacity(0.12))
+    }
+
+    /// Close whether hosted as a sheet or a slide-out inspector panel. Clearing
+    /// the shared model's flag collapses the inspector; `dismiss()` handles the
+    /// sheet fallback.
+    private func close() {
+        ZeroTierBrowserModel.shared.isPresented = false
+        dismiss()
+    }
+}
+
+/// Applies the right sizing for each host: a wide, user-resizable window for the
+/// modal sheet, or a flexible fill for the narrow inspector panel.
+private struct PresentationFrame: ViewModifier {
+    let presentation: ZeroTierPresentation
+
+    func body(content: Content) -> some View {
+        switch presentation {
+        case .sheet:
+            content
+                // A flexible max lets the macOS sheet be dragged larger (and
+                // smaller, down to the mins) instead of locking at ideal size.
+                .frame(minWidth: 780, idealWidth: 900, maxWidth: .infinity,
+                       minHeight: 540, idealHeight: 660, maxHeight: .infinity)
+                // SwiftUI sheets are fixed-size on macOS; this makes the hosting
+                // sheet window user-resizable so the flexible max applies.
+                .background(ResizableSheet())
+        case .panel:
+            content
+                .frame(minWidth: 320, maxWidth: .infinity,
+                       maxHeight: .infinity)
+        }
     }
 }
 

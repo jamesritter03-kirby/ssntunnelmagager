@@ -115,6 +115,10 @@ struct SSHTunnelManagerApp: App {
                     ProfileTransfer.exportFlow(store.profiles, suggestedName: "SSH Tunnels.json")
                 }
                 .disabled(store.profiles.isEmpty)
+                Divider()
+                Button("Compare & Bulk Edit Profiles…") { ProfileComparisonModel.shared.present() }
+                    .disabled(store.profiles.isEmpty)
+                Button("Sync Profiles with Git…") { GitSyncModel.shared.present() }
             }
             CommandMenu("Commands") {
                 Button("Command Palette…") { CommandPaletteModel.shared.show() }

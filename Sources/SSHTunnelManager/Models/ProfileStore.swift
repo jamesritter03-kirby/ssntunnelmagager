@@ -36,6 +36,16 @@ final class ProfileStore: ObservableObject {
     /// Absolute path of the profiles file (shown in the UI / README).
     var storagePath: String { fileURL.path }
 
+    /// Re-read `profiles.json` from disk, replacing the in-memory list. Used after
+    /// an external tool (e.g. the Git sync Pull) overwrites the file. Unlike the
+    /// private `load()`, this never re-seeds the example profiles.
+    func reloadFromDisk() {
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([SSHProfile].self, from: data) {
+            profiles = decoded
+        }
+    }
+
     private func load() {
         isLoading = true
         defer { isLoading = false }
