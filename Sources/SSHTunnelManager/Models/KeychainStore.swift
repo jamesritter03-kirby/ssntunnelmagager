@@ -115,8 +115,12 @@ final class KeychainStore {
     /// second request while a prompt is showing joins it instead of starting a
     /// competing prompt.
     private var pendingAuthWaiters: [UUID: [(Result<String, Error>) -> Void]] = [:]
-    /// How long an unlocked secret is reused without re-prompting.
-    private let authCacheTTL: TimeInterval = 60
+    /// How long an unlocked secret is reused without re-prompting. Kept long
+    /// enough that one Touch ID unlocks a profile for a whole working session of
+    /// reconnects (users found a 1-minute window meant re-authenticating almost
+    /// every connection); the secret is still dropped on password change/removal
+    /// and never persisted to disk.
+    private let authCacheTTL: TimeInterval = 60 * 30
 
     /// Drop any cached unlock for an id (on password change / removal).
     private func invalidateCachedSecret(for id: UUID) {
@@ -189,16 +193,61 @@ final class KeychainStore {
 
             let context = LAContext()
             var error: NSError?
-            // .deviceOwnerAuthentication = Touch ID, falling back to the login password.
-            if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
-                context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { [weak self] success, _ in
+            // Prefer the biometric sheet (Touch ID) so the user actually gets a
+            // fingerprint prompt. `.deviceOwnerAuthentication` lets macOS fall
+            // straight to a login-password dialog in many states, which is what
+            // users were seeing "a bunch" instead of the fingerprint. Only when
+            // biometrics genuinely aren't available do we fall back to the
+            // Touch-ID-or-password policy (and then to a direct read).
+            if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
+                context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { [weak self] success, evalError in
                     guard let self else { return }
-                    deliver(success ? self.rawRead(for: id) : .failure(KeychainError.authenticationFailed))
+                    if success {
+                        deliver(self.rawRead(for: id))
+                    } else if Self.shouldFallBackToPasscode(evalError) {
+                        // Biometry unavailable/locked-out at evaluation time
+                        // (e.g. too many failed scans) — offer the passcode path.
+                        self.evaluateWithPasscode(id: id, reason: reason, deliver: deliver)
+                    } else {
+                        // Genuine cancel/failure — don't silently read.
+                        deliver(.failure(KeychainError.authenticationFailed))
+                    }
                 }
+            } else if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
+                self.evaluateWithPasscode(id: id, reason: reason, deliver: deliver)
             } else {
                 // No biometrics or passcode configured — read directly.
                 deliver(self.rawRead(for: id))
             }
+        }
+    }
+
+    /// Whether a failed biometric evaluation should fall back to the Touch-ID-or-
+    /// passcode sheet rather than being treated as a user cancel. Biometry being
+    /// unavailable or locked out is a fall-back case; an explicit cancel is not.
+    private static func shouldFallBackToPasscode(_ error: Error?) -> Bool {
+        guard let code = (error as? LAError)?.code else { return false }
+        switch code {
+        case .biometryNotAvailable, .biometryNotEnrolled, .biometryLockout:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Evaluate the Touch-ID-or-login-password policy and deliver the secret.
+    private func evaluateWithPasscode(id: UUID,
+                                      reason: String,
+                                      deliver: @escaping (Result<String, Error>) -> Void) {
+        let context = LAContext()
+        var error: NSError?
+        if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
+            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { [weak self] success, _ in
+                guard let self else { return }
+                deliver(success ? self.rawRead(for: id) : .failure(KeychainError.authenticationFailed))
+            }
+        } else {
+            deliver(self.rawRead(for: id))
         }
     }
 

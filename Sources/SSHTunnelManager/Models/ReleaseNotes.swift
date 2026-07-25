@@ -45,11 +45,21 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.59", build: 69, date: "Jul 25, 2026",
+            highlights: [
+                "Fewer password prompts: connecting now shows the Touch ID fingerprint sheet (instead of dropping to a login-password dialog), and one unlock is reused for 30 minutes so reconnecting the same profile doesn't keep asking.",
+                "Unify passwords in the bulk profile editor: tick a group of profiles, type one password and choose whether Touch ID is required, then Set on Selected to store it on all of them at once (or Clear on Selected to remove it).",
+                "Saving a workspace of ad-hoc tabs as a profile now stores one shared password on the profile, so relaunching it asks once instead of once per tab.",
+                "Bulk profile editor: the frozen first column can now be dragged all the way down to its minimum width (it no longer sticks around half the window).",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.58", build: 68, date: "Jul 25, 2026",
             highlights: [
                 "Terminal tabs now show a red record indicator while session logging is on, so you can see at a glance which terminals are being recorded — on both the tab and its docked header.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.57", build: 67, date: "Jul 25, 2026",

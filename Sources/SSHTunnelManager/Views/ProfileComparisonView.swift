@@ -192,6 +192,12 @@ struct ProfileComparisonView: View {
     @State private var optionValue: String = ""
     @State private var status: String = ""
 
+    /// The shared password typed into the "unify passwords" row.
+    @State private var passwordValue: String = ""
+    /// Whether the ticked profiles should require Touch ID before using the
+    /// password that's applied to them.
+    @State private var passwordRequireAuth: Bool = true
+
     @ObservedObject private var columnWidths = ComparisonColumnWidths.shared
     /// Width of each column at the moment a resize drag began, keyed by column.
     @State private var dragStartWidth: [String: CGFloat] = [:]
@@ -263,7 +269,7 @@ struct ProfileComparisonView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 0) {
                         Color.clear.frame(width: 28)
-                        resizableHeader("Profile", key: "Profile")
+                        columnHeader("Profile", width: columnWidths.width(for: "Profile"))
                     }
                     .background(Color(nsColor: .underPageBackgroundColor))
 
@@ -291,7 +297,11 @@ struct ProfileComparisonView: View {
                     }
                 }
 
-                Divider()
+                // Full-height handle on the frozen column's edge: drag anywhere
+                // down the boundary to resize the pinned Profile column (its own
+                // header sits flush against the scroll area, so a boundary handle
+                // is easier to grab than a header-only one).
+                resizeHandle(for: "Profile")
 
                 // Horizontally-scrolling columns.
                 ScrollView(.horizontal) {
@@ -338,20 +348,23 @@ struct ProfileComparisonView: View {
     /// and persists the column's width.
     private func resizableHeader(_ title: String, key: String) -> some View {
         columnHeader(title, width: columnWidths.width(for: key))
-            .overlay(alignment: .trailing) {
-                ColumnResizeHandle(
-                    onChanged: { delta in
-                        if dragStartWidth[key] == nil {
-                            dragStartWidth[key] = columnWidths.width(for: key)
-                        }
-                        let start = dragStartWidth[key] ?? columnWidths.width(for: key)
-                        columnWidths.setWidth(start + delta, for: key)
-                    },
-                    onEnded: {
-                        dragStartWidth[key] = nil
-                        columnWidths.save()
-                    })
-            }
+            .overlay(alignment: .trailing) { resizeHandle(for: key) }
+    }
+
+    /// A draggable handle that resizes and persists the width of column `key`.
+    private func resizeHandle(for key: String) -> some View {
+        ColumnResizeHandle(
+            onChanged: { delta in
+                if dragStartWidth[key] == nil {
+                    dragStartWidth[key] = columnWidths.width(for: key)
+                }
+                let start = dragStartWidth[key] ?? columnWidths.width(for: key)
+                columnWidths.setWidth(start + delta, for: key)
+            },
+            onEnded: {
+                dragStartWidth[key] = nil
+                columnWidths.save()
+            })
     }
 
     private func columnHeader(_ title: String, width: CGFloat) -> some View {
@@ -418,6 +431,28 @@ struct ProfileComparisonView: View {
                     .buttonStyle(.borderedProminent)
             }
 
+            Divider()
+
+            // Unify passwords: store one password on every ticked profile at once,
+            // so a set of boxes that share a login can be set up together. Each
+            // profile keeps its own Keychain entry (Touch-ID gated by default), so
+            // autofill works the same as a password typed in the profile editor.
+            HStack(spacing: 8) {
+                Text("Password")
+                    .foregroundStyle(.secondary)
+                SecureField("shared password", text: $passwordValue)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+                Toggle("Require Touch ID", isOn: $passwordRequireAuth)
+                    .toggleStyle(.checkbox)
+                    .help("Ask for Touch ID / your login password before the saved password is used")
+                Button("Set on Selected") { applyPassword() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(passwordValue.isEmpty)
+                Button("Clear on Selected") { clearPasswords() }
+                    .help("Remove the saved password from every ticked profile")
+            }
+
             if !status.isEmpty {
                 Text(status)
                     .font(.caption)
@@ -465,6 +500,46 @@ struct ProfileComparisonView: View {
         }
         status = "Applied \(field.name) = \"\(value)\" to \(targets.count) profile(s)."
     }
+
+    /// Store the typed password on every ticked remote profile (each keeps its own
+    /// Keychain entry), setting its Touch-ID requirement to match the toggle. Local
+    /// profiles are skipped — they have nothing to authenticate.
+    private func applyPassword() {
+        let password = passwordValue
+        guard !password.isEmpty else {
+            status = "Type a password to set."
+            return
+        }
+        let targets = rows.filter { selected.contains($0.id) && !$0.isLocal }
+        guard !targets.isEmpty else {
+            status = "No remote profiles selected — tick one or more rows first."
+            return
+        }
+        var applied = 0
+        for var profile in targets {
+            guard KeychainStore.shared.setPassword(password, for: profile.id) else { continue }
+            profile.requireAuthForSavedPassword = passwordRequireAuth
+            store.update(profile)
+            applied += 1
+        }
+        passwordValue = ""
+        status = "Set a shared password on \(applied) profile(s)."
+    }
+
+    /// Remove the saved password from every ticked remote profile.
+    private func clearPasswords() {
+        let targets = rows.filter { selected.contains($0.id) && !$0.isLocal }
+        guard !targets.isEmpty else {
+            status = "No remote profiles selected — tick one or more rows first."
+            return
+        }
+        var cleared = 0
+        for profile in targets where KeychainStore.shared.hasPassword(for: profile.id) {
+            KeychainStore.shared.deletePassword(for: profile.id)
+            cleared += 1
+        }
+        status = "Cleared the saved password from \(cleared) profile(s)."
+    }
 }
 
 /// A slim draggable handle sitting on a column's trailing edge. Dragging it
@@ -488,7 +563,7 @@ private struct ColumnResizeHandle: View {
         .overlay(ColumnResizeCursorRect())
         .onHover { hovering = $0 }
         .gesture(
-            DragGesture(minimumDistance: 0)
+            DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { onChanged($0.translation.width) }
                 .onEnded { _ in onEnded() }
         )

@@ -2369,10 +2369,42 @@ final class TerminalSessionManager: ObservableObject {
         // profile / forward, so they're skipped. `savedWorkspaces[ti].tabs` is
         // built from the same `ws.tabIDs` order as `liveTabs`, so they line up.
         if let ti = savedWorkspaces.firstIndex(where: { $0.id == templateID }) {
+            // Gather each profile-free tab's directly-typed password.
+            var capturedByIndex: [Int: String] = [:]
             for i in savedWorkspaces[ti].tabs.indices {
                 guard savedWorkspaces[ti].tabs[i].profileID == nil,
                       i < liveTabs.count,
                       let pw = capturedAdHocPassword(for: liveTabs[i]), !pw.isEmpty else { continue }
+                capturedByIndex[i] = pw
+            }
+
+            // Unify: the tabs saved into one workspace profile almost always reach
+            // the same box with the same password. Store that shared secret ONCE on
+            // the profile itself so every profile-free tab autofills from it — a
+            // single Touch ID unlock (coalesced across the tabs) covers the whole
+            // workspace — instead of a separate per-tab credential, which made each
+            // tab prompt on its own when the profile was relaunched.
+            let primaryPassword: String? = {
+                // A real remote profile already carries its own saved password
+                // (copied by cloneConnection); reuse it as the shared secret.
+                if let existing = KeychainStore.shared.readPassword(for: profile.id),
+                   !existing.isEmpty {
+                    return existing
+                }
+                // Otherwise adopt the most common captured ad-hoc password and
+                // store it on the profile so the launcher becomes autofill-capable.
+                let counts = Dictionary(capturedByIndex.values.map { ($0, 1) },
+                                        uniquingKeysWith: +)
+                guard let best = counts.max(by: { $0.value < $1.value })?.key else { return nil }
+                return KeychainStore.shared.setPassword(best, for: profile.id) ? best : nil
+            }()
+
+            for (i, pw) in capturedByIndex {
+                // A tab that shares the profile's password needs no credential of
+                // its own — it autofills from the profile (one coalesced prompt).
+                if let primary = primaryPassword, pw == primary { continue }
+                // A tab with a *different* password (e.g. a second host) keeps its
+                // own stored credential and reconnects silently from it.
                 let credentialID = UUID()
                 if KeychainStore.shared.setPassword(pw, for: credentialID) {
                     savedWorkspaces[ti].tabs[i].credentialID = credentialID
