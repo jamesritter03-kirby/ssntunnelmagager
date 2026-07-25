@@ -199,53 +199,80 @@ struct ProfileComparisonView: View {
     // MARK: - Table
 
     private var comparisonTable: some View {
-        ScrollView([.horizontal, .vertical]) {
-            VStack(alignment: .leading, spacing: 0) {
-                // Column headers
-                HStack(spacing: 0) {
-                    Color.clear.frame(width: 28)
-                    columnHeader("Profile", width: nameWidth)
-                    columnHeader("Host", width: hostWidth)
-                    ForEach(ProfileField.all) { field in
-                        columnHeader(field.name, width: cellWidth)
+        // The first column (checkbox + profile name) stays pinned while the Host
+        // and setting columns scroll horizontally. Both halves live in the same
+        // vertical ScrollView, so they scroll up/down together and stay row-aligned.
+        ScrollView(.vertical) {
+            HStack(spacing: 0) {
+                // Frozen first column.
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 0) {
+                        Color.clear.frame(width: 28)
+                        columnHeader("Profile", width: nameWidth)
+                    }
+                    .background(Color(nsColor: .underPageBackgroundColor))
+
+                    Divider()
+
+                    ForEach(rows) { profile in
+                        HStack(spacing: 0) {
+                            Toggle("", isOn: binding(for: profile.id))
+                                .labelsHidden()
+                                .frame(width: 28)
+                            HStack(spacing: 5) {
+                                Image(systemName: profile.displayIcon)
+                                    .foregroundStyle(.secondary)
+                                Text(profile.name)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            .frame(width: nameWidth, alignment: .leading)
+                            .padding(.horizontal, 8)
+                        }
+                        .frame(height: 30)
+                        .background(selected.contains(profile.id)
+                                    ? Color.accentColor.opacity(0.12) : Color.clear)
+                        Divider()
                     }
                 }
-                .background(Color(nsColor: .underPageBackgroundColor))
 
                 Divider()
 
-                ForEach(rows) { profile in
-                    HStack(spacing: 0) {
-                        Toggle("", isOn: binding(for: profile.id))
-                            .labelsHidden()
-                            .frame(width: 28)
-                        HStack(spacing: 5) {
-                            Image(systemName: profile.displayIcon)
-                                .foregroundStyle(.secondary)
-                            Text(profile.name)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                // Horizontally-scrolling columns.
+                ScrollView(.horizontal) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(spacing: 0) {
+                            columnHeader("Host", width: hostWidth)
+                            ForEach(ProfileField.all) { field in
+                                columnHeader(field.name, width: cellWidth)
+                            }
                         }
-                        .frame(width: nameWidth, alignment: .leading)
-                        .padding(.horizontal, 8)
-                        Text(profile.isLocal ? "local shell" : profile.subtitle)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(width: hostWidth, alignment: .leading)
-                            .padding(.horizontal, 8)
-                        ForEach(ProfileField.all) { field in
-                            Text(field.get(profile))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(width: cellWidth, alignment: .leading)
-                                .padding(.horizontal, 8)
+                        .background(Color(nsColor: .underPageBackgroundColor))
+
+                        Divider()
+
+                        ForEach(rows) { profile in
+                            HStack(spacing: 0) {
+                                Text(profile.isLocal ? "local shell" : profile.subtitle)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(width: hostWidth, alignment: .leading)
+                                    .padding(.horizontal, 8)
+                                ForEach(ProfileField.all) { field in
+                                    Text(field.get(profile))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .frame(width: cellWidth, alignment: .leading)
+                                        .padding(.horizontal, 8)
+                                }
+                            }
+                            .frame(height: 30)
+                            .background(selected.contains(profile.id)
+                                        ? Color.accentColor.opacity(0.12) : Color.clear)
+                            Divider()
                         }
                     }
-                    .frame(height: 30)
-                    .background(selected.contains(profile.id)
-                                ? Color.accentColor.opacity(0.12) : Color.clear)
-                    Divider()
                 }
             }
             .font(.callout)
