@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
@@ -60,6 +61,19 @@ public partial class HelpWindow : Window
                 panel.Children.Add(Body(p.Text));
                 break;
 
+            case HelpHeading h:
+                var heading = new TextBlock
+                {
+                    FontSize = 15,
+                    FontWeight = FontWeight.SemiBold,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Avalonia.Thickness(0, 12, 0, 2),
+                };
+                heading.Text = StripMarkup(h.Text);
+                DynFg(heading, "AppTextBrush");
+                panel.Children.Add(heading);
+                break;
+
             case HelpBullets b:
                 foreach (var item in b.Items)
                     panel.Children.Add(Bullet("•", item));
@@ -74,9 +88,10 @@ public partial class HelpWindow : Window
             case HelpTip t:
                 var tipText = new TextBlock
                 {
-                    Text = "Tip: " + t.Text,
                     TextWrapping = TextWrapping.Wrap,
                 };
+                tipText.Inlines?.Add(new Run("Tip:  ") { FontWeight = FontWeight.Bold });
+                AppendInlines(tipText, t.Text, null);
                 DynFg(tipText, "AppTipTextBrush");
                 var tip = new Border
                 {
@@ -132,10 +147,10 @@ public partial class HelpWindow : Window
     {
         var tb = new TextBlock
         {
-            Text = text,
             TextWrapping = TextWrapping.Wrap,
             LineHeight = 20,
         };
+        AppendInlines(tb, text, null);
         DynFg(tb, "AppTextBrush");
         return tb;
     }
@@ -152,9 +167,9 @@ public partial class HelpWindow : Window
         Grid.SetColumn(m, 0);
         var t = new TextBlock
         {
-            Text = text,
             TextWrapping = TextWrapping.Wrap,
         };
+        AppendInlines(t, text, null);
         DynFg(t, "AppTextBrush");
         Grid.SetColumn(t, 1);
         grid.Children.Add(m);
@@ -162,4 +177,58 @@ public partial class HelpWindow : Window
         grid.Margin = new Avalonia.Thickness(8, 1, 0, 1);
         return grid;
     }
+
+    private static readonly FontFamily MonoFont = new("Menlo, Consolas, monospace");
+
+    /// <summary>Parse a small subset of Markdown emphasis — **bold** and `code` — into
+    /// styled inline runs so help text can highlight commands, menu names and key terms.</summary>
+    private static void AppendInlines(TextBlock target, string text, string? _)
+    {
+        if (target.Inlines is not { } inlines) return;
+        var i = 0;
+        while (i < text.Length)
+        {
+            // Bold: **...**
+            if (text[i] == '*' && i + 1 < text.Length && text[i + 1] == '*')
+            {
+                var end = text.IndexOf("**", i + 2, System.StringComparison.Ordinal);
+                if (end > i + 1)
+                {
+                    inlines.Add(new Run(text.Substring(i + 2, end - (i + 2))) { FontWeight = FontWeight.Bold });
+                    i = end + 2;
+                    continue;
+                }
+            }
+            // Inline code: `...`
+            if (text[i] == '`')
+            {
+                var end = text.IndexOf('`', i + 1);
+                if (end > i)
+                {
+                    var run = new Run(text.Substring(i + 1, end - (i + 1))) { FontFamily = MonoFont };
+                    run[!Run.ForegroundProperty] = new DynamicResourceExtension("AppAccentBrush");
+                    inlines.Add(run);
+                    i = end + 1;
+                    continue;
+                }
+            }
+            // Plain run up to the next marker.
+            var next = text.Length;
+            for (var j = i; j < text.Length; j++)
+            {
+                if (text[j] == '`' || (text[j] == '*' && j + 1 < text.Length && text[j + 1] == '*'))
+                {
+                    next = j;
+                    break;
+                }
+            }
+            if (next == i) next = i + 1; // safety against stalls
+            inlines.Add(new Run(text.Substring(i, next - i)));
+            i = next;
+        }
+    }
+
+    /// <summary>Remove **/` markers for contexts that render plain text (headings).</summary>
+    private static string StripMarkup(string text)
+        => text.Replace("**", string.Empty).Replace("`", string.Empty);
 }

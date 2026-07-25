@@ -386,8 +386,12 @@ public sealed class TerminalControl : Control
 
     private (int cols, int rows) ComputeGrid()
     {
-        var w = Bounds.Width > 0 ? Bounds.Width : _arrangedSize.Width;
-        var h = Bounds.Height > 0 ? Bounds.Height : _arrangedSize.Height;
+        // Prefer the freshly arranged size over Bounds: during ArrangeOverride,
+        // Bounds still holds the *previous* layout's size (it isn't updated until
+        // after ArrangeOverride returns), so reading Bounds here would launch/resize
+        // the PTY at a stale size. _arrangedSize is always at least as fresh.
+        var w = _arrangedSize.Width > 0 ? _arrangedSize.Width : Bounds.Width;
+        var h = _arrangedSize.Height > 0 ? _arrangedSize.Height : Bounds.Height;
         var cols = Math.Max(1, (int)(w / _charW));
         var rows = Math.Max(1, (int)(h / _lineH));
         return (cols, rows);
@@ -395,10 +399,41 @@ public sealed class TerminalControl : Control
 
     private void ResizeToBounds()
     {
-        var w = Bounds.Width > 0 ? Bounds.Width : _arrangedSize.Width;
-        var h = Bounds.Height > 0 ? Bounds.Height : _arrangedSize.Height;
+        var w = _arrangedSize.Width > 0 ? _arrangedSize.Width : Bounds.Width;
+        var h = _arrangedSize.Height > 0 ? _arrangedSize.Height : Bounds.Height;
         if (w <= 0 || h <= 0) return;
         var (cols, rows) = ComputeGrid();
+        if (cols == _emu.Cols && rows == _emu.Rows) return;
+        // Coalesce rapid resizes. Window/drawer open animations arrange this
+        // control dozens of times over a few hundred ms; applying every frame
+        // fires a SIGWINCH storm at the shell (each one triggers a full zsh
+        // prompt redraw with a PROMPT_SP space run), and typing during that churn
+        // can leave the screen half-drawn or blank. Debouncing collapses the storm
+        // into a single resize once the size settles. Runs on the UI thread
+        // (ArrangeOverride), so DispatcherTimer is safe.
+        _pendingResizeCols = cols;
+        _pendingResizeRows = rows;
+        if (_resizeDebounce == null)
+        {
+            _resizeDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(90) };
+            _resizeDebounce.Tick += (_, _) =>
+            {
+                _resizeDebounce!.Stop();
+                ApplyPendingResize();
+            };
+        }
+        _resizeDebounce.Stop();
+        _resizeDebounce.Start();
+    }
+
+    private int _pendingResizeCols, _pendingResizeRows;
+    private DispatcherTimer? _resizeDebounce;
+
+    private void ApplyPendingResize()
+    {
+        var cols = _pendingResizeCols;
+        var rows = _pendingResizeRows;
+        if (cols <= 0 || rows <= 0) return;
         if (cols == _emu.Cols && rows == _emu.Rows) return;
         _emu.Resize(cols, rows);
         _pty?.Resize((ushort)cols, (ushort)rows);
@@ -836,6 +871,7 @@ public sealed class TerminalControl : Control
     {
         _running = false;
         _reapTimer?.Stop();
+        _resizeDebounce?.Stop();
         _pty?.Terminate();
     }
 
@@ -843,6 +879,7 @@ public sealed class TerminalControl : Control
     {
         _running = false;
         _reapTimer?.Stop();
+        _resizeDebounce?.Stop();
         StopLogging();
         _pty?.Dispose();
         _pty = null;

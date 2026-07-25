@@ -79,6 +79,12 @@ public sealed class UnixPtyProcess : IDisposable
     private static readonly nuint TIOCSWINSZ =
         RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? (nuint)0x80087467 : (nuint)0x5414;
 
+    // TIOCGWINSZ (read the tty's current window size) — used by the diagnostic
+    // read-back so we can see the size the kernel actually stored, not just what
+    // we asked for.
+    private static readonly nuint TIOCGWINSZ =
+        RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? (nuint)0x40087468 : (nuint)0x5413;
+
     // Apple Silicon needs the stack-based variadic calling convention (see ioctl_darwin_arm64).
     private static readonly bool IsMacArm64 =
         RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
@@ -136,6 +142,7 @@ public sealed class UnixPtyProcess : IDisposable
 
         _pid = pid;
         _masterFd = master;
+        DiagSize("Start", cols, rows);
     }
 
     /// <summary>Read available bytes from the PTY master into <paramref name="buffer"/>.</summary>
@@ -157,11 +164,50 @@ public sealed class UnixPtyProcess : IDisposable
     public void Resize(ushort cols, ushort rows)
     {
         if (_masterFd < 0) return;
-        var ws = new WinSize { ws_row = rows, ws_col = cols };
-        if (IsMacArm64)
-            ioctl_darwin_arm64(_masterFd, TIOCSWINSZ, 0, 0, 0, 0, 0, 0, ref ws);
-        else
-            ioctl(_masterFd, TIOCSWINSZ, ref ws);
+        // Set the size, then read it back and retry if the kernel didn't store what
+        // we asked for. An unnoticed failed set leaves the tty at its old (often
+        // larger) size while the emulator has already shrunk — zsh then emits a
+        // PROMPT_SP space run wider than the visible grid and blanks the screen.
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var ws = new WinSize { ws_row = rows, ws_col = cols };
+            if (IsMacArm64)
+                ioctl_darwin_arm64(_masterFd, TIOCSWINSZ, 0, 0, 0, 0, 0, 0, ref ws);
+            else
+                ioctl(_masterFd, TIOCSWINSZ, ref ws);
+            var (gotCols, gotRows) = ReadTtySize();
+            if (gotCols == cols && gotRows == rows) break;
+        }
+        DiagSize("Resize", cols, rows);
+    }
+
+    /// <summary>Read the tty's current window size straight from the kernel.
+    /// Returns (0,0) when unavailable. Used only by the size diagnostic.</summary>
+    private (ushort cols, ushort rows) ReadTtySize()
+    {
+        if (_masterFd < 0) return (0, 0);
+        var ws = new WinSize();
+        int r = IsMacArm64
+            ? ioctl_darwin_arm64(_masterFd, TIOCGWINSZ, 0, 0, 0, 0, 0, 0, ref ws)
+            : ioctl(_masterFd, TIOCGWINSZ, ref ws);
+        return r == 0 ? (ws.ws_col, ws.ws_row) : ((ushort)0, (ushort)0);
+    }
+
+    /// <summary>Best-effort ground-truth log: what we asked the tty to be vs what
+    /// the kernel actually stored. A divergence here is the smoking gun for the
+    /// intermittent blank/"failed to get size" bug. Writes to a fixed /tmp path so
+    /// it can be read regardless of dev-run vs packaged app.</summary>
+    private void DiagSize(string where, ushort wantCols, ushort wantRows)
+    {
+        try
+        {
+            var (gotCols, gotRows) = ReadTtySize();
+            var flag = (gotCols == wantCols && gotRows == wantRows) ? "ok" : "MISMATCH";
+            var line = $"{DateTime.Now:HH:mm:ss.fff} pid={_pid} fd={_masterFd} {where} " +
+                       $"want={wantCols}x{wantRows} got={gotCols}x{gotRows} {flag}\n";
+            System.IO.File.AppendAllText("/tmp/rscp-ptysize.log", line);
+        }
+        catch { /* diagnostic only */ }
     }
 
     /// <summary>Non-blocking check for child exit; returns the exit code when done.</summary>
