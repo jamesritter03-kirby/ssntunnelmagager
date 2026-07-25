@@ -191,10 +191,14 @@ struct ZeroTierBrowserView: View {
 
     /// Shared width so the two segmented filters line up (widest label is "Member of").
     private let filterSegmentWidth: CGFloat = 140
+    /// Shared label column width so both rows' pickers start at the same x.
+    private let filterLabelWidth: CGFloat = 62
 
     private var devicesSegment: some View {
         HStack(spacing: 6) {
-            Text("Devices").font(.caption).foregroundStyle(.secondary)
+            Text("Devices")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(width: filterLabelWidth, alignment: .leading)
             Picker("Devices", selection: $onlineOnly) {
                 Text("All").tag(false)
                 Text("Online").tag(true)
@@ -209,7 +213,9 @@ struct ZeroTierBrowserView: View {
     private var networksSegment: some View {
         if store.localNodeAvailable {
             HStack(spacing: 6) {
-                Text("Networks").font(.caption).foregroundStyle(.secondary)
+                Text("Networks")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: filterLabelWidth, alignment: .leading)
                 Picker("Networks", selection: $memberOfOnly) {
                     Text("All").tag(false)
                     Text("Member of").tag(true)
@@ -747,9 +753,21 @@ struct ZeroTierBrowserView: View {
                                 .foregroundStyle(.orange)
                         }
                     }
-                    Text(subtitle(for: member))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if presentation == .panel {
+                        // In the panel, cards are already grouped under their
+                        // account and network, so show the node id (click to
+                        // copy) instead of repeating that context.
+                        HStack(spacing: 6) {
+                            CopyableText(text: member.nodeId, font: .caption.monospaced())
+                            Text(statusText(for: member))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text(subtitle(for: member))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 authorizeControl(member)
@@ -1159,6 +1177,21 @@ struct ZeroTierBrowserView: View {
             parts.append(store.networkName(for: member.networkId))
         }
         parts.append(member.nodeId)
+        if member.isOnline {
+            parts.append("online")
+        } else if let seen = member.lastSeenText {
+            parts.append("seen \(seen)")
+        } else {
+            parts.append("never seen")
+        }
+        if let v = member.clientVersion, !v.isEmpty { parts.append("v\(v)") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Just the online / last-seen / version status, without account, network,
+    /// or node id (used by panel cards that already show those separately).
+    private func statusText(for member: ZeroTierMember) -> String {
+        var parts: [String] = []
         if member.isOnline {
             parts.append("online")
         } else if let seen = member.lastSeenText {

@@ -80,6 +80,25 @@ struct SidebarView: View {
         return orderedKeys.map { ($0, groups[$0] ?? []) }
     }
 
+    /// Whether there's anything to expand/collapse (a Favourites section, or at
+    /// least one named group — the single ungrouped bucket alone doesn't count).
+    private var hasCollapsibleSections: Bool {
+        if !favoriteProfiles.isEmpty { return true }
+        return groupedProfiles.contains { !$0.group.isEmpty }
+    }
+
+    /// Expand every group and the Favourites section.
+    private func expandAllGroups() {
+        collapsedGroups.removeAll()
+        favoritesCollapsed = false
+    }
+
+    /// Collapse every group and the Favourites section.
+    private func collapseAllGroups() {
+        collapsedGroups = Set(groupedProfiles.map(\.group))
+        favoritesCollapsed = true
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             searchField
@@ -238,6 +257,27 @@ struct SidebarView: View {
             .buttonStyle(.plain)
             .help(showOnlineOnly ? "Showing online devices only — click to show all"
                                  : "Show only online devices")
+            if hasCollapsibleSections {
+                Menu {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { expandAllGroups() }
+                    } label: {
+                        Label("Expand All", systemImage: "chevron.down")
+                    }
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { collapseAllGroups() }
+                    } label: {
+                        Label("Collapse All", systemImage: "chevron.right")
+                    }
+                } label: {
+                    Image(systemName: "list.bullet.indent")
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Expand or collapse all groups")
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
