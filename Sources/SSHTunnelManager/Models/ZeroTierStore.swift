@@ -274,6 +274,20 @@ struct ZeroTierAPI {
                        body: ["authorized": authorized, "config": ["authorized": authorized]])
     }
 
+    /// Update a member's display name and description on a Central / personal
+    /// network. Both are top-level fields on the member object.
+    func setMemberDetails(networkId: String, nodeId: String, name: String, description: String) async throws {
+        try await post("/network/\(networkId)/member/\(nodeId)",
+                       body: ["name": name, "description": description])
+    }
+
+    /// Update a member's display name and description on a self-hosted (ZTNET)
+    /// org network.
+    func setMemberDetails(orgId: String, networkId: String, nodeId: String, name: String, description: String) async throws {
+        try await post("/org/\(orgId)/network/\(networkId)/member/\(nodeId)",
+                       body: ["name": name, "description": description])
+    }
+
     private func get<T: Decodable>(_ path: String) async throws -> T {
         guard !token.isEmpty else { throw ZeroTierError.notConfigured }
         guard let url = URL(string: baseURL + path) else { throw ZeroTierError.transport("bad URL") }
@@ -789,6 +803,42 @@ final class ZeroTierStore: ObservableObject {
             }
             lastError = nil
             // Re-fetch to pick up server-side effects (e.g. a newly assigned IP).
+            if let network { await refreshMembers(network) }
+        } catch {
+            lastError = friendly(error, account: account)
+        }
+    }
+
+    /// Update a member's display name and description via the account's API,
+    /// then refresh the network so the change is reflected. Updates the local
+    /// cache optimistically so the UI updates at once.
+    func setMemberDetails(_ member: ZeroTierMember, name: String, description: String) async {
+        guard let accountId = member.accountId,
+              let account = accounts.first(where: { $0.id == accountId }),
+              let token = token(for: accountId), !token.isEmpty else {
+            lastError = "No API token saved for this account."
+            return
+        }
+        let network = networks.first(where: { $0.id == member.networkId })
+        authorizingMembers.insert(member.id)
+        defer { authorizingMembers.remove(member.id) }
+        let api = ZeroTierAPI(token: token, baseURL: account.baseURL)
+        do {
+            if let orgId = network?.orgId {
+                try await api.setMemberDetails(orgId: orgId, networkId: member.networkId,
+                                               nodeId: member.nodeId, name: name, description: description)
+            } else {
+                try await api.setMemberDetails(networkId: member.networkId,
+                                               nodeId: member.nodeId, name: name, description: description)
+            }
+            // Optimistic local update so the label changes immediately.
+            if var list = membersByNetwork[member.networkId],
+               let idx = list.firstIndex(where: { $0.id == member.id }) {
+                list[idx].name = name
+                list[idx].description = description
+                membersByNetwork[member.networkId] = list
+            }
+            lastError = nil
             if let network { await refreshMembers(network) }
         } catch {
             lastError = friendly(error, account: account)

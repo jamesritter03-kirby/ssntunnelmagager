@@ -51,6 +51,8 @@ struct ZeroTierBrowserView: View {
     @AppStorage("zeroTierMemberOfOnly") private var memberOfOnly = false
     /// Accounts whose collapsible group is currently collapsed in the panel.
     @State private var collapsedAccounts: Set<UUID> = []
+    /// Networks whose collapsible group is currently collapsed in the panel.
+    @State private var collapsedNetworks: Set<String> = []
     /// The "Connect as" username, remembered across launches. Defaults to the
     /// macOS login name until the user changes it.
     @AppStorage("zeroTierConnectAsUsername") private var username = NSUserName()
@@ -63,6 +65,11 @@ struct ZeroTierBrowserView: View {
     /// A member awaiting confirmation before being deauthorized (kicked off the
     /// network). Authorizing happens immediately; deauthorizing asks first.
     @State private var memberPendingDeauth: ZeroTierMember?
+    /// A member whose name / description is being edited in a sheet.
+    @State private var memberBeingEdited: ZeroTierMember?
+    /// Draft name / description while the edit sheet is open.
+    @State private var editName = ""
+    @State private var editDescription = ""
     /// The network id just copied to the clipboard, to briefly show a checkmark.
     @State private var copiedNetworkID: String?
 
@@ -109,6 +116,9 @@ struct ZeroTierBrowserView: View {
             Button("Cancel", role: .cancel) { memberPendingDeauth = nil }
         } message: {
             Text("This removes the device from the network — it will lose its managed IP and can no longer reach other members until re-authorized.")
+        }
+        .sheet(item: $memberBeingEdited) { member in
+            editMemberSheet(member)
         }
     }
 
@@ -673,7 +683,25 @@ struct ZeroTierBrowserView: View {
     @ViewBuilder
     private func networkGroup(_ net: ZeroTierNetwork) -> some View {
         let mem = members(inNetwork: net.id)
-        VStack(alignment: .leading, spacing: 8) {
+        DisclosureGroup(isExpanded: networkExpansion(net.id)) {
+            VStack(alignment: .leading, spacing: 8) {
+                if mem.isEmpty {
+                    Text(store.loadingMembers.contains(net.id)
+                         ? "Loading…"
+                         : (search.isEmpty && !onlineOnly
+                            ? "No members yet."
+                            : "No devices match your filter."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 2)
+                } else {
+                    ForEach(mem) { member in
+                        memberCard(member)
+                    }
+                }
+            }
+            .padding(.top, 6)
+        } label: {
             HStack(spacing: 6) {
                 localBadge(for: net.id)
                 Text(net.displayName)
@@ -685,21 +713,18 @@ struct ZeroTierBrowserView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            if mem.isEmpty {
-                Text(store.loadingMembers.contains(net.id)
-                     ? "Loading…"
-                     : (search.isEmpty && !onlineOnly
-                        ? "No members yet."
-                        : "No devices match your filter."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 2)
-            } else {
-                ForEach(mem) { member in
-                    memberCard(member)
-                }
-            }
         }
+    }
+
+    /// A binding that expands a network group unless the user collapsed it.
+    private func networkExpansion(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedNetworks.contains(id) },
+            set: { expanded in
+                if expanded { collapsedNetworks.remove(id) }
+                else { collapsedNetworks.insert(id) }
+            }
+        )
     }
 
     /// A binding that expands an account group unless the user collapsed it.
@@ -840,32 +865,84 @@ struct ZeroTierBrowserView: View {
         .help(help)
     }
 
-    /// Authorize (or, with confirmation, deauthorize) a member on its network.
+    /// A "manage" menu for a member: authorize / deauthorize and edit its
+    /// description. Replaces the inline authorize/deauthorize buttons; the
+    /// unauthorized state is shown separately as a non-interactive badge.
     @ViewBuilder
     private func authorizeControl(_ member: ZeroTierMember) -> some View {
         if store.isAuthorizing(member) {
             ProgressView().controlSize(.small)
-        } else if member.authorized {
-            Button {
-                memberPendingDeauth = member
-            } label: {
-                Label("Deauthorize", systemImage: "lock.slash")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(.orange)
-            .help("Revoke this device's access to the network")
         } else {
-            Button {
-                Task { await store.setAuthorization(member, authorized: true) }
+            Menu {
+                if member.authorized {
+                    Button(role: .destructive) {
+                        memberPendingDeauth = member
+                    } label: {
+                        Label("Deauthorize", systemImage: "lock.slash")
+                    }
+                } else {
+                    Button {
+                        Task { await store.setAuthorization(member, authorized: true) }
+                    } label: {
+                        Label("Authorize", systemImage: "checkmark.shield")
+                    }
+                }
+                Divider()
+                Button {
+                    beginEditing(member)
+                } label: {
+                    Label("Edit Description…", systemImage: "pencil")
+                }
             } label: {
-                Label("Authorize", systemImage: "checkmark.shield")
+                Image(systemName: "ellipsis.circle")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(.green)
-            .help("Allow this device onto the network")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Manage this device")
         }
+    }
+
+    /// Seed the draft fields and open the edit sheet for a member.
+    private func beginEditing(_ member: ZeroTierMember) {
+        editName = member.name
+        editDescription = member.description
+        memberBeingEdited = member
+    }
+
+    /// Sheet to rename a device and edit its description on the network.
+    private func editMemberSheet(_ member: ZeroTierMember) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            DialogHeader(icon: "pencil",
+                         title: "Edit Device",
+                         subtitle: member.nodeId)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Name").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                TextField("Device name", text: $editName)
+                    .textFieldStyle(.roundedBorder)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Description").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                TextField("Description", text: $editDescription, axis: .vertical)
+                    .lineLimit(3...6)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { memberBeingEdited = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    let name = editName, description = editDescription
+                    Task { await store.setMemberDetails(member, name: name, description: description) }
+                    memberBeingEdited = nil
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
     }
 
     private var footer: some View {
