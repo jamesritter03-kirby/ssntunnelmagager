@@ -94,6 +94,13 @@ for RID in "${RIDS[@]}"; do
     -o "$PUB_DIR" \
     -v quiet
 
+  # Strip macOS extended attributes (resource forks / Finder info / provenance)
+  # that iCloud-synced folders attach — codesign rejects bundles that carry them
+  # ("resource fork, Finder information, or similar detritus not allowed").
+  if [[ "$RID" == osx-* ]]; then
+    xattr -cr "$PUB_DIR" 2>/dev/null || true
+  fi
+
   case "$RID" in
     win-*)
       DIRECTIVE="[win]"
