@@ -172,6 +172,26 @@ struct ZeroTierBrowserView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                 }
+                if !allVisibleNetworkIDs.isEmpty {
+                    Menu {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) { expandAllNetworks() }
+                        } label: {
+                            Label("Expand All Networks", systemImage: "chevron.down")
+                        }
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) { collapseAllNetworks() }
+                        } label: {
+                            Label("Collapse All Networks", systemImage: "chevron.right")
+                        }
+                    } label: {
+                        Image(systemName: "list.bullet.indent").foregroundStyle(.secondary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Expand or collapse all networks")
+                }
             }
             filterSegments
             connectAsRow
@@ -512,6 +532,28 @@ struct ZeroTierBrowserView: View {
         }
     }
 
+    /// A labelled chip on a network header showing that *this Mac* is a member of
+    /// the network — green when actively connected, orange when joined but not
+    /// currently connected (e.g. awaiting authorization).
+    @ViewBuilder
+    private func localMemberChip(for networkID: String) -> some View {
+        if let local = store.localStatus(for: networkID) {
+            let connected = local.isConnected
+            HStack(spacing: 3) {
+                Image(systemName: connected ? "checkmark.circle.fill" : "circle.dashed")
+                    .font(.system(size: 8))
+                Text("This Mac")
+                    .font(.caption2.weight(.medium))
+            }
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background((connected ? Color.green : Color.orange).opacity(0.18), in: Capsule())
+            .foregroundStyle(connected ? Color.green : Color.orange)
+            .help(connected
+                  ? "This Mac is connected to this network" + (local.primaryIP.map { " · \($0)" } ?? "")
+                  : "This Mac is a member of this network — \(local.statusText)")
+        }
+    }
+
     // Right: filter controls + the member list.
     private var memberPane: some View {
         VStack(spacing: 0) {
@@ -703,10 +745,10 @@ struct ZeroTierBrowserView: View {
             .padding(.top, 6)
         } label: {
             HStack(spacing: 6) {
-                localBadge(for: net.id)
                 Text(net.displayName)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
+                localMemberChip(for: net.id)
                 networkIDCopyButton(net.id)
                 Spacer(minLength: 4)
                 Text("\(onlineCount(for: net.id)) online · \(totalCount(for: net)) total")
@@ -725,6 +767,22 @@ struct ZeroTierBrowserView: View {
                 else { collapsedNetworks.insert(id) }
             }
         )
+    }
+
+    /// Every network id currently shown across all accounts in the panel.
+    private var allVisibleNetworkIDs: [String] {
+        store.accounts.flatMap { visibleNetworks(for: $0.id).map(\.id) }
+    }
+
+    /// Expand every network group (opening their accounts too so they're visible).
+    private func expandAllNetworks() {
+        collapsedAccounts.removeAll()
+        collapsedNetworks.removeAll()
+    }
+
+    /// Collapse every network group.
+    private func collapseAllNetworks() {
+        collapsedNetworks = Set(allVisibleNetworkIDs)
     }
 
     /// A binding that expands an account group unless the user collapsed it.

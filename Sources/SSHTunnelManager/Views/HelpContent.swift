@@ -53,7 +53,7 @@ enum HelpContent {
             .bullets([
                 "**Search** — the field at the top of the sidebar filters profiles as you type, matching the name and host.",
                 "**Favourites** — star a profile (right‑click ▸ **Add to Favourites**, or the **Favourite** toggle in its editor's **Organization** section) to pin it to a **Favourites** section at the very top of the list.",
-                "**Groups** — give profiles a **Group** name in that same **Organization** section and the sidebar collects them into **collapsible folders**. Click a group's header to fold it away; the collapsed state is remembered.",
+                "**Groups** — give profiles a **Group** name in that same **Organization** section and the sidebar collects them into **collapsible folders**. Click a group's header to fold it away (the collapsed state is remembered), or use the list button in the sidebar's search row for **Expand All / Collapse All** across every group and Favourites.",
             ]),
             .paragraph("Each connected profile shows a small **status dot**: **green** for a healthy tunnel, turning **orange** when one of its **local** port forwards stops answering. The app quietly probes the forwarded ports every few seconds, so a dead tunnel stands out without opening its tab."),
             .tip("Grouping is purely for your own organisation — a profile's **Group** doesn't change how it connects."),
@@ -264,18 +264,19 @@ enum HelpContent {
     static let zerotier = HelpArticle(
         id: "zerotier", title: "ZeroTier Devices", icon: "globe.americas.fill",
         blocks: [
-            .paragraph("Browse the devices on your **ZeroTier** networks and connect straight to any of their managed IP addresses — no need to look up addresses by hand. Open it from the **ZeroTier** button on the welcome screen, the globe button in the sidebar, or **File ▸ Browse ZeroTier Devices…**."),
+            .paragraph("Browse the devices on your **ZeroTier** networks and connect straight to any of their managed IP addresses — no need to look up addresses by hand. Open it from the **ZeroTier** button on the welcome screen, the **globe** button in the window toolbar (it opens a side panel), or **File ▸ Browse ZeroTier Devices…**."),
             .steps([
                 "Create an **API token** at *my.zerotier.com/account* and paste it into **Add an account**. Give it a name (e.g. *Work*) and click **Add**. Tokens are stored in your macOS **Keychain** (never synced, never in exports).",
-                "Pick a network on the left — or **All Networks** — to list its **members**. Each device shows whether it's **online**, its node id, last‑seen time and every managed **IP address**.",
-                "Type a **username** (used for SSH/SFTP), then click the **SSH**, **SFTP** or **VNC** button next to any IP to open a tab connected to that device.",
+                "Devices are organised into **collapsible groups**: each **account** expands to its **networks**, and each network expands to its **devices**. The list button in the search row offers **Expand All / Collapse All Networks**.",
+                "Type a **username** (used for SSH/SFTP), then click **Connect** next to any IP to open a tab connected to that device.",
             ]),
             .bullets([
-                "**Multiple accounts** — add as many ZeroTier API tokens as you like (one per ZeroTier login). Networks are grouped by account in the list, and the **All Networks** view shows every device together. Use the **key** button to add, rename, re‑token or remove accounts.",
+                "**Multiple accounts** — add as many ZeroTier API tokens as you like (one per ZeroTier login). Networks are grouped by account. Use the **key** button to add, rename, re‑token or remove accounts.",
                 "**Self‑hosted controllers** (e.g. **ZTNET**) work too — when adding an account, put your server’s URL (e.g. `https://zt.example.com`) in the **Server** field and use that server’s API token. Leave **Server** blank for ZeroTier Central.",
-                "**Filter** the list by name, node id or IP, and flip **Online only** to hide devices that are currently offline.",
+                "**Network headers** show the network name, a click‑to‑copy **network ID**, an online/total count, and a **This Mac** chip when this Mac has joined that network (green when connected, orange when joined but not connected).",
+                "**Device cards** show the name, online status, a click‑to‑copy **node ID**, last‑seen time, an **Unauthorized** badge when applicable, and each managed **IP**. The per‑device **manage** menu (•••) lets you **Authorize / Deauthorize** a device or **Edit** its name and description.",
+                "**Filter** by name, node id or IP; use the **All / Online** switch to hide offline devices and, when this Mac runs ZeroTier, **All / Member of** to show only networks you've joined.",
                 "Connections are **ad‑hoc** (profile‑free): your SSH keys are tried first and a typed password isn't stored. Create a profile for anything you use often.",
-                "Tabs open **behind** the browser window — close it to see them, or connect to several devices in a row first.",
             ]),
             .tip("Anywhere you enter a host or IP — the **New Remote Terminal / SFTP / VNC / MQTT / Redis** sheets and the **profile editor** — a small **globe** button sits next to the field. Click it to pick a device IP from ZeroTier without leaving the form."),
             .tip("ZeroTier IPs are reachable only while this Mac is joined to the same network in the ZeroTier app. The browser just lists devices and dials them — it doesn't join networks for you."),

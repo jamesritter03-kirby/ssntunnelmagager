@@ -201,6 +201,44 @@ Produces **`dist/Remote Stuff (Apple Silicon).zip`** with the app and a
 
 ---
 
+## Cross‑platform version (Windows · Linux · macOS)
+
+This repository also contains a **cross‑platform rebuild** of Remote Stuff written in
+**C# / .NET 8** with an **[Avalonia](https://avaloniaui.net) 11** UI, living in its own
+[`cross-platform/`](cross-platform/) folder. It runs from a single codebase on **macOS, Linux and
+Windows** and is completely separate from the Swift/SwiftUI app in the repo root (which is preserved
+untouched).
+
+- **What it does today:** saved tunnel profiles (host, port, user, identity key, jump host `-J`, and
+  Local `-L` / Remote `-R` / Dynamic `-D` forwards), local‑shell profiles, a live `ssh` command
+  preview, example profiles on first launch, and a full profile editor (shell/compression/keep‑alive/
+  agent‑forwarding options, host‑key policy, favourites and groups).
+- **Real terminal tabs:** a from‑scratch VT100/xterm emulator over a **PTY** (`forkpty` on
+  macOS/Linux) so interactive password / host‑key / 2FA prompts work. Windows runs the UI and profile
+  management today; a **ConPTY** terminal backend is the planned follow‑up.
+- **Auto‑updates:** in‑app via [Velopack](https://velopack.io), reading the `desktop-updates` GitHub
+  release with one channel per runtime (`osx-arm64`, `osx-x64`, `win-x64`, `linux-x64`). This is
+  separate from the macOS Swift app's Sparkle `updates` feed.
+
+```bash
+cd cross-platform
+dotnet run --project src/RemoteStuff/RemoteStuff.csproj      # build & run
+
+# Publish a self-contained app for any platform:
+dotnet publish src/RemoteStuff/RemoteStuff.csproj -c Release -r osx-arm64  --self-contained
+dotnet publish src/RemoteStuff/RemoteStuff.csproj -c Release -r linux-x64  --self-contained
+dotnet publish src/RemoteStuff/RemoteStuff.csproj -c Release -r win-x64    --self-contained
+```
+
+See [cross-platform/README.md](cross-platform/README.md) for the full build, packaging and
+release‑pipeline details.
+
+**Requirements:** the [.NET SDK 8.0+](https://dotnet.microsoft.com/download) and the system `ssh`
+client. Profiles are stored per‑user under the platform app‑data directory (e.g.
+`~/.config/RemoteStuff/profiles.json`).
+
+---
+
 ## Using it
 
 1. Click **+** in the sidebar to create a profile.
@@ -257,7 +295,9 @@ app opens the same native Explorer/browser tab pointed straight at that server. 
 broker on your LAN, or one you’ve already tunnelled by other means.
 
 > **Sidebar:** show or hide the profile sidebar with **View → Show/Hide Sidebar** (**⌃⌘S**) —
-> handy if the toolbar's sidebar button ever goes missing after the sidebar is collapsed.
+> handy if the toolbar's sidebar button ever goes missing after the sidebar is collapsed. Give
+> profiles a **Group** and the sidebar collects them into collapsible folders; the list button in
+> the sidebar's search row offers **Expand All / Collapse All** for every group and Favourites.
 
 > **Clipboard:** ⌘C / ⌘V work as usual. By default **right‑click is smart**: if text is
 > selected it **copies** it (and clears the selection, so the next right‑click pastes);
@@ -286,16 +326,25 @@ starting points in one place:
 ### ZeroTier devices
 
 Browse the devices on your **ZeroTier** networks and connect straight to any of their managed IP
-addresses. Open it from the **ZeroTier** button on the welcome screen, the globe button in the
-sidebar, or **File ▸ Browse ZeroTier Devices…**.
+addresses. Open it from the **ZeroTier** button on the welcome screen, the **globe** button in the
+window toolbar (it opens a side **panel**), or **File ▸ Browse ZeroTier Devices…**.
 
 - Paste a ZeroTier Central **API token** (from *my.zerotier.com/account*) under **Add an account** —
   add **as many accounts as you like**, one per ZeroTier login. Tokens are stored in your macOS
   **Keychain**, never synced and never included in exports.
-- Pick a network (or **All Networks**, which spans every account) to list its **members**: online
-  status, node id, last‑seen time and every managed **IP address**. Networks are grouped by account.
-- **Filter** by name, node id or IP, toggle **Online only**, set a **username** for SSH/SFTP, then
-  click **SSH**, **SFTP** or **VNC** next to any IP to open a tab connected to that device.
+- Devices are organised into **collapsible groups**: each **account** expands to its **networks**,
+  and each network expands to its **devices**. Use the list button in the panel's search row for
+  **Expand All / Collapse All Networks**.
+- Each **network header** shows the network's name, a click‑to‑copy **network ID**, an online/total
+  count, and — when this Mac has joined that network — a **This Mac** chip (green when connected,
+  orange when joined but not currently connected).
+- Each **device card** shows its name, whether it's **online**, a click‑to‑copy **node ID**,
+  last‑seen time, an **Unauthorized** badge when applicable, and every managed **IP address**. A
+  per‑device **manage** menu (•••) lets you **Authorize / Deauthorize** the device or **Edit** its
+  name and description.
+- **Filter** by name, node id or IP, and use the segmented switches for **All / Online** devices and
+  (when this Mac runs ZeroTier) **All / Member of** networks. Set a **username** for SSH/SFTP, then
+  click **Connect** next to any IP to open a tab connected to that device.
 - Connections are profile‑free (ad‑hoc); your SSH keys are tried first and a typed password isn’t
   stored. The **key** button manages accounts (add / rename / change token / remove).
 - **Self‑hosted** controllers (e.g. [ZTNET](https://ztnet.network)) are supported: when adding an
