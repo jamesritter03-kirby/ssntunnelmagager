@@ -149,6 +149,21 @@ struct ContentView: View {
             ProfileComparisonView()
                 .environmentObject(store)
         }
+        // A welcome-screen "New Workspace" launch may open one of these dialogs.
+        // If the user cancels it, roll back the workspace it created rather than
+        // leaving an empty stray one behind.
+        .onChange(of: remoteConnection.isPresented) { shown in
+            if !shown { sessions.discardProvisionalWorkspaceIfEmpty() }
+        }
+        .onChange(of: vncConnection.isPresented) { shown in
+            if !shown { sessions.discardProvisionalWorkspaceIfEmpty() }
+        }
+        .onChange(of: serviceConnection.isPresented) { shown in
+            if !shown { sessions.discardProvisionalWorkspaceIfEmpty() }
+        }
+        .onChange(of: zerotier.isPresented) { shown in
+            if !shown { sessions.discardProvisionalWorkspaceIfEmpty() }
+        }
         .alert("Save changes to this profile before quitting?",
                isPresented: $editCoordinator.showQuitConfirmation) {
             Button("Save") { editCoordinator.saveAndQuit() }

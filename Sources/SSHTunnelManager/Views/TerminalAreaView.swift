@@ -851,13 +851,10 @@ private struct HomePill: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "house.fill")
-                .font(.caption2)
+                .font(.callout)
                 .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
-            Text("Welcome")
-                .font(.callout.weight(isCurrent ? .semibold : .regular))
-                .lineLimit(1)
         }
-        .padding(.horizontal, 10).padding(.vertical, 5)
+        .padding(.horizontal, 9).padding(.vertical, 5)
         .background(isCurrent ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(

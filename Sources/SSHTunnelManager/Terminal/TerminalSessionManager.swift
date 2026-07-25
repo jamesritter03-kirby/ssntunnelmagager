@@ -32,6 +32,14 @@ final class TerminalSessionManager: ObservableObject {
     /// target picker is shown. Non-nil drives the picker sheet.
     @Published var pendingWelcomeLaunch: (() -> Void)?
 
+    /// A workspace freshly created by a welcome-screen "New Workspace" launch that
+    /// hasn't received a tab yet. If the launch's follow-up dialog is cancelled it
+    /// stays empty, so we roll it back instead of leaving a stray workspace.
+    private var provisionalWorkspaceID: UUID?
+    /// The workspace that was current before the provisional one was created, to
+    /// return to when the provisional workspace is discarded.
+    private var workspaceBeforeProvisional: UUID?
+
     static let shared = TerminalSessionManager()
 
     /// When on, keystrokes typed in one terminal are mirrored to every other live
@@ -447,6 +455,7 @@ final class TerminalSessionManager: ObservableObject {
 
     /// Show the always-available welcome screen (the pinned Home pill).
     func showWelcomeScreen() {
+        discardProvisionalWorkspaceIfEmpty()
         showingWelcome = true
     }
 
@@ -488,6 +497,8 @@ final class TerminalSessionManager: ObservableObject {
     /// there's no remembered choice); elsewhere it just runs immediately.
     func launchFromWelcome(_ action: @escaping () -> Void) {
         guard showingWelcome else { action(); return }
+        // Roll back any earlier provisional workspace whose dialog was abandoned.
+        discardProvisionalWorkspaceIfEmpty()
         if let target = rememberedLaunchTarget {
             activateLaunchTarget(target)
             action()
@@ -514,10 +525,45 @@ final class TerminalSessionManager: ObservableObject {
     /// leave the welcome screen.
     func activateLaunchTarget(_ target: WelcomeLaunchTarget) {
         switch target {
-        case .new: addWorkspace()
-        case .existing(let id): switchWorkspace(to: id)
+        case .new:
+            let previous = currentWorkspaceID
+            addWorkspace()
+            // Track the just-created workspace so it can be rolled back if the
+            // launch's follow-up dialog is cancelled before any tab lands in it.
+            provisionalWorkspaceID = currentWorkspaceID
+            workspaceBeforeProvisional = previous
+        case .existing(let id):
+            switchWorkspace(to: id)
         }
         showingWelcome = false
+    }
+
+    /// Remove a provisional welcome-launch workspace if it never received a tab
+    /// (e.g. the follow-up connection dialog was cancelled), returning to the
+    /// workspace that was active before it was created.
+    func discardProvisionalWorkspaceIfEmpty() {
+        guard let id = provisionalWorkspaceID,
+              let i = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        // Only roll back while it's still empty; once a tab lands it's a real
+        // workspace the user chose to keep.
+        guard workspaces[i].tabIDs.isEmpty else {
+            provisionalWorkspaceID = nil
+            workspaceBeforeProvisional = nil
+            return
+        }
+        let returnTo = workspaceBeforeProvisional
+        provisionalWorkspaceID = nil
+        workspaceBeforeProvisional = nil
+        // Keep at least one workspace around.
+        guard workspaces.count > 1 else { return }
+        workspaces.remove(at: i)
+        if currentWorkspaceID == id {
+            if let target = returnTo, workspaces.contains(where: { $0.id == target }) {
+                currentWorkspaceID = target
+            } else {
+                currentWorkspaceID = workspaces[min(i, workspaces.count - 1)].id
+            }
+        }
     }
 
     func selectNextWorkspace() {
@@ -1025,6 +1071,12 @@ final class TerminalSessionManager: ObservableObject {
                 workspaces[i].tabIDs.append(session.id)
             }
             workspaces[i].selectedSessionID = session.id
+            // A tab landed here, so a provisional welcome-launch workspace is now
+            // a real one the user is using — stop tracking it for rollback.
+            if provisionalWorkspaceID == workspaces[i].id {
+                provisionalWorkspaceID = nil
+                workspaceBeforeProvisional = nil
+            }
         }
         // Start on the next runloop turn so the view is mounted with a real size.
         DispatchQueue.main.async {
