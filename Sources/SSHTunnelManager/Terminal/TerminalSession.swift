@@ -258,6 +258,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     private var logHandle: FileHandle?
     /// The on-disk location of this session's transcript log, if logging.
     private(set) var sessionLogURL: URL?
+    /// Whether output is currently being written to the transcript log. Published
+    /// so the tab / dock menus reflect the live start/stop state.
+    @Published private(set) var isLoggingSession = false
+    /// Set when the user turned logging on from the tab menu (as opposed to the
+    /// launch-time `sessionLoggingEnabled`), so a reconnect keeps recording.
+    private var manualLoggingRequested = false
 
     init(kind: Kind, title: String, executable: String, args: [String], commandPreview: String, profileID: UUID? = nil, theme: TerminalTheme = .default, fontSize: Double = TerminalFontMetrics.default, autofillPassword: Bool = false, requireAuthForPassword: Bool = true, autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true, startDirectory: String? = nil, editorBackupID: UUID? = nil, webURL: URL? = nil, webProxy: WebProxy? = nil, servicePort: Int? = nil, serviceHost: String = "127.0.0.1", serviceUsername: String = "", servicePassword: String = "", presetPassword: String? = nil, sftpMountCredentialID: UUID? = nil, extraEnvironment: [String: String] = [:], vncScaling: Bool = true, vncViewOnly: Bool = false, vncColorDepth: EmbeddedVNCViewer.ColorDepthOption = .trueColor, runOnConnectCommand: String? = nil, logSession: Bool = false, controlSocketPath: String? = nil) {
         self.kind = kind
@@ -915,14 +921,28 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         return f
     }()
 
-    /// Open this session's transcript log (once) when logging is enabled.
+    /// Open this session's transcript log (once) when logging is enabled at
+    /// launch or has been turned on manually from the tab menu.
     private func openSessionLogIfNeeded() {
-        guard sessionLoggingEnabled, logHandle == nil else { return }
+        guard sessionLoggingEnabled || manualLoggingRequested else { return }
+        beginSessionLogFile()
+    }
+
+    /// The folder where all session transcript logs are stored.
+    static var logsDirectory: URL {
         let fm = FileManager.default
         let base = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                 appropriateFor: nil, create: true))
             ?? fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        let dir = base.appendingPathComponent("SSHTunnelManager/Logs", isDirectory: true)
+        return base.appendingPathComponent("SSHTunnelManager/Logs", isDirectory: true)
+    }
+
+    /// Begin writing this session's output to a fresh transcript file. No-op if a
+    /// log is already open for this connection.
+    private func beginSessionLogFile() {
+        guard logHandle == nil else { return }
+        let fm = FileManager.default
+        let dir = TerminalSession.logsDirectory
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let stamp = TerminalSession.logDateFormatter.string(from: Date())
         let safe = title.components(separatedBy: CharacterSet(charactersIn: "/:"))
@@ -932,6 +952,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
         logHandle = handle
         sessionLogURL = url
+        isLoggingSession = true
         let header = "# \(title) — \(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium))\n# \(commandPreview)\n\n"
         if let data = header.data(using: .utf8) { handle.write(data) }
     }
@@ -947,10 +968,31 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     private func closeSessionLog() {
         try? logHandle?.close()
         logHandle = nil
+        isLoggingSession = false
+    }
+
+    /// Start recording this terminal's output to a new log file (tab-menu action).
+    /// Recording continues across reconnects until stopped.
+    func startSessionLog() {
+        manualLoggingRequested = true
+        beginSessionLogFile()
+    }
+
+    /// Stop recording. The transcript written so far is kept so it can still be
+    /// opened, revealed or shared.
+    func stopSessionLog() {
+        manualLoggingRequested = false
+        closeSessionLog()
     }
 
     /// Whether a transcript log file exists for this session (drives the menu item).
     var hasSessionLog: Bool { sessionLogURL != nil }
+
+    /// Open this session's transcript log in the default text application.
+    func openSessionLog() {
+        guard let url = sessionLogURL else { return }
+        NSWorkspace.shared.open(url)
+    }
 
     /// Reveal this session's transcript log in Finder.
     func revealSessionLog() {

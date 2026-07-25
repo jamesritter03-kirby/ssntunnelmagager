@@ -43,6 +43,7 @@ struct SSHTunnelManagerApp: App {
                 Divider()
                 Button("Browse ZeroTier Devices…") { ZeroTierBrowserModel.shared.present() }
                 Button("Network & Routers…") { NetworkBrowserModel.shared.present() }
+                Button("Saved Session Logs…") { SessionLogsBrowserModel.shared.present() }
             }
             CommandGroup(after: .newItem) {
                 Button("Close Tab") { sessions.closeSelected() }

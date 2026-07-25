@@ -16,6 +16,7 @@ struct ContentView: View {
     @ObservedObject private var remoteConnection = RemoteConnectionModel.shared
     @ObservedObject private var zerotier = ZeroTierBrowserModel.shared
     @ObservedObject private var networkBrowser = NetworkBrowserModel.shared
+    @ObservedObject private var sessionLogs = SessionLogsBrowserModel.shared
     @ObservedObject private var editCoordinator = ProfileEditCoordinator.shared
     @ObservedObject private var editConnection = EditConnectionModel.shared
     @ObservedObject private var knownHosts = KnownHostsModel.shared
@@ -134,6 +135,9 @@ struct ContentView: View {
         .sheet(isPresented: $networkBrowser.isPresented) {
             NetworkBrowserView()
         }
+        .sheet(isPresented: $sessionLogs.isPresented) {
+            SessionLogsBrowserView()
+        }
         .sheet(isPresented: $knownHosts.isPresented) {
             KnownHostsView()
         }
@@ -203,19 +207,43 @@ private struct ZeroTierToolbarButton: ViewModifier {
 private struct ZeroTierPanelPresenter: ViewModifier {
     @Binding var isPresented: Bool
     let sessions: TerminalSessionManager
+    /// Remembered inspector width, so the panel reopens at the size the user
+    /// last dragged it to.
+    @AppStorage("zeroTierPanelWidth") private var panelWidth: Double = 440
 
     func body(content: Content) -> some View {
         if #available(macOS 14.0, *) {
             content.inspector(isPresented: $isPresented) {
                 ZeroTierBrowserView(presentation: .panel)
                     .environmentObject(sessions)
-                    .inspectorColumnWidth(min: 340, ideal: 440, max: 760)
+                    .background(InspectorWidthReporter(width: $panelWidth))
+                    .inspectorColumnWidth(
+                        min: 340,
+                        ideal: min(max(panelWidth, 340), 760),
+                        max: 760)
             }
         } else {
             content.sheet(isPresented: $isPresented) {
                 ZeroTierBrowserView()
                     .environmentObject(sessions)
             }
+        }
+    }
+}
+
+/// Reports the live rendered width of the inspector column back into a binding,
+/// so the panel's size can be persisted and restored. Rounds and de-dupes so it
+/// only writes when the width actually changes.
+private struct InspectorWidthReporter: View {
+    @Binding var width: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            Color.clear
+                .onChange(of: geo.size.width) { newValue in
+                    let rounded = (newValue).rounded()
+                    if rounded > 0, abs(rounded - width) >= 1 { width = rounded }
+                }
         }
     }
 }

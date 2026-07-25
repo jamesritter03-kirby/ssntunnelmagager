@@ -1673,12 +1673,49 @@ private struct TerminalTabContextMenu: View {
                                                    : "Edit Launch Command…",
                       systemImage: "terminal.fill")
             }
-            if session.hasSessionLog {
-                Button {
-                    session.revealSessionLog()
-                } label: {
-                    Label("Reveal Session Log", systemImage: "doc.text.magnifyingglass")
+            // Session logging: start / stop recording this terminal's output to a
+            // transcript file, then open, reveal or share it. Browse every saved
+            // log via "Saved Logs…".
+            Menu {
+                if session.isLoggingSession {
+                    Button {
+                        session.stopSessionLog()
+                    } label: {
+                        Label("Stop Logging Output", systemImage: "stop.circle")
+                    }
+                } else {
+                    Button {
+                        session.startSessionLog()
+                    } label: {
+                        Label("Log Session Output", systemImage: "record.circle")
+                    }
+                    .disabled(!session.isRunning)
                 }
+                if session.hasSessionLog, let logURL = session.sessionLogURL {
+                    Divider()
+                    Button {
+                        session.openSessionLog()
+                    } label: {
+                        Label("Open Log", systemImage: "doc.text")
+                    }
+                    Button {
+                        session.revealSessionLog()
+                    } label: {
+                        Label("Reveal Log in Finder", systemImage: "doc.text.magnifyingglass")
+                    }
+                    ShareLink(item: logURL) {
+                        Label("Share Log…", systemImage: "square.and.arrow.up")
+                    }
+                }
+                Divider()
+                Button {
+                    SessionLogsBrowserModel.shared.present()
+                } label: {
+                    Label("Saved Logs…", systemImage: "folder")
+                }
+            } label: {
+                Label(session.isLoggingSession ? "Session Log (Recording)" : "Session Log",
+                      systemImage: session.isLoggingSession ? "record.circle.fill" : "doc.text")
             }
             Button {
                 sessions.broadcastInput.toggle()

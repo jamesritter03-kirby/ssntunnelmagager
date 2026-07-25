@@ -591,13 +591,6 @@ struct SidebarView: View {
     private var bottomBar: some View {
         HStack(spacing: 8) {
                 Button {
-                    sessions.openLocalShell()
-                } label: {
-                    Image(systemName: "terminal")
-                }
-                .help("Open a local shell (⌘T)")
-
-                Button {
                     ZeroTierBrowserModel.shared.present()
                 } label: {
                     Image(systemName: "globe.americas.fill")

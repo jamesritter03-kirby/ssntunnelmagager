@@ -45,6 +45,17 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.57", build: 67, date: "Jul 25, 2026",
+            highlights: [
+                "Session logging on demand: right-click a local or SSH terminal tab (or its dock header) and use the new Session Log menu to start or stop recording that terminal's output, then open, reveal in Finder, or share the transcript.",
+                "New Saved Session Logs browser (File menu → Saved Session Logs…): browse every recorded transcript with a live preview, filter by name, and open, reveal, share or delete any log.",
+                "The ZeroTier panel now remembers its width, reopening at the size you last dragged it to.",
+                "Removed the redundant \"open a local shell\" button from the bottom of the profile sidebar (⌘T still opens one).",
+                "Bulk profile editor: the frozen first column now has a full-height resize handle on its edge, so it's easy to grab and stays locked to its header.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.56", build: 66, date: "Jul 25, 2026",
             highlights: [
                 "Resume now brings back profile-launched workspaces: a workspace opened from a profile (including ones built from a workspace template) is remembered and restored on the next launch, instead of disappearing until you reconnected the profile manually.",
@@ -55,7 +66,7 @@ enum ReleaseCatalog {
                 "Double-click a side drawer's title bar to collapse it to a rail (and back out) — the same as its collapse chevron.",
                 "ZeroTier device list gains an All / Connected-to filter so you can focus on just the peers you're linked with.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.42", build: 52, date: "Jul 15, 2026",
