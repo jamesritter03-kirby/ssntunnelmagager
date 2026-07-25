@@ -374,10 +374,58 @@ final class LocalFileBrowser: ObservableObject {
 
 /// A local file browser tab. Mirrors the SFTP browser, but for files on this Mac.
 /// Drag a row onto a terminal to paste its path, or onto an SFTP tab to upload it.
+/// App-wide favourite local folders for the Finder tab. Unlike SFTP bookmarks
+/// (which live on a profile), Finder tabs aren't tied to a profile, so these
+/// favourites are shared across every Finder tab and persisted in UserDefaults.
+@MainActor
+final class FinderBookmarkStore: ObservableObject {
+    static let shared = FinderBookmarkStore()
+    @Published private(set) var bookmarks: [SFTPBookmark]
+
+    private let storeKey = "finder.bookmarks.v1"
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: storeKey),
+           let decoded = try? JSONDecoder().decode([SFTPBookmark].self, from: data) {
+            bookmarks = decoded
+        } else {
+            bookmarks = []
+        }
+    }
+
+    func contains(path: String) -> Bool {
+        let p = path.trimmingCharacters(in: .whitespaces)
+        return bookmarks.contains { $0.trimmedPath == p }
+    }
+
+    /// Add `path` (labelled by its last component) unless it's already saved.
+    func add(path: String) {
+        let p = path.trimmingCharacters(in: .whitespaces)
+        guard !p.isEmpty, !contains(path: p) else { return }
+        let last = (p as NSString).lastPathComponent
+        let label = (last.isEmpty || last == "/") ? p : last
+        bookmarks.append(SFTPBookmark(label: label, path: p))
+        save()
+    }
+
+    func remove(path: String) {
+        let p = path.trimmingCharacters(in: .whitespaces)
+        bookmarks.removeAll { $0.trimmedPath == p }
+        save()
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(bookmarks) {
+            UserDefaults.standard.set(data, forKey: storeKey)
+        }
+    }
+}
+
 struct FinderBrowserView: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var browser: LocalFileBrowser
     @EnvironmentObject var sessions: TerminalSessionManager
+    @ObservedObject private var bookmarks = FinderBookmarkStore.shared
 
     @State private var selection: Set<String> = []
     @State private var selectionAnchor: String?
@@ -445,6 +493,8 @@ struct FinderBrowserView: View {
                 .help("Go to your home folder")
 
             pathMenu
+
+            bookmarksMenu
 
             Spacer(minLength: 8)
 
@@ -547,6 +597,45 @@ struct FinderBrowserView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Jump to a parent folder")
+    }
+
+    /// A menu of saved favourite folders (app-wide). One click jumps there; the
+    /// bottom action bookmarks or un-bookmarks the folder you're currently in.
+    private var bookmarksMenu: some View {
+        Menu {
+            if bookmarks.bookmarks.isEmpty {
+                Text("No bookmarks yet")
+            } else {
+                ForEach(bookmarks.bookmarks) { bm in
+                    Button {
+                        browser.go(to: URL(fileURLWithPath: (bm.trimmedPath as NSString).expandingTildeInPath,
+                                           isDirectory: true))
+                    } label: {
+                        Label(bm.displayLabel, systemImage: "folder")
+                    }
+                    .disabled(bm.trimmedPath.isEmpty)
+                }
+            }
+            Divider()
+            if bookmarks.contains(path: browser.currentPath) {
+                Button(role: .destructive) {
+                    bookmarks.remove(path: browser.currentPath)
+                } label: {
+                    Label("Remove This Folder", systemImage: "bookmark.slash")
+                }
+            } else {
+                Button {
+                    bookmarks.add(path: browser.currentPath)
+                } label: {
+                    Label("Add This Folder", systemImage: "bookmark")
+                }
+            }
+        } label: {
+            Image(systemName: "bookmark")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Saved favourite folders")
     }
 
     // MARK: - List

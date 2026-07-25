@@ -45,6 +45,14 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.62", build: 72, date: "Jul 25, 2026",
+            highlights: [
+                "Finder tabs now have a bookmark menu: save your favourite local folders and jump to any of them in one click, or Add/Remove the folder you're in. (Finder favourites are shared app-wide, since Finder tabs aren't tied to a profile.)",
+                "The Compare & Bulk Edit Profiles window can now be resized by dragging its edges.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.61", build: 71, date: "Jul 25, 2026",
             highlights: [
                 "Bulk profile editor: replaced the sticky frozen first column with a pinned header row — the column headers now stay put while you scroll, every column resizes cleanly, and the whole dialog can be resized to fill the window.",
@@ -52,7 +60,7 @@ enum ReleaseCatalog {
                 "The bulk editor now shows an SFTP Paths count column alongside Snippets, Links, Forwards and Env Vars.",
                 "SFTP path bookmarks now appear for tabs reopened inside a profile-launched workspace, not just freshly opened ones.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.60", build: 70, date: "Jul 25, 2026",

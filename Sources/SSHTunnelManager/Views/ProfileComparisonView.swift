@@ -237,6 +237,7 @@ struct ProfileComparisonView: View {
         }
         .frame(minWidth: 720, idealWidth: 980, maxWidth: .infinity,
                minHeight: 460, idealHeight: 640, maxHeight: .infinity)
+        .background(SheetResizeEnabler(minSize: NSSize(width: 720, height: 460)))
         .onAppear {
             if fieldIsOptions { optionValue = currentOptions.first ?? "" }
         }
@@ -857,6 +858,32 @@ private struct ColumnResizeCursorRect: NSViewRepresentable {
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: .resizeLeftRight)
         }
+    }
+}
+
+/// Makes the hosting sheet window user-resizable. SwiftUI sheets on macOS are
+/// fixed-size by default (no resize control), so we reach the presenting window
+/// and add `.resizable` to its style mask plus a sensible min/max size. This
+/// lets the user drag the sheet's edges to grow the compare table.
+struct SheetResizeEnabler: NSViewRepresentable {
+    var minSize: NSSize
+    var maxSize: NSSize = NSSize(width: 4000, height: 3000)
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { configure(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { configure(nsView.window) }
+    }
+
+    private func configure(_ window: NSWindow?) {
+        guard let window else { return }
+        window.styleMask.insert(.resizable)
+        window.minSize = minSize
+        window.maxSize = maxSize
     }
 }
 
