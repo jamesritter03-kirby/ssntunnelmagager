@@ -458,7 +458,7 @@ struct FinderBrowserView: View {
         // the content shrink to fit, and `contentWidth` is then the true pane
         // width that drives which columns stay visible (Name always wins).
         GeometryReader { proxy in
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 toolbar
                 Divider()
                 listHeader
@@ -468,7 +468,7 @@ struct FinderBrowserView: View {
                 Divider()
                 statusBar
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .clipped()
             .onAppear { contentWidth = proxy.size.width }
             .onChange(of: proxy.size.width) { newValue in contentWidth = newValue }

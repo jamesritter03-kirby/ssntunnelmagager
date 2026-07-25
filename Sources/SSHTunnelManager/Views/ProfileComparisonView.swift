@@ -1,13 +1,81 @@
 import SwiftUI
 import AppKit
 
-/// Presentation state for the **Compare & Bulk Edit Profiles** sheet.
+/// Presentation state for the **Compare & Bulk Edit Profiles** window.
 @MainActor
 final class ProfileComparisonModel: ObservableObject {
     static let shared = ProfileComparisonModel()
     @Published var isPresented = false
-    func present() { isPresented = true }
+    private var windowController: ProfileComparisonWindowController?
+
+    func present() {
+        if windowController == nil {
+            windowController = ProfileComparisonWindowController { [weak self] in
+                self?.windowController = nil
+                self?.isPresented = false
+            }
+        }
+        isPresented = true
+        windowController?.show()
+    }
+
+    func close() {
+        windowController?.close()
+    }
+
     private init() {}
+}
+
+/// Hosts `ProfileComparisonView` in a standalone, freely-resizable window (which
+/// can also be zoomed to full screen). A SwiftUI `.sheet` is fixed-size and its
+/// window chrome can't be reliably made resizable, so we drive a real `NSWindow`.
+@MainActor
+final class ProfileComparisonWindowController: NSObject, NSWindowDelegate {
+    private var window: NSWindow?
+    private let onClose: () -> Void
+
+    init(onClose: @escaping () -> Void) {
+        self.onClose = onClose
+        super.init()
+    }
+
+    func show() {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let root = ProfileComparisonView()
+            .environmentObject(ProfileStore.shared)
+        let hosting = NSHostingView(rootView: root)
+
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 980, height: 640),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "Compare & Bulk Edit Profiles"
+        win.contentView = hosting
+        win.minSize = NSSize(width: 720, height: 460)
+        win.isReleasedWhenClosed = false
+        win.delegate = self
+        win.center()
+
+        window = win
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func close() {
+        window?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        window = nil
+        onClose()
+    }
 }
 
 /// Remembers the user's per-column widths for the compare table across launches.
@@ -237,7 +305,6 @@ struct ProfileComparisonView: View {
         }
         .frame(minWidth: 720, idealWidth: 980, maxWidth: .infinity,
                minHeight: 460, idealHeight: 640, maxHeight: .infinity)
-        .background(SheetResizeEnabler(minSize: NSSize(width: 720, height: 460)))
         .onAppear {
             if fieldIsOptions { optionValue = currentOptions.first ?? "" }
         }
@@ -264,7 +331,7 @@ struct ProfileComparisonView: View {
                 Button("Reset Widths") { columnWidths.reset() }
                     .help("Restore every column to its default width")
             }
-            Button("Done") { dismiss() }
+            Button("Done") { ProfileComparisonModel.shared.close() }
                 .keyboardShortcut(.defaultAction)
         }
         .padding(16)
@@ -858,32 +925,6 @@ private struct ColumnResizeCursorRect: NSViewRepresentable {
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: .resizeLeftRight)
         }
-    }
-}
-
-/// Makes the hosting sheet window user-resizable. SwiftUI sheets on macOS are
-/// fixed-size by default (no resize control), so we reach the presenting window
-/// and add `.resizable` to its style mask plus a sensible min/max size. This
-/// lets the user drag the sheet's edges to grow the compare table.
-struct SheetResizeEnabler: NSViewRepresentable {
-    var minSize: NSSize
-    var maxSize: NSSize = NSSize(width: 4000, height: 3000)
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        DispatchQueue.main.async { configure(view.window) }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { configure(nsView.window) }
-    }
-
-    private func configure(_ window: NSWindow?) {
-        guard let window else { return }
-        window.styleMask.insert(.resizable)
-        window.minSize = minSize
-        window.maxSize = maxSize
     }
 }
 

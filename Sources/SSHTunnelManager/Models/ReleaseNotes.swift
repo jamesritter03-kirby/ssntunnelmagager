@@ -45,12 +45,20 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.63", build: 73, date: "Jul 25, 2026",
+            highlights: [
+                "Finder tabs docked to a narrow side panel now keep their left side (folder buttons and the Name column) visible when you shrink them, instead of clipping it off.",
+                "The Compare & Bulk Edit Profiles window is now a real window: resize it freely from any edge, zoom it to full screen, and its contents always stay in view.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.62", build: 72, date: "Jul 25, 2026",
             highlights: [
                 "Finder tabs now have a bookmark menu: save your favourite local folders and jump to any of them in one click, or Add/Remove the folder you're in. (Finder favourites are shared app-wide, since Finder tabs aren't tied to a profile.)",
                 "The Compare & Bulk Edit Profiles window can now be resized by dragging its edges.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.61", build: 71, date: "Jul 25, 2026",

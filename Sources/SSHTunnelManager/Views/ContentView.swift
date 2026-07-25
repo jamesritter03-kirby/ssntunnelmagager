@@ -22,7 +22,6 @@ struct ContentView: View {
     @ObservedObject private var knownHosts = KnownHostsModel.shared
     @ObservedObject private var addForward = AddForwardModel.shared
     @ObservedObject private var gitSync = GitSyncModel.shared
-    @ObservedObject private var profileCompare = ProfileComparisonModel.shared
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebar.columnVisibility) {
@@ -147,10 +146,6 @@ struct ContentView: View {
         }
         .sheet(isPresented: $gitSync.isPresented) {
             GitSyncView()
-                .environmentObject(store)
-        }
-        .sheet(isPresented: $profileCompare.isPresented) {
-            ProfileComparisonView()
                 .environmentObject(store)
         }
         // A welcome-screen "New Workspace" launch may open one of these dialogs.
