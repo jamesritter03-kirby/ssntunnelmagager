@@ -46,9 +46,9 @@ struct ZeroTierBrowserView: View {
     @State private var selection: NetworkFilter = .all
     @State private var search = ""
     @AppStorage("zeroTierOnlineOnly") private var onlineOnly = false
-    /// Show only networks this Mac has actually joined (matches the cross-platform
-    /// "Member of" filter switch). Persisted across launches.
-    @AppStorage("zeroTierMemberOfOnly") private var memberOfOnly = false
+    /// Show only networks this Mac is actively connected to (status OK). Persisted
+    /// across launches.
+    @AppStorage("zeroTierConnectedOnly") private var connectedOnly = false
     /// Accounts whose collapsible group is currently collapsed in the panel.
     @State private var collapsedAccounts: Set<UUID> = []
     /// Networks whose collapsible group is currently collapsed in the panel.
@@ -144,7 +144,7 @@ struct ZeroTierBrowserView: View {
             Divider()
             footer
         }
-        .onChange(of: memberOfOnly) { _ in resetSelectionIfHidden() }
+        .onChange(of: connectedOnly) { _ in resetSelectionIfHidden() }
     }
 
     // Narrow slide-out layout: a compact network picker on top of the member
@@ -202,7 +202,7 @@ struct ZeroTierBrowserView: View {
     }
 
     /// The two segmented filter switches: All/Online devices and, when this Mac
-    /// runs ZeroTier, All/Member-of networks (mirrors the cross-platform app).
+    /// runs ZeroTier, All/Connected-to networks (mirrors the cross-platform app).
     /// Lays them side by side when there's room, or stacked when the panel is
     /// narrow, so nothing clips.
     private var filterSegments: some View {
@@ -219,8 +219,8 @@ struct ZeroTierBrowserView: View {
         }
     }
 
-    /// Shared width so the two segmented filters line up (widest label is "Member of").
-    private let filterSegmentWidth: CGFloat = 140
+    /// Shared width so the two segmented filters line up (widest label is "Connected to").
+    private let filterSegmentWidth: CGFloat = 160
     /// Shared label column width so both rows' pickers start at the same x.
     private let filterLabelWidth: CGFloat = 62
 
@@ -246,14 +246,14 @@ struct ZeroTierBrowserView: View {
                 Text("Networks")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(width: filterLabelWidth, alignment: .leading)
-                Picker("Networks", selection: $memberOfOnly) {
+                Picker("Networks", selection: $connectedOnly) {
                     Text("All").tag(false)
-                    Text("Member of").tag(true)
+                    Text("Connected to").tag(true)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(width: filterSegmentWidth)
-                .help("Show only networks this Mac has joined")
+                .help("Show only networks this Mac is actively connected to")
             }
         }
     }
@@ -679,8 +679,8 @@ struct ZeroTierBrowserView: View {
         if accounts.isEmpty {
             centered {
                 emptyState("No networks",
-                           memberOfOnly
-                           ? "This Mac hasn’t joined any of these networks."
+                           connectedOnly
+                           ? "This Mac isn’t connected to any of these networks."
                            : "No networks are available for these accounts.")
             }
         } else {
@@ -1265,29 +1265,29 @@ struct ZeroTierBrowserView: View {
     }
 
     /// All cached members across every network, tagged with their network.
-    /// Honors the "Member of" network filter.
+    /// Honors the "Connected to" network filter.
     private var allMembers: [ZeroTierMember] {
         visibleNetworkList.flatMap { store.membersByNetwork[$0.id] ?? [] }
     }
 
-    /// The networks visible under the current "Member of" filter.
+    /// The networks visible under the current "Connected to" filter.
     private var visibleNetworkList: [ZeroTierNetwork] {
-        guard memberOfOnly else { return store.networks }
-        return store.networks.filter { store.localStatus(for: $0.id) != nil }
+        guard connectedOnly else { return store.networks }
+        return store.networks.filter { store.localStatus(for: $0.id)?.isConnected == true }
     }
 
-    /// Networks for one account, filtered by the "Member of" switch.
+    /// Networks for one account, filtered by the "Connected to" switch.
     private func visibleNetworks(for accountId: UUID) -> [ZeroTierNetwork] {
         let nets = store.networks(for: accountId)
-        guard memberOfOnly else { return nets }
-        return nets.filter { store.localStatus(for: $0.id) != nil }
+        guard connectedOnly else { return nets }
+        return nets.filter { store.localStatus(for: $0.id)?.isConnected == true }
     }
 
-    /// If the "Member of" filter hides the currently selected network, fall back
+    /// If the "Connected to" filter hides the currently selected network, fall back
     /// to "All Networks" so the member list isn't stuck on a hidden selection.
     private func resetSelectionIfHidden() {
-        guard let id = selectedNetworkID else { return }
-        if store.localStatus(for: id) == nil {
+        guard connectedOnly, let id = selectedNetworkID else { return }
+        if store.localStatus(for: id)?.isConnected != true {
             selection = .all
         }
     }

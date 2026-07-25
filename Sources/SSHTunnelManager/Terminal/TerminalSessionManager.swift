@@ -571,6 +571,29 @@ final class TerminalSessionManager: ObservableObject {
         addAndStart(session)
     }
 
+    /// Run a user-defined command palette command in the chosen destination.
+    func runCustomCommand(_ command: CustomCommand) {
+        let text = command.trimmedCommand
+        guard !text.isEmpty else { return }
+        switch command.target {
+        case .activeTerminal:
+            selectedSession?.run(text)
+        case .newTerminal:
+            let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+            let session = TerminalSession(
+                kind: .localShell,
+                title: command.displayTitle,
+                executable: shell,
+                args: ["-l"],
+                commandPreview: "\(shell) -l",
+                theme: TerminalTheme.theme(id: AppSettings.shared.defaultThemeID),
+                fontSize: AppSettings.shared.defaultFontSize,
+                runOnConnectCommand: text
+            )
+            addAndStart(session)
+        }
+    }
+
     /// Open a new tab running `ssh` with the profile's tunnel configuration —
     /// or, for a **local** profile, a login shell starting in its folder.
     func connect(profile: SSHProfile) {

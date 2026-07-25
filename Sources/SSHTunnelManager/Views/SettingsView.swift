@@ -5,6 +5,14 @@ struct SettingsView: View {
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var updater = UpdaterController.shared
 
+    /// The current "open where?" default for Welcome-screen launches, loaded from
+    /// the same remembered choice the launch prompt writes.
+    @State private var welcomeLaunch: WelcomeLaunchChoice = .ask
+    /// The name of the remembered workspace, when the default targets a specific one.
+    @State private var rememberedWorkspaceName: String?
+
+    private enum WelcomeLaunchChoice: Hashable { case ask, newWorkspace, existing }
+
     var body: some View {
         Form {
             Section {
@@ -68,6 +76,23 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("Launching from the Welcome tab", selection: $welcomeLaunch) {
+                    Text("Ask each time").tag(WelcomeLaunchChoice.ask)
+                    Text("Always open in a new workspace").tag(WelcomeLaunchChoice.newWorkspace)
+                    if let name = rememberedWorkspaceName {
+                        Text("Always open in “\(name)”").tag(WelcomeLaunchChoice.existing)
+                    }
+                }
+                .onChange(of: welcomeLaunch) { applyWelcomeLaunch($0) }
+            } header: {
+                Text("Welcome Screen")
+            } footer: {
+                Text("The pinned Welcome tab can open a new tab, connection or profile into a new or existing workspace. Choose “Ask each time” to be prompted, or set a default here. This is the same choice the prompt's “Remember this choice” option controls.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Automatically check for updates", isOn: $updater.automaticallyChecksForUpdates)
                 HStack {
                     Text("Version \(Self.appVersion)")
@@ -86,6 +111,33 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 460, height: 480)
+        .onAppear { loadWelcomeLaunch() }
+    }
+
+    /// Read the current Welcome-launch default so the picker reflects it.
+    private func loadWelcomeLaunch() {
+        let sessions = TerminalSessionManager.shared
+        switch sessions.rememberedLaunchTarget {
+        case .none:
+            welcomeLaunch = .ask
+            rememberedWorkspaceName = nil
+        case .new:
+            welcomeLaunch = .newWorkspace
+            rememberedWorkspaceName = nil
+        case .existing(let id):
+            welcomeLaunch = .existing
+            rememberedWorkspaceName = sessions.workspaces.first { $0.id == id }?.name
+        }
+    }
+
+    /// Persist the chosen Welcome-launch default.
+    private func applyWelcomeLaunch(_ choice: WelcomeLaunchChoice) {
+        let sessions = TerminalSessionManager.shared
+        switch choice {
+        case .ask: sessions.rememberedLaunchTarget = nil
+        case .newWorkspace: sessions.rememberedLaunchTarget = .new
+        case .existing: break // keep the already-remembered workspace
+        }
     }
 
     private static var appVersion: String {

@@ -19,4 +19,11 @@ struct PaletteItem: Identifiable {
     let subtitle: String
     let systemImage: String
     let run: () -> Void
+    /// When set, the row shows an inline **Edit** button (user-created commands).
+    var edit: (() -> Void)? = nil
+    /// When set, the row shows an inline **Delete** button (user-created commands).
+    var delete: (() -> Void)? = nil
+    /// When true, running the item leaves the palette open (e.g. it opens an
+    /// editor sheet layered above the palette).
+    var keepsOpen: Bool = false
 }

@@ -39,9 +39,9 @@ private struct ZeroTierIPPickerPopover: View {
     @ObservedObject private var net = NetworkStore.shared
     @State private var search = ""
     @AppStorage("zeroTierOnlineOnly") private var onlineOnly = false
-    /// Show only devices on networks this Mac has joined. Shares the same
-    /// persisted setting as the ZeroTier browser panel's "Member of" switch.
-    @AppStorage("zeroTierMemberOfOnly") private var memberOfOnly = false
+    /// Show only devices on networks this Mac is actively connected to. Shares the
+    /// same persisted setting as the ZeroTier browser panel's "Connected to" switch.
+    @AppStorage("zeroTierConnectedOnly") private var connectedOnly = false
     @State private var newLabel = ""
     @State private var newToken = ""
     @State private var newServer = ""
@@ -101,9 +101,9 @@ private struct ZeroTierIPPickerPopover: View {
                 Toggle("Online", isOn: $onlineOnly)
                     .toggleStyle(.switch).controlSize(.mini).fixedSize()
                 if store.localNodeAvailable {
-                    Toggle("Member of", isOn: $memberOfOnly)
+                    Toggle("Connected to", isOn: $connectedOnly)
                         .toggleStyle(.switch).controlSize(.mini).fixedSize()
-                        .help("Show only devices on networks this Mac has joined")
+                        .help("Show only devices on networks this Mac is actively connected to")
                 }
                 Spacer(minLength: 0)
             }
@@ -120,7 +120,7 @@ private struct ZeroTierIPPickerPopover: View {
             spacerBox { ProgressView() }
         } else if devices.isEmpty && routerClients.isEmpty {
             spacerBox {
-                Text(search.isEmpty && !onlineOnly && !memberOfOnly ? "No devices with an IP found." : "No matching devices.")
+                Text(search.isEmpty && !onlineOnly && !connectedOnly ? "No devices with an IP found." : "No matching devices.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
         } else {
@@ -275,7 +275,7 @@ private struct ZeroTierIPPickerPopover: View {
         return all.filter { member in
             if member.ipAssignments.isEmpty { return false }
             if onlineOnly && !member.isOnline { return false }
-            if memberOfOnly && store.localStatus(for: member.networkId) == nil { return false }
+            if connectedOnly && store.localStatus(for: member.networkId)?.isConnected != true { return false }
             guard !q.isEmpty else { return true }
             if member.displayName.lowercased().contains(q) { return true }
             if member.nodeId.lowercased().contains(q) { return true }

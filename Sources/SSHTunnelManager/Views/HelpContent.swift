@@ -275,7 +275,7 @@ enum HelpContent {
                 "**Self‑hosted controllers** (e.g. **ZTNET**) work too — when adding an account, put your server’s URL (e.g. `https://zt.example.com`) in the **Server** field and use that server’s API token. Leave **Server** blank for ZeroTier Central.",
                 "**Network headers** show the network name, a click‑to‑copy **network ID**, an online/total count, and a **This Mac** chip when this Mac has joined that network (green when connected, orange when joined but not connected).",
                 "**Device cards** show the name, online status, a click‑to‑copy **node ID**, last‑seen time, an **Unauthorized** badge when applicable, and each managed **IP**. The per‑device **manage** menu (•••) lets you **Authorize / Deauthorize** a device or **Edit** its name and description.",
-                "**Filter** by name, node id or IP; use the **All / Online** switch to hide offline devices and, when this Mac runs ZeroTier, **All / Member of** to show only networks you've joined.",
+                "**Filter** by name, node id or IP; use the **All / Online** switch to hide offline devices and, when this Mac runs ZeroTier, **All / Connected to** to show only networks this Mac is actively connected to.",
                 "Connections are **ad‑hoc** (profile‑free): your SSH keys are tried first and a typed password isn't stored. Create a profile for anything you use often.",
             ]),
             .tip("Anywhere you enter a host or IP — the **New Remote Terminal / SFTP / VNC / MQTT / Redis** sheets and the **profile editor** — a small **globe** button sits next to the field. Click it to pick a device IP from ZeroTier without leaving the form."),

@@ -343,7 +343,7 @@ window toolbar (it opens a side **panel**), or **File ▸ Browse ZeroTier Device
   per‑device **manage** menu (•••) lets you **Authorize / Deauthorize** the device or **Edit** its
   name and description.
 - **Filter** by name, node id or IP, and use the segmented switches for **All / Online** devices and
-  (when this Mac runs ZeroTier) **All / Member of** networks. Set a **username** for SSH/SFTP, then
+  (when this Mac runs ZeroTier) **All / Connected to** networks. Set a **username** for SSH/SFTP, then
   click **Connect** next to any IP to open a tab connected to that device.
 - Connections are profile‑free (ad‑hoc); your SSH keys are tried first and a typed password isn’t
   stored. The **key** button manages accounts (add / rename / change token / remove).

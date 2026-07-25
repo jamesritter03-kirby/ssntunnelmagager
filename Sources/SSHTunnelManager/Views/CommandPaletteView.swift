@@ -6,9 +6,11 @@ struct CommandPaletteView: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var sessions: TerminalSessionManager
     @ObservedObject var palette: CommandPaletteModel
+    @ObservedObject private var customStore = CustomCommandStore.shared
 
     @State private var query = ""
     @State private var selectedIndex = 0
+    @State private var editingCommand: CustomCommand?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -22,6 +24,9 @@ struct CommandPaletteView: View {
         .onAppear { searchFocused = true; selectedIndex = 0 }
         .onChange(of: query) { _ in selectedIndex = 0 }
         .onExitCommand { palette.isPresented = false }
+        .sheet(item: $editingCommand) { command in
+            CustomCommandEditor(command: command) { editingCommand = nil }
+        }
     }
 
     private var searchField: some View {
@@ -72,7 +77,10 @@ struct CommandPaletteView: View {
     }
 
     private func row(index: Int, item: PaletteItem) -> some View {
-        PaletteRow(item: item, isSelected: index == selectedIndex)
+        PaletteRow(item: item,
+                   isSelected: index == selectedIndex,
+                   onEdit: item.edit,
+                   onDelete: item.delete)
             .id(index)
             .contentShape(Rectangle())
             .onTapGesture { run(item) }
@@ -94,7 +102,7 @@ struct CommandPaletteView: View {
     }
 
     private func run(_ item: PaletteItem) {
-        palette.isPresented = false
+        if !item.keepsOpen { palette.isPresented = false }
         item.run()
     }
 
@@ -110,6 +118,20 @@ struct CommandPaletteView: View {
 
     private var allItems: [PaletteItem] {
         var items: [PaletteItem] = []
+
+        // User-created custom commands (editable straight from the palette).
+        for command in customStore.commands {
+            let subtitle = command.trimmedCommand.isEmpty
+                ? command.target.label
+                : "\(command.trimmedCommand) · \(command.target.label)"
+            items.append(PaletteItem(
+                title: command.displayTitle,
+                subtitle: subtitle,
+                systemImage: "wand.and.stars",
+                run: { sessions.runCustomCommand(command) },
+                edit: { beginEditing(command) },
+                delete: { customStore.delete(id: command.id) }))
+        }
 
         // Quick actions
         items.append(PaletteItem(title: "New Local Terminal",
@@ -199,13 +221,32 @@ struct CommandPaletteView: View {
             })
         }
 
+        // Always-available action to create a new custom command. When the user has
+        // typed something, offer it as the starting command text.
+        let typed = query.trimmingCharacters(in: .whitespaces)
+        items.append(PaletteItem(
+            title: typed.isEmpty ? "New Command…" : "New Command: \(typed)",
+            subtitle: "Create a reusable custom command",
+            systemImage: "plus.circle",
+            run: { beginEditing(CustomCommand(command: typed)) },
+            keepsOpen: true))
+
         return items
+    }
+
+    // MARK: - Custom command editing
+
+    private func beginEditing(_ command: CustomCommand) {
+        // Keep the palette open behind the editor sheet.
+        editingCommand = command
     }
 }
 
 private struct PaletteRow: View {
     let item: PaletteItem
     let isSelected: Bool
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -224,10 +265,96 @@ private struct PaletteRow: View {
                 }
             }
             Spacer(minLength: 0)
+            if onEdit != nil || onDelete != nil {
+                HStack(spacing: 4) {
+                    if let onEdit {
+                        rowButton("pencil", help: "Edit command", action: onEdit)
+                    }
+                    if let onDelete {
+                        rowButton("trash", help: "Delete command", action: onDelete)
+                    }
+                }
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(isSelected ? Color.accentColor : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 7))
     }
+
+    private func rowButton(_ systemImage: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+                .foregroundStyle(isSelected ? Color.white : Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
 }
+
+/// Create or edit a single user-defined command palette command.
+private struct CustomCommandEditor: View {
+    @State var command: CustomCommand
+    let onClose: () -> Void
+
+    @ObservedObject private var store = CustomCommandStore.shared
+    @FocusState private var nameFocused: Bool
+
+    private var isExisting: Bool { store.commands.contains { $0.id == command.id } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(isExisting ? "Edit Command" : "New Command")
+                .font(.title3).bold()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Name").font(.caption).foregroundStyle(.secondary)
+                TextField("e.g. Tail system log", text: $command.title)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($nameFocused)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Command").font(.caption).foregroundStyle(.secondary)
+                TextEditor(text: $command.command)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(height: 90)
+                    .overlay(RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.3)))
+            }
+
+            Picker("Run in", selection: $command.target) {
+                ForEach(CustomCommandTarget.allCases) { target in
+                    Text(target.label).tag(target)
+                }
+            }
+            .pickerStyle(.radioGroup)
+
+            HStack {
+                if isExisting {
+                    Button(role: .destructive) {
+                        store.delete(id: command.id)
+                        onClose()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                Spacer()
+                Button("Cancel", action: onClose)
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    store.update(command)
+                    onClose()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!command.isValid)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .onAppear { nameFocused = true }
+    }
+}
+
