@@ -173,32 +173,49 @@ struct ZeroTierBrowserView: View {
 
     /// The two segmented filter switches: All/Online devices and, when this Mac
     /// runs ZeroTier, All/Member-of networks (mirrors the cross-platform app).
+    /// Lays them side by side when there's room, or stacked when the panel is
+    /// narrow, so nothing clips.
     private var filterSegments: some View {
-        HStack(spacing: 12) {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                devicesSegment
+                networksSegment
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                devicesSegment
+                networksSegment
+            }
+        }
+    }
+
+    private var devicesSegment: some View {
+        HStack(spacing: 6) {
+            Text("Devices").font(.caption).foregroundStyle(.secondary)
+            Picker("Devices", selection: $onlineOnly) {
+                Text("All").tag(false)
+                Text("Online").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        }
+    }
+
+    @ViewBuilder
+    private var networksSegment: some View {
+        if store.localNodeAvailable {
             HStack(spacing: 6) {
-                Text("Devices").font(.caption).foregroundStyle(.secondary)
-                Picker("Devices", selection: $onlineOnly) {
+                Text("Networks").font(.caption).foregroundStyle(.secondary)
+                Picker("Networks", selection: $memberOfOnly) {
                     Text("All").tag(false)
-                    Text("Online").tag(true)
+                    Text("Member of").tag(true)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
+                .help("Show only networks this Mac has joined")
             }
-            if store.localNodeAvailable {
-                HStack(spacing: 6) {
-                    Text("Networks").font(.caption).foregroundStyle(.secondary)
-                    Picker("Networks", selection: $memberOfOnly) {
-                        Text("All").tag(false)
-                        Text("Member of").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Show only networks this Mac has joined")
-                }
-            }
-            Spacer(minLength: 0)
         }
     }
 
@@ -506,11 +523,20 @@ struct ZeroTierBrowserView: View {
     }
 
     private var connectAsRow: some View {
+        // Wide: fixed-width fields with the trailing hint. Narrow: flexible fields
+        // that shrink to fit and drop the hint so nothing clips or overflows.
+        ViewThatFits(in: .horizontal) {
+            connectAsContent(fieldWidth: 150, showTrailingLabel: true)
+            connectAsContent(fieldWidth: nil, showTrailingLabel: false)
+        }
+    }
+
+    private func connectAsContent(fieldWidth: CGFloat?, showTrailingLabel: Bool) -> some View {
         HStack(spacing: 8) {
             Text("Connect as").font(.caption).foregroundStyle(.secondary)
             TextField("username", text: $username)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 150)
+                .connectFieldWidth(fieldWidth)
                 .onChange(of: username) { _ in loadSavedPassword() }
                 .help("The username used for SSH / SFTP connections. It's remembered for next time.")
             Group {
@@ -521,7 +547,7 @@ struct ZeroTierBrowserView: View {
                 }
             }
             .textFieldStyle(.roundedBorder)
-            .frame(width: 150)
+            .connectFieldWidth(fieldWidth)
             Button {
                 showPassword.toggle()
             } label: {
@@ -537,8 +563,10 @@ struct ZeroTierBrowserView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .help("Save this password to your Keychain (or clear it when empty)")
-            Text("for SSH / SFTP").font(.caption).foregroundStyle(.secondary)
-            Spacer()
+            if showTrailingLabel {
+                Text("for SSH / SFTP").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -1203,12 +1231,24 @@ private struct PresentationFrame: ViewModifier {
     }
 }
 
+private extension View {
+    /// Fixed width when a size is given (wide layout), otherwise a flexible field
+    /// that can shrink to share the available row width (narrow layout).
+    @ViewBuilder
+    func connectFieldWidth(_ width: CGFloat?) -> some View {
+        if let width {
+            frame(width: width)
+        } else {
+            frame(minWidth: 70, maxWidth: .infinity)
+        }
+    }
+}
+
 /// Makes the hosting **sheet** window user-resizable. SwiftUI presents sheets on
 /// macOS at their ideal size with no resize handles even when the content has a
 /// flexible frame; inserting `.resizable` into the sheet window's style mask lets
 /// the user drag its edges (bounded by the content's min/max frame).
-private struct ResizableSheet: NSViewRepresentable {
-    final class Coordinator { var didExpand = false }
+private struct ResizableSheet: NSViewRepresentable {    final class Coordinator { var didExpand = false }
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {

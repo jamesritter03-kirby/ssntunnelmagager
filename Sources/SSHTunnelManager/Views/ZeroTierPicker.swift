@@ -38,7 +38,10 @@ private struct ZeroTierIPPickerPopover: View {
     @ObservedObject private var store = ZeroTierStore.shared
     @ObservedObject private var net = NetworkStore.shared
     @State private var search = ""
-    @State private var onlineOnly = false
+    @AppStorage("zeroTierOnlineOnly") private var onlineOnly = false
+    /// Show only devices on networks this Mac has joined. Shares the same
+    /// persisted setting as the ZeroTier browser panel's "Member of" switch.
+    @AppStorage("zeroTierMemberOfOnly") private var memberOfOnly = false
     @State private var newLabel = ""
     @State private var newToken = ""
     @State private var newServer = ""
@@ -66,6 +69,7 @@ private struct ZeroTierIPPickerPopover: View {
             await store.loadIfNeeded()
             await net.refreshRouterClients()
         }
+        .task { await store.refreshLocalNode() }
     }
 
     private var header: some View {
@@ -88,11 +92,21 @@ private struct ZeroTierIPPickerPopover: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.caption)
-            TextField("Filter by name or IP", text: $search).textFieldStyle(.plain)
-            Toggle("Online", isOn: $onlineOnly)
-                .toggleStyle(.switch).controlSize(.mini).fixedSize()
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.caption)
+                TextField("Filter by name or IP", text: $search).textFieldStyle(.plain)
+            }
+            HStack(spacing: 12) {
+                Toggle("Online", isOn: $onlineOnly)
+                    .toggleStyle(.switch).controlSize(.mini).fixedSize()
+                if store.localNodeAvailable {
+                    Toggle("Member of", isOn: $memberOfOnly)
+                        .toggleStyle(.switch).controlSize(.mini).fixedSize()
+                        .help("Show only devices on networks this Mac has joined")
+                }
+                Spacer(minLength: 0)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -106,7 +120,7 @@ private struct ZeroTierIPPickerPopover: View {
             spacerBox { ProgressView() }
         } else if devices.isEmpty && routerClients.isEmpty {
             spacerBox {
-                Text(search.isEmpty && !onlineOnly ? "No devices with an IP found." : "No matching devices.")
+                Text(search.isEmpty && !onlineOnly && !memberOfOnly ? "No devices with an IP found." : "No matching devices.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
         } else {
@@ -261,6 +275,7 @@ private struct ZeroTierIPPickerPopover: View {
         return all.filter { member in
             if member.ipAssignments.isEmpty { return false }
             if onlineOnly && !member.isOnline { return false }
+            if memberOfOnly && store.localStatus(for: member.networkId) == nil { return false }
             guard !q.isEmpty else { return true }
             if member.displayName.lowercased().contains(q) { return true }
             if member.nodeId.lowercased().contains(q) { return true }
