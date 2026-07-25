@@ -189,6 +189,9 @@ struct ZeroTierBrowserView: View {
         }
     }
 
+    /// Shared width so the two segmented filters line up (widest label is "Member of").
+    private let filterSegmentWidth: CGFloat = 140
+
     private var devicesSegment: some View {
         HStack(spacing: 6) {
             Text("Devices").font(.caption).foregroundStyle(.secondary)
@@ -198,7 +201,7 @@ struct ZeroTierBrowserView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .fixedSize()
+            .frame(width: filterSegmentWidth)
         }
     }
 
@@ -213,7 +216,7 @@ struct ZeroTierBrowserView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .fixedSize()
+                .frame(width: filterSegmentWidth)
                 .help("Show only networks this Mac has joined")
             }
         }
@@ -420,31 +423,7 @@ struct ZeroTierBrowserView: View {
                 Spacer(minLength: 4)
                 localBadge(for: network.id)
             }
-            // The 16-hex-digit network id, click (or right-click ▸ Copy) to copy.
-            Button {
-                copyNetworkID(network.id)
-            } label: {
-                HStack(spacing: 3) {
-                    Text(network.id)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Image(systemName: copiedNetworkID == network.id
-                          ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 8))
-                        .foregroundStyle(copiedNetworkID == network.id ? Color.green : Color.secondary.opacity(0.6))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Click to copy this network ID (\(network.id))")
-            .contextMenu {
-                Button {
-                    copyNetworkID(network.id)
-                } label: {
-                    Label("Copy Network ID", systemImage: "doc.on.doc")
-                }
-            }
+            networkIDCopyButton(network.id)
             HStack(spacing: 4) {
                 Circle()
                     .fill(onlineCount(for: network.id) > 0 ? Color.green : Color.secondary.opacity(0.5))
@@ -455,6 +434,34 @@ struct ZeroTierBrowserView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// The 16-hex-digit network id shown as a click-to-copy button (also right-click ▸ Copy).
+    @ViewBuilder
+    private func networkIDCopyButton(_ id: String) -> some View {
+        Button {
+            copyNetworkID(id)
+        } label: {
+            HStack(spacing: 3) {
+                Text(id)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Image(systemName: copiedNetworkID == id ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 8))
+                    .foregroundStyle(copiedNetworkID == id ? Color.green : Color.secondary.opacity(0.6))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Click to copy this network ID (\(id))")
+        .contextMenu {
+            Button {
+                copyNetworkID(id)
+            } label: {
+                Label("Copy Network ID", systemImage: "doc.on.doc")
+            }
+        }
     }
 
     /// Copy a network id to the clipboard and briefly show a checkmark on its row.
@@ -666,6 +673,7 @@ struct ZeroTierBrowserView: View {
                 Text(net.displayName)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
+                networkIDCopyButton(net.id)
                 Spacer(minLength: 4)
                 Text("\(onlineCount(for: net.id)) online · \(totalCount(for: net)) total")
                     .font(.caption2)
