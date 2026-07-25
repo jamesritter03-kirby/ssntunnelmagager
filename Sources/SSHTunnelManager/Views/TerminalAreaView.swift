@@ -14,7 +14,9 @@ struct TerminalAreaView: View {
             // terminal window and back). An ordinary slim row is reliable.
             WorkspaceBar()
             Divider()
-            if sessions.attachedSessions.isEmpty {
+            if sessions.showingWelcome {
+                WelcomeView()
+            } else if sessions.attachedSessions.isEmpty {
                 if sessions.currentWorkspaceSessions.isEmpty {
                     WelcomeView()
                 } else {
@@ -573,6 +575,12 @@ private struct WorkspaceBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            HomePill(
+                isCurrent: sessions.showingWelcome,
+                hasRememberedTarget: sessions.hasRememberedLaunchTarget,
+                onSelect: { sessions.showWelcomeScreen() },
+                onClearRemembered: { sessions.clearRememberedLaunchTarget() }
+            )
             ForEach(sessions.workspaces) { ws in
                 WorkspacePill(
                     workspace: ws,
@@ -827,6 +835,47 @@ private struct TabColorMenu: View {
             }
         } label: {
             Label("Tab Color", systemImage: "paintpalette")
+        }
+    }
+}
+
+/// A pinned, always-available "Welcome" tab that shows the welcome screen. Unlike
+/// a workspace it holds no tabs; selecting it lets the user launch anything and
+/// choose which workspace it opens into.
+private struct HomePill: View {
+    let isCurrent: Bool
+    var hasRememberedTarget: Bool = false
+    var onSelect: () -> Void
+    var onClearRemembered: () -> Void = {}
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "house.fill")
+                .font(.caption2)
+                .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+            Text("Welcome")
+                .font(.callout.weight(isCurrent ? .semibold : .regular))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(isCurrent ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isCurrent ? Color.accentColor.opacity(0.7) : .clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .help("Show the welcome screen")
+        .contextMenu {
+            Button(action: onSelect) {
+                Label("Show Welcome Screen", systemImage: "house")
+            }
+            if hasRememberedTarget {
+                Button(action: onClearRemembered) {
+                    Label("Reset “Open Where?” Choice", systemImage: "arrow.uturn.backward")
+                }
+            }
         }
     }
 }
@@ -2573,6 +2622,8 @@ private struct ExitBanner: View {
 }
 
 private struct WelcomeView: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 12) {
@@ -2591,6 +2642,66 @@ private struct WelcomeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(28)
+        .sheet(isPresented: Binding(
+            get: { sessions.pendingWelcomeLaunch != nil },
+            set: { if !$0 { sessions.cancelWelcomeLaunch() } }
+        )) {
+            WelcomeLaunchTargetSheet()
+        }
+    }
+}
+
+/// The "open where?" picker shown when the user launches something from the
+/// always-available welcome screen. Lets them pick a new or existing workspace,
+/// optionally remembering the choice for next time.
+private struct WelcomeLaunchTargetSheet: View {
+    @EnvironmentObject var sessions: TerminalSessionManager
+    @State private var remember = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Open where?")
+                    .font(.headline)
+                Text("Choose the workspace this should open into.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 8) {
+                Button { choose(.new) } label: {
+                    Label("New Workspace", systemImage: "plus.square.on.square")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !sessions.workspaces.isEmpty {
+                    Divider()
+                    ForEach(sessions.workspaces) { ws in
+                        Button { choose(.existing(ws.id)) } label: {
+                            Label("\(ws.name) (\(sessions.tabCount(in: ws.id)))",
+                                  systemImage: "square.stack.3d.up")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+
+            Toggle("Remember this choice", isOn: $remember)
+                .help("Skip this prompt next time and always open here")
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { sessions.cancelWelcomeLaunch() }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+    }
+
+    private func choose(_ target: WelcomeLaunchTarget) {
+        sessions.completeWelcomeLaunch(target: target, remember: remember)
     }
 }
 
@@ -2616,6 +2727,7 @@ private struct WelcomeLaunchOptions: View {
                 let saved = sessions.savedSessionCount
                 if showsResume, saved > 0 && sessions.sessions.isEmpty {
                     Button {
+                        sessions.showingWelcome = false
                         sessions.restoreSavedSessions()
                     } label: {
                         Label("Resume Last Session (\(saved) tab\(saved == 1 ? "" : "s"))",
@@ -2625,35 +2737,35 @@ private struct WelcomeLaunchOptions: View {
                     .help("Reopen the tabs that were open when you last quit")
                 }
                 Button {
-                    sessions.openLocalShell()
+                    sessions.launchFromWelcome { sessions.openLocalShell() }
                 } label: {
                     Label("New Local Terminal", systemImage: "terminal")
                 }
                 .controlSize(.large)
 
                 Button {
-                    sessions.openBlankWeb()
+                    sessions.launchFromWelcome { sessions.openBlankWeb() }
                 } label: {
                     Label("New Browser Tab", systemImage: "globe")
                 }
                 .controlSize(.large)
 
                 Button {
-                    sessions.openFinder()
+                    sessions.launchFromWelcome { sessions.openFinder() }
                 } label: {
                     Label("New Finder Tab", systemImage: "folder")
                 }
                 .controlSize(.large)
 
                 Button {
-                    sessions.openTextEditor()
+                    sessions.launchFromWelcome { sessions.openTextEditor() }
                 } label: {
                     Label("New Text Editor", systemImage: "doc.text")
                 }
                 .controlSize(.large)
 
                 Button {
-                    sessions.openSpreadsheet()
+                    sessions.launchFromWelcome { sessions.openSpreadsheet() }
                 } label: {
                     Label("New Spreadsheet", systemImage: "tablecells")
                 }
@@ -2668,7 +2780,7 @@ private struct WelcomeLaunchOptions: View {
                     .foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     Button {
-                        RemoteConnectionModel.shared.present(.ssh)
+                        sessions.launchFromWelcome { RemoteConnectionModel.shared.present(.ssh) }
                     } label: {
                         Label("Remote Terminal", systemImage: "network")
                     }
@@ -2676,7 +2788,7 @@ private struct WelcomeLaunchOptions: View {
                     .help("Open an SSH terminal on a server")
 
                     Button {
-                        RemoteConnectionModel.shared.present(.sftp)
+                        sessions.launchFromWelcome { RemoteConnectionModel.shared.present(.sftp) }
                     } label: {
                         Label("SFTP", systemImage: "arrow.up.arrow.down")
                     }
@@ -2684,7 +2796,7 @@ private struct WelcomeLaunchOptions: View {
                     .help("Browse and transfer files over SFTP")
 
                     Button {
-                        VNCConnectionModel.shared.present()
+                        sessions.launchFromWelcome { VNCConnectionModel.shared.present() }
                     } label: {
                         Label("VNC", systemImage: "display")
                     }
@@ -2692,7 +2804,7 @@ private struct WelcomeLaunchOptions: View {
                     .help("View a computer’s screen over VNC")
 
                     Button {
-                        ServiceConnectionModel.shared.present(.mqtt)
+                        sessions.launchFromWelcome { ServiceConnectionModel.shared.present(.mqtt) }
                     } label: {
                         Label("MQTT", systemImage: ForwardCategory.mqtt.symbol)
                     }
@@ -2700,7 +2812,7 @@ private struct WelcomeLaunchOptions: View {
                     .help("Browse an MQTT broker")
 
                     Button {
-                        ServiceConnectionModel.shared.present(.redis)
+                        sessions.launchFromWelcome { ServiceConnectionModel.shared.present(.redis) }
                     } label: {
                         Label("Redis", systemImage: ForwardCategory.redis.symbol)
                     }
@@ -2708,7 +2820,7 @@ private struct WelcomeLaunchOptions: View {
                     .help("Browse a Redis server")
 
                     Button {
-                        ZeroTierBrowserModel.shared.present()
+                        sessions.launchFromWelcome { ZeroTierBrowserModel.shared.present() }
                     } label: {
                         Label("ZeroTier", systemImage: "globe.americas.fill")
                     }
@@ -2838,7 +2950,7 @@ private struct ProfileLaunchButton: View {
 
     var body: some View {
         Button {
-            sessions.connect(profile: profile)
+            sessions.launchFromWelcome { sessions.connect(profile: profile) }
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: profile.displayIcon)
@@ -2870,18 +2982,18 @@ private struct ProfileLaunchButton: View {
         .buttonStyle(.plain)
         .contextMenu {
             Button {
-                sessions.connect(profile: profile)
+                sessions.launchFromWelcome { sessions.connect(profile: profile) }
             } label: {
                 Label("Connect", systemImage: "play.fill")
             }
             if !profile.isLocal {
                 Button {
-                    sessions.connectSFTP(profile: profile)
+                    sessions.launchFromWelcome { sessions.connectSFTP(profile: profile) }
                 } label: {
                     Label("Open SFTP", systemImage: "arrow.up.arrow.down")
                 }
                 Button {
-                    sessions.connectVNC(profile: profile)
+                    sessions.launchFromWelcome { sessions.connectVNC(profile: profile) }
                 } label: {
                     Label("Open VNC", systemImage: "display")
                 }

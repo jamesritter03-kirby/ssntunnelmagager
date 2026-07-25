@@ -3,6 +3,13 @@ import SwiftUI
 import AppKit
 import Combine
 
+/// Where a welcome-screen launch should open: a brand-new workspace, or an
+/// existing open one.
+enum WelcomeLaunchTarget: Equatable {
+    case new
+    case existing(UUID)
+}
+
 /// Owns the open terminal tabs and routes "open shell" / "connect profile" actions.
 final class TerminalSessionManager: ObservableObject {
     @Published var sessions: [TerminalSession] = []
@@ -16,6 +23,14 @@ final class TerminalSessionManager: ObservableObject {
     /// Tabs / workspaces the user recently closed without saving, newest first,
     /// shown on the welcome screen so an accidental close can be undone.
     @Published private(set) var recentlyClosed: [ClosedItem] = []
+
+    /// When on, the detail pane shows the always-available **welcome screen**
+    /// (the pinned Home pill) instead of the current workspace's tabs. Launching
+    /// anything from it asks which workspace to open into.
+    @Published var showingWelcome = false
+    /// A launch action queued from the welcome screen while the "open where?"
+    /// target picker is shown. Non-nil drives the picker sheet.
+    @Published var pendingWelcomeLaunch: (() -> Void)?
 
     static let shared = TerminalSessionManager()
 
@@ -412,6 +427,7 @@ final class TerminalSessionManager: ObservableObject {
         let ws = Workspace(name: nextWorkspaceName(), isTiled: tiled)
         workspaces.append(ws)
         currentWorkspaceID = ws.id
+        showingWelcome = false
     }
 
     private func nextWorkspaceName() -> String {
@@ -424,6 +440,84 @@ final class TerminalSessionManager: ObservableObject {
     func switchWorkspace(to id: UUID) {
         guard workspaces.contains(where: { $0.id == id }) else { return }
         currentWorkspaceID = id
+        showingWelcome = false
+    }
+
+    // MARK: - Welcome-screen launch routing
+
+    /// Show the always-available welcome screen (the pinned Home pill).
+    func showWelcomeScreen() {
+        showingWelcome = true
+    }
+
+    /// The user's remembered "open where?" choice for welcome-screen launches, or
+    /// `nil` to ask each time. Stored as `"new"` or a workspace UUID string; a
+    /// remembered workspace that no longer exists falls back to asking.
+    var rememberedLaunchTarget: WelcomeLaunchTarget? {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: "welcomeLaunchTarget") else { return nil }
+            if raw == "new" { return .new }
+            if let id = UUID(uuidString: raw), workspaces.contains(where: { $0.id == id }) {
+                return .existing(id)
+            }
+            return nil
+        }
+        set {
+            let defaults = UserDefaults.standard
+            switch newValue {
+            case .new: defaults.set("new", forKey: "welcomeLaunchTarget")
+            case .existing(let id): defaults.set(id.uuidString, forKey: "welcomeLaunchTarget")
+            case .none: defaults.removeObject(forKey: "welcomeLaunchTarget")
+            }
+        }
+    }
+
+    /// Whether a remembered launch target is currently set (for menu state).
+    var hasRememberedLaunchTarget: Bool {
+        UserDefaults.standard.string(forKey: "welcomeLaunchTarget") != nil
+    }
+
+    /// Forget the remembered "open where?" choice so the picker asks again.
+    func clearRememberedLaunchTarget() {
+        rememberedLaunchTarget = nil
+        objectWillChange.send()
+    }
+
+    /// Run a launch action triggered from a welcome screen. On the always-available
+    /// welcome screen this first resolves a target workspace (asking the user when
+    /// there's no remembered choice); elsewhere it just runs immediately.
+    func launchFromWelcome(_ action: @escaping () -> Void) {
+        guard showingWelcome else { action(); return }
+        if let target = rememberedLaunchTarget {
+            activateLaunchTarget(target)
+            action()
+        } else {
+            pendingWelcomeLaunch = action
+        }
+    }
+
+    /// Finish a pending welcome launch once the user picks a target workspace.
+    func completeWelcomeLaunch(target: WelcomeLaunchTarget, remember: Bool) {
+        let action = pendingWelcomeLaunch
+        pendingWelcomeLaunch = nil
+        if remember { rememberedLaunchTarget = target }
+        activateLaunchTarget(target)
+        action?()
+    }
+
+    /// Abandon a pending welcome launch (the user cancelled the picker).
+    func cancelWelcomeLaunch() {
+        pendingWelcomeLaunch = nil
+    }
+
+    /// Make `target` the active workspace so a welcome launch lands there, and
+    /// leave the welcome screen.
+    func activateLaunchTarget(_ target: WelcomeLaunchTarget) {
+        switch target {
+        case .new: addWorkspace()
+        case .existing(let id): switchWorkspace(to: id)
+        }
+        showingWelcome = false
     }
 
     func selectNextWorkspace() {

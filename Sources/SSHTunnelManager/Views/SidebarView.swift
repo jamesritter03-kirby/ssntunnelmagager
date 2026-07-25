@@ -411,6 +411,8 @@ struct SidebarView: View {
             onDisconnect: { sessions.disconnect(profile: profile) }
         )
         .tag("\(sectionKey)\u{1F}\(profile.id.uuidString)")
+        // Double-click anywhere on the row connects, in addition to the play button.
+        .simultaneousGesture(TapGesture(count: 2).onEnded { onConnect(profile) })
     }
 
     @ViewBuilder
@@ -758,10 +760,15 @@ struct ProfileRow: View {
                     ZeroTierStatusGlyph(host: profile.host)
                         .font(.caption2)
                 }
-                Text(profile.rowSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(profile.rowSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    if !profile.isLocal, !profile.host.isEmpty {
+                        HostCopyButton(host: profile.host)
+                    }
+                }
                 if !profile.isLocal, !profile.forwards.isEmpty {
                     Text(profile.forwards.map(\.summary).joined(separator: "  ·  "))
                         .font(.caption2)
@@ -780,5 +787,29 @@ struct ProfileRow: View {
         }
         .padding(.vertical, 3)
         .contentShape(Rectangle())
+    }
+}
+
+/// A tiny copy button shown next to a profile's host in the sidebar row. Clicking
+/// copies the host / IP address to the clipboard and briefly flashes a checkmark.
+private struct HostCopyButton: View {
+    let host: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(host, forType: .string)
+            withAnimation { copied = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                withAnimation { copied = false }
+            }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.caption2)
+                .foregroundStyle(copied ? Color.green : Color.secondary.opacity(0.7))
+        }
+        .buttonStyle(.borderless)
+        .help(copied ? "Copied!" : "Copy \(host)")
     }
 }
