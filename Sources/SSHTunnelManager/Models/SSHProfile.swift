@@ -264,6 +264,23 @@ struct ProfileLink: Codable, Identifiable, Hashable {
     }
 }
 
+/// A saved remote directory an SFTP tab can jump to in one click (a bookmark /
+/// favourite path, e.g. `/var/www`, `/etc/nginx`, `~/projects`).
+struct SFTPBookmark: Codable, Identifiable, Hashable {
+    var id: UUID = UUID()
+    var label: String = ""
+    var path: String = ""
+
+    /// The trimmed remote path.
+    var trimmedPath: String { path.trimmingCharacters(in: .whitespaces) }
+
+    /// The label to show, falling back to the path when no label is set.
+    var displayLabel: String {
+        let l = label.trimmingCharacters(in: .whitespaces)
+        return l.isEmpty ? trimmedPath : l
+    }
+}
+
 /// A saved SSH connection + tunnel configuration.
 struct SSHProfile: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
@@ -339,6 +356,8 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     var snippets: [CommandSnippet] = []
     /// Saved web links openable in an in-app browser tab.
     var links: [ProfileLink] = []
+    /// Saved remote directories an SFTP tab can jump to in one click.
+    var sftpBookmarks: [SFTPBookmark] = []
     /// Require Touch ID / login password before using the Keychain-stored password.
     var requireAuthForSavedPassword: Bool = true
     /// When set, connecting this profile opens a **dedicated workspace named after
@@ -441,6 +460,7 @@ extension SSHProfile {
         case fontSize
         case isLocal, startPath, icon
         case links
+        case sftpBookmarks
         case workspace
         case opensInOwnWorkspace, workspaceTemplateID
         case workspaceTabColor
@@ -486,6 +506,7 @@ extension SSHProfile {
         theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? TerminalTheme.defaultID
         snippets = try c.decodeIfPresent([CommandSnippet].self, forKey: .snippets) ?? []
         links = try c.decodeIfPresent([ProfileLink].self, forKey: .links) ?? []
+        sftpBookmarks = try c.decodeIfPresent([SFTPBookmark].self, forKey: .sftpBookmarks) ?? []
         requireAuthForSavedPassword = try c.decodeIfPresent(Bool.self, forKey: .requireAuthForSavedPassword) ?? true
         fontSize = TerminalFontMetrics.clamp(try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? TerminalFontMetrics.default)
         workspace = try c.decodeIfPresent(String.self, forKey: .workspace) ?? ""

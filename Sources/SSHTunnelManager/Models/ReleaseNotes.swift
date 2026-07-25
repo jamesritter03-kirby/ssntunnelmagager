@@ -45,6 +45,14 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.60", build: 70, date: "Jul 25, 2026",
+            highlights: [
+                "SFTP path bookmarks: save the remote folders you visit most on a profile (Profile editor → SFTP Paths), then jump to any of them in one click from the new bookmark menu in an SFTP tab's toolbar — or bookmark the folder you're in with Add Current Folder.",
+                "Bulk profile editor: fixed the frozen first column so it resizes smoothly and can be dragged down to its minimum width instead of sticking around half the window.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.59", build: 69, date: "Jul 25, 2026",
             highlights: [
                 "Fewer password prompts: connecting now shows the Touch ID fingerprint sheet (instead of dropping to a login-password dialog), and one unlock is reused for 30 minutes so reconnecting the same profile doesn't keep asking.",
@@ -52,7 +60,7 @@ enum ReleaseCatalog {
                 "Saving a workspace of ad-hoc tabs as a profile now stores one shared password on the profile, so relaunching it asks once instead of once per tab.",
                 "Bulk profile editor: the frozen first column can now be dragged all the way down to its minimum width (it no longer sticks around half the window).",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.58", build: 68, date: "Jul 25, 2026",

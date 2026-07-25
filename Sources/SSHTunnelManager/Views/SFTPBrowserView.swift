@@ -111,6 +111,8 @@ struct SFTPBrowserView: View {
 
             pathMenu
 
+            bookmarksMenu
+
             Spacer(minLength: 8)
 
             Button { client.refresh() } label: { Image(systemName: "arrow.clockwise") }
@@ -159,6 +161,67 @@ struct SFTPBrowserView: View {
         .fixedSize()
         .help("Jump to a parent folder")
         .disabled(!client.isConnected)
+    }
+
+    /// The saved profile backing this SFTP tab, or nil for an ad-hoc connection.
+    private var profile: SSHProfile? {
+        guard let pid = session.profileID else { return nil }
+        return ProfileStore.shared.profiles.first { $0.id == pid }
+    }
+
+    /// A menu of the profile's saved SFTP paths — one click jumps the browser to a
+    /// saved directory — plus a shortcut to bookmark the current folder. Hidden for
+    /// ad-hoc tabs, which have no profile to store paths in.
+    @ViewBuilder
+    private var bookmarksMenu: some View {
+        if let profile {
+            Menu {
+                if profile.sftpBookmarks.isEmpty {
+                    Text("No saved paths yet")
+                } else {
+                    ForEach(profile.sftpBookmarks) { bookmark in
+                        Button {
+                            client.changeDirectory(to: bookmark.trimmedPath)
+                        } label: {
+                            Label(bookmark.displayLabel, systemImage: "folder")
+                        }
+                        .disabled(bookmark.trimmedPath.isEmpty)
+                    }
+                }
+                Divider()
+                Button {
+                    addCurrentPathBookmark()
+                } label: {
+                    Label("Add Current Folder", systemImage: "bookmark")
+                }
+                .disabled(client.currentPath.isEmpty || currentPathIsBookmarked)
+            } label: {
+                Image(systemName: "bookmark")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Saved paths for this profile")
+            .disabled(!client.isConnected)
+        }
+    }
+
+    /// Whether the current folder is already saved as a bookmark on the profile.
+    private var currentPathIsBookmarked: Bool {
+        let path = client.currentPath.trimmingCharacters(in: .whitespaces)
+        return profile?.sftpBookmarks.contains { $0.trimmedPath == path } ?? false
+    }
+
+    /// Save the current remote folder as a bookmark on the backing profile (named
+    /// after its last path component), skipping duplicates.
+    private func addCurrentPathBookmark() {
+        guard var p = profile else { return }
+        let path = client.currentPath.trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty,
+              !p.sftpBookmarks.contains(where: { $0.trimmedPath == path }) else { return }
+        let last = (path as NSString).lastPathComponent
+        let label = (last.isEmpty || last == "/") ? path : last
+        p.sftpBookmarks.append(SFTPBookmark(label: label, path: path))
+        ProfileStore.shared.update(p)
     }
 
     /// Toolbar control that mounts this connection as a Finder drive via `sshfs`

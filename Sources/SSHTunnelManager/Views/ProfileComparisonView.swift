@@ -201,6 +201,10 @@ struct ProfileComparisonView: View {
     @ObservedObject private var columnWidths = ComparisonColumnWidths.shared
     /// Width of each column at the moment a resize drag began, keyed by column.
     @State private var dragStartWidth: [String: CGFloat] = [:]
+    /// The frozen column's leading edge in global coordinates, so its resize
+    /// handle can set the width absolutely (the pointer position becomes the new
+    /// right edge) instead of accumulating a delta that chases the moving handle.
+    @State private var frozenColumnLeadingX: CGFloat = 0
 
     /// Profiles in a stable, grouped order.
     private var rows: [SSHProfile] {
@@ -296,6 +300,10 @@ struct ProfileComparisonView: View {
                         Divider()
                     }
                 }
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: FrozenColumnLeadingKey.self,
+                                           value: geo.frame(in: .global).minX)
+                })
 
                 // Full-height handle on the frozen column's edge: drag anywhere
                 // down the boundary to resize the pinned Profile column (its own
@@ -341,6 +349,7 @@ struct ProfileComparisonView: View {
                 }
             }
             .font(.callout)
+            .onPreferenceChange(FrozenColumnLeadingKey.self) { frozenColumnLeadingX = $0 }
         }
     }
 
@@ -354,12 +363,23 @@ struct ProfileComparisonView: View {
     /// A draggable handle that resizes and persists the width of column `key`.
     private func resizeHandle(for key: String) -> some View {
         ColumnResizeHandle(
-            onChanged: { delta in
+            onChanged: { value in
+                if key == "Profile" {
+                    // The frozen column's handle lives at the boundary and moves
+                    // as the column resizes, so a translation-delta chases the
+                    // cursor. Instead set the width absolutely from the cursor's
+                    // global X relative to the frozen column's leading edge (past
+                    // the 28pt checkbox + 8pt text inset) — the edge simply follows
+                    // the pointer, all the way to the minimum.
+                    let newWidth = value.location.x - frozenColumnLeadingX - 36
+                    columnWidths.setWidth(newWidth, for: key)
+                    return
+                }
                 if dragStartWidth[key] == nil {
                     dragStartWidth[key] = columnWidths.width(for: key)
                 }
                 let start = dragStartWidth[key] ?? columnWidths.width(for: key)
-                columnWidths.setWidth(start + delta, for: key)
+                columnWidths.setWidth(start + value.translation.width, for: key)
             },
             onEnded: {
                 dragStartWidth[key] = nil
@@ -542,11 +562,21 @@ struct ProfileComparisonView: View {
     }
 }
 
+/// Carries the frozen column's global leading-edge X up to the view, so its
+/// resize handle can compute an absolute width from the pointer position.
+private struct FrozenColumnLeadingKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 /// A slim draggable handle sitting on a column's trailing edge. Dragging it
-/// reports the horizontal delta so the caller can resize the column; a native
-/// cursor rect shows the left-right resize cursor while hovering.
+/// reports the drag (in **global** space, so a handle that moves as its column
+/// resizes doesn't chase the cursor) so the caller can resize the column; a
+/// native cursor rect shows the left-right resize cursor while hovering.
 private struct ColumnResizeHandle: View {
-    let onChanged: (CGFloat) -> Void
+    let onChanged: (DragGesture.Value) -> Void
     let onEnded: () -> Void
     @State private var hovering = false
 
@@ -564,7 +594,7 @@ private struct ColumnResizeHandle: View {
         .onHover { hovering = $0 }
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                .onChanged { onChanged($0.translation.width) }
+                .onChanged { onChanged($0) }
                 .onEnded { _ in onEnded() }
         )
     }

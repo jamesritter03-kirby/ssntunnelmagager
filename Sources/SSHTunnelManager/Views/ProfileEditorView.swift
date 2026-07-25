@@ -94,6 +94,7 @@ struct ProfileEditorView: View {
                     workspaceSection
                     snippetsSection
                     linksSection
+                    sftpPathsSection
                 }
             }
             .formStyle(.grouped)
@@ -955,6 +956,33 @@ struct ProfileEditorView: View {
         }
     }
 
+    private var sftpPathsSection: some View {
+        Section {
+            if profile.sftpBookmarks.isEmpty {
+                Text("No saved paths yet. Add remote folders you visit often to jump to them from the bookmark menu in an SFTP tab.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach($profile.sftpBookmarks) { $bookmark in
+                SFTPPathEditor(bookmark: $bookmark) {
+                    profile.sftpBookmarks.removeAll { $0.id == bookmark.id }
+                }
+                Divider()
+            }
+            Button {
+                profile.sftpBookmarks.append(SFTPBookmark())
+            } label: {
+                Label("Add Path", systemImage: "plus.circle.fill")
+            }
+        } header: {
+            Label("SFTP Paths", systemImage: "bookmark")
+        } footer: {
+            Text("Saved remote directories for this profile. Open an SFTP tab, then use the bookmark menu in its toolbar to jump to any of these folders in one click.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private var commandPreview: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -1250,6 +1278,31 @@ struct SnippetEditor: View {
                 .help("Remove this command")
             }
             TextField("Command (e.g. tail -f /var/log/app.log)", text: $snippet.command)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.callout, design: .monospaced))
+                .autocorrectionDisabled()
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// One row in the SFTP Paths editor: a label and the remote directory path.
+struct SFTPPathEditor: View {
+    @Binding var bookmark: SFTPBookmark
+    var onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField("Label (e.g. Web root)", text: $bookmark.label)
+                    .textFieldStyle(.roundedBorder)
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .help("Remove this path")
+            }
+            TextField("Path (e.g. /var/www or ~/projects)", text: $bookmark.path)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.callout, design: .monospaced))
                 .autocorrectionDisabled()
