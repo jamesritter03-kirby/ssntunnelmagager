@@ -45,12 +45,19 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.65", build: 75, date: "Jul 27, 2026",
+            highlights: [
+                "Mouse-wheel scrolling of the tab strip now works with any pointing device, including trackpads and modern smooth-scroll mice: hover the tabs and spin the wheel (or two-finger swipe) to move through them when there are more tabs than fit.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.64", build: 74, date: "Jul 27, 2026",
             highlights: [
                 "New Remote Terminal and New SFTP Connection now let you pick an SSH private key: use the SSH key row's Choose… button to point at a key file (defaults to your ~/.ssh folder) and it's passed to the connection with -i.",
                 "The tab strip now scrolls with a plain mouse wheel: hover the tabs and spin the wheel to move through them when there are more tabs than fit. Trackpad two-finger swipes still work as before.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.63", build: 73, date: "Jul 25, 2026",

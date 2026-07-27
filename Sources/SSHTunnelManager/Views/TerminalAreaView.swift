@@ -1114,14 +1114,15 @@ private struct TabBar: View {
     }
 }
 
-/// Bridges a plain **mouse wheel** to the horizontal tab strip. A classic mouse
-/// wheel emits only vertical scroll deltas, which a horizontal `ScrollView`
-/// ignores — so hovering the tab strip and spinning the wheel does nothing. This
-/// installs a scroll-wheel monitor that, while the pointer is over the strip,
-/// remaps the vertical delta onto the strip's horizontal offset. Trackpad
-/// gestures (precise deltas) are left untouched so two-finger swipes still scroll
-/// the strip normally. Rendered as an invisible background *inside* the scroll
-/// content so `enclosingScrollView` resolves to the strip's `NSScrollView`.
+/// Bridges scroll gestures to the horizontal tab strip. A classic mouse wheel
+/// emits only *vertical* deltas, which a horizontal `ScrollView` ignores — so
+/// hovering the tab strip and spinning the wheel did nothing. This installs a
+/// scroll-wheel monitor that, while the pointer is over the strip, drives its
+/// horizontal offset from whichever scroll axis the device reports (so plain
+/// wheels, "smooth"/precise wheels and trackpad two-finger swipes all move the
+/// tabs). Rendered as an invisible background *inside* the scroll content so the
+/// anchor view is a descendant of the strip's `NSScrollView`, which lets us
+/// distinguish it from every other scroll view in the window.
 private struct TabStripWheelScroller: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -1154,24 +1155,42 @@ private struct TabStripWheelScroller: NSViewRepresentable {
         }
 
         private func handle(_ event: NSEvent) -> NSEvent? {
-            // Leave trackpad (precise) gestures alone — they already scroll the
-            // horizontal ScrollView correctly.
-            guard let scrollView = anchor?.enclosingScrollView,
-                  let window = anchor?.window, event.window === window,
-                  !event.hasPreciseScrollingDeltas else { return event }
-            // Only act while the pointer is actually over the tab strip.
-            let point = scrollView.convert(event.locationInWindow, from: nil)
-            guard scrollView.bounds.contains(point) else { return event }
-            let deltaY = event.scrollingDeltaY
-            guard deltaY != 0 else { return event }
+            guard let anchor, let window = anchor.window, event.window === window else {
+                return event
+            }
+            // Find the tab strip's own scroll view (the one our anchor lives
+            // inside) and confirm the pointer is over it, so scrolling over the
+            // terminal, a spreadsheet, etc. is left untouched. Try the view under
+            // the pointer first, then fall back to the anchor's enclosing scroll
+            // view in case hit-testing lands on an overlay.
+            let scrollView: NSScrollView? = {
+                if let hit = window.contentView?.hitTest(event.locationInWindow),
+                   let sv = hit.enclosingScrollView, anchor.isDescendant(of: sv) {
+                    return sv
+                }
+                if let sv = anchor.enclosingScrollView {
+                    let p = sv.convert(event.locationInWindow, from: nil)
+                    if sv.bounds.contains(p) { return sv }
+                }
+                return nil
+            }()
+            guard let scrollView else { return event }
+
+            // Use whichever axis the device reports. A mouse wheel only fills in
+            // scrollingDeltaY; a horizontal trackpad swipe fills scrollingDeltaX.
+            let dx = event.scrollingDeltaX
+            let dy = event.scrollingDeltaY
+            let delta = abs(dx) > abs(dy) ? dx : dy
+            guard delta != 0 else { return event }
+
             let clip = scrollView.contentView
             let maxX = max(0, (scrollView.documentView?.frame.width ?? 0) - clip.bounds.width)
             guard maxX > 0 else { return event }   // nothing to scroll
             var origin = clip.bounds.origin
-            origin.x = min(max(0, origin.x - deltaY), maxX)
+            origin.x = min(max(0, origin.x - delta), maxX)
             clip.scroll(to: origin)
             scrollView.reflectScrolledClipView(clip)
-            return nil   // consume so it doesn't bubble as a vertical scroll
+            return nil   // consume so it doesn't also bubble elsewhere
         }
     }
 }

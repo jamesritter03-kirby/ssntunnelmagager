@@ -23,12 +23,16 @@
         <DataTemplate x:Key="DockCellTemplate" x:DataType="vm:TabViewModel">
             <Border BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" Margin="1">
                 <DockPanel>
-                    <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}" Padding="6,2">
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}" Padding="6,2"
+                            DoubleTapped="OnDockHeaderDoubleTapped">
                         <Grid ColumnDefinitions="Auto,*,Auto">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,6,0">
                                 <Border Width="4" Height="14" CornerRadius="2" VerticalAlignment="Center"
                                         Background="{Binding TabColorBrush}" IsVisible="{Binding HasTabColor}" />
                                 <TextBlock Text="{Binding Glyph}" Foreground="#7FB0DE" VerticalAlignment="Center" />
+                                <TextBlock Text="⏺" VerticalAlignment="Center" FontSize="10" Foreground="#E0533D"
+                                           x:CompileBindings="False" IsVisible="{Binding ShowStopLog}"
+                                           ToolTip.Tip="Session logging is on" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
                                         VerticalAlignment="Center" IsVisible="{Binding !IsBrowserTab}">
@@ -778,6 +782,9 @@
                                                 </MultiBinding>
                                             </TextBlock.IsVisible>
                                         </TextBlock>
+                                        <TextBlock Text="⏺" VerticalAlignment="Center" FontSize="10" Foreground="#E0533D"
+                                                   x:CompileBindings="False" IsVisible="{Binding ShowStopLog}"
+                                                   ToolTip.Tip="Session logging is on" />
                                         <TextBlock Text="{Binding DisplayTitle}" VerticalAlignment="Center" />
                                         <Button Content="✕" Padding="4,0" FontSize="11"
                                                 Command="{Binding CloseCommand}" />

@@ -65,6 +65,19 @@ public partial class MainWindow : Window
         }
     }
 
+    // Double-clicking a docked panel's header toolbar collapses it to the edge,
+    // mirroring the single-click chevron. Ignore double-taps that land on the
+    // toolbar's buttons or the browser address box so those keep working.
+    private void OnDockHeaderDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (e.Source is Visual v &&
+            (v.FindAncestorOfType<Button>(includeSelf: true) is not null ||
+             v.FindAncestorOfType<TextBox>(includeSelf: true) is not null))
+            return;
+        if ((sender as Control)?.DataContext is TabViewModel { IsDocked: true } tab)
+            _vm?.CollapseTabDockCommand.Execute(tab);
+    }
+
     private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainWindowViewModel.IsPaletteOpen) && _vm?.IsPaletteOpen == true)
