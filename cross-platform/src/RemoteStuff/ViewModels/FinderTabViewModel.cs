@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using RemoteStuff.Models;
 using RemoteStuff.Services;
 
 namespace RemoteStuff.ViewModels;
@@ -67,6 +68,38 @@ public sealed partial class FinderTabViewModel : TabViewModel
     partial void OnSortAscendingChanged(bool value) => ApplyView();
     partial void OnFilterTextChanged(string value) => ApplyView();
     partial void OnShowHiddenChanged(bool value) => LoadDirectory(CurrentPath);
+    partial void OnCurrentPathChanged(string value) => OnPropertyChanged(nameof(CurrentPathIsBookmarked));
+
+    /// <summary>App-wide favourite folders shown in the bookmark menu.</summary>
+    public ObservableCollection<SftpBookmark> Bookmarks => FinderBookmarkStore.Shared.Bookmarks;
+
+    /// <summary>True when at least one folder is saved.</summary>
+    public bool HasBookmarks => Bookmarks.Count > 0;
+
+    /// <summary>True when the current folder is already saved (drives the add/remove label).</summary>
+    public bool CurrentPathIsBookmarked => FinderBookmarkStore.Shared.Contains(CurrentPath ?? "");
+
+    /// <summary>Add or remove the current folder from the app-wide bookmarks.</summary>
+    [RelayCommand]
+    private void ToggleCurrentBookmark()
+    {
+        var path = (CurrentPath ?? "").Trim();
+        if (path.Length == 0) return;
+        if (FinderBookmarkStore.Shared.Contains(path))
+            FinderBookmarkStore.Shared.Remove(path);
+        else
+            FinderBookmarkStore.Shared.Add(path);
+        OnPropertyChanged(nameof(HasBookmarks));
+        OnPropertyChanged(nameof(CurrentPathIsBookmarked));
+    }
+
+    /// <summary>Jump to a saved folder.</summary>
+    [RelayCommand]
+    private void GoToBookmark(SftpBookmark? bookmark)
+    {
+        var path = bookmark?.TrimmedPath ?? "";
+        if (path.Length > 0 && Directory.Exists(path)) LoadDirectory(path);
+    }
 
     /// <summary>Raised to open a local text file in an editor tab: (name, content, saver).</summary>
     public event Action<string, string, Func<string, Task>>? EditRequested;

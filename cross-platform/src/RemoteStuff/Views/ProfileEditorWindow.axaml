@@ -327,6 +327,32 @@
                     </StackPanel>
                 </Border>
 
+                <!-- SFTP paths -->
+                <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="SFTP paths" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Content="+ Add" Command="{Binding AddSftpBookmarkCommand}" />
+                        </Grid>
+                        <TextBlock Text="Saved remote folders you can jump to from an SFTP tab's bookmark menu."
+                                   Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" TextWrapping="Wrap" />
+                        <ItemsControl ItemsSource="{Binding SftpBookmarks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SftpBookmarkRowViewModel">
+                                    <Grid ColumnDefinitions="160,*,Auto" Margin="0,4">
+                                        <TextBox Grid.Column="0" Text="{Binding Label}" Watermark="label" Margin="0,0,4,0" />
+                                        <TextBox Grid.Column="1" Text="{Binding Path}" Watermark="/var/www"
+                                                 FontFamily="Menlo, Consolas, monospace" Margin="0,0,4,0" />
+                                        <Button Grid.Column="2" Content="Remove"
+                                                Command="{Binding $parent[ItemsControl].((vm:ProfileEditorViewModel)DataContext).RemoveSftpBookmarkCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
                 <!-- Preview -->
                 <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
                     <StackPanel Spacing="6">

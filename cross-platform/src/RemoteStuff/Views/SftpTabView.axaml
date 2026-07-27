@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:m="using:RemoteStuff.Models"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="RemoteStuff.Views.SftpTabView"
              x:DataType="vm:SftpTabViewModel">
@@ -14,6 +15,34 @@
             <StackPanel Orientation="Horizontal" Spacing="3">
                 <Button Content="↑" FontSize="14" Padding="8,3" ToolTip.Tip="Up one folder" Command="{Binding GoUpCommand}" />
                 <Button Content="⟳" FontSize="14" Padding="8,3" ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}" />
+                <Button Content="🔖" FontSize="14" Padding="8,3" ToolTip.Tip="Saved paths" IsVisible="{Binding CanBookmark}">
+                    <Button.Flyout>
+                        <Flyout>
+                            <StackPanel MinWidth="220" Spacing="2">
+                                <TextBlock Text="No saved paths yet" Opacity="0.6" FontSize="12"
+                                           Margin="8,4" IsVisible="{Binding !HasBookmarks}" />
+                                <ItemsControl ItemsSource="{Binding Bookmarks}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="m:SftpBookmark">
+                                            <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                    Background="Transparent" BorderThickness="0" Padding="8,4"
+                                                    Content="{Binding DisplayLabel}"
+                                                    ToolTip.Tip="{Binding TrimmedPath}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:SftpTabViewModel)DataContext).GoToBookmarkCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Rectangle Height="1" Fill="{DynamicResource AppDividerBrush}" Margin="0,3" />
+                                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                        Background="Transparent" BorderThickness="0" Padding="8,4"
+                                        Content="Add Current Folder"
+                                        IsEnabled="{Binding !CurrentPathIsBookmarked}"
+                                        Command="{Binding AddCurrentBookmarkCommand}" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
                 <Rectangle Width="1" Fill="{DynamicResource AppDividerBrush}" Margin="4,2" />
                 <Button Content="📤" FontSize="14" Padding="8,3" ToolTip.Tip="Upload…" Command="{Binding UploadCommand}" />
                 <Button Content="📥" FontSize="14" Padding="8,3" ToolTip.Tip="Download…" Command="{Binding DownloadCommand}" />

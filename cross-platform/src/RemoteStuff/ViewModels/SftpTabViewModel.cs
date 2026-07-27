@@ -85,6 +85,7 @@ public sealed partial class SftpTabViewModel : TabViewModel
     public ObservableCollection<SftpCrumb> Crumbs { get; } = new();
 
     [ObservableProperty] private string _currentPath = ".";
+    partial void OnCurrentPathChanged(string value) => OnPropertyChanged(nameof(CurrentPathIsBookmarked));
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _statusText = "Connecting…";
     [ObservableProperty] private bool _isConnected;
@@ -112,13 +113,64 @@ public sealed partial class SftpTabViewModel : TabViewModel
     /// <summary>Raised to prompt the user for a name: (title, current) → entered text or null.</summary>
     public event Func<string, string, Task<string?>>? NameRequested;
 
-    public SftpTabViewModel(SshProfile profile, string? password, Action<string>? passwordSaver = null)
+    /// <summary>Persists the profile after its saved paths change (null for ad-hoc tabs).</summary>
+    private readonly Action<SshProfile>? _bookmarkSaver;
+
+    /// <summary>The profile's saved remote directories, shown in the bookmark menu.</summary>
+    public ObservableCollection<SftpBookmark> Bookmarks { get; } = new();
+
+    /// <summary>True when this tab can save paths (profile-backed, not ad-hoc).</summary>
+    public bool CanBookmark => _bookmarkSaver is not null;
+
+    /// <summary>True when at least one path is saved.</summary>
+    public bool HasBookmarks => Bookmarks.Count > 0;
+
+    /// <summary>True when the current folder is already saved (disables "Add Current Folder").</summary>
+    public bool CurrentPathIsBookmarked
+    {
+        get
+        {
+            var p = (CurrentPath ?? "").Trim();
+            return p.Length > 0 && Bookmarks.Any(b => b.TrimmedPath == p);
+        }
+    }
+
+    public SftpTabViewModel(SshProfile profile, string? password,
+                            Action<string>? passwordSaver = null,
+                            Action<SshProfile>? bookmarkSaver = null)
     {
         _profile = profile;
         _password = password;
         _passwordSaver = passwordSaver;
+        _bookmarkSaver = bookmarkSaver;
         Title = "SFTP · " + profile.Name;
+        foreach (var b in profile.SftpBookmarks) Bookmarks.Add(b);
         _ = ConnectAsync();
+    }
+
+    /// <summary>Jump the browser to a saved path.</summary>
+    [RelayCommand]
+    private async Task GoToBookmark(SftpBookmark? bookmark)
+    {
+        var path = bookmark?.TrimmedPath ?? "";
+        if (path.Length > 0) await LoadDirectory(path);
+    }
+
+    /// <summary>Save the current folder to the profile's bookmark list.</summary>
+    [RelayCommand]
+    private void AddCurrentBookmark()
+    {
+        if (_bookmarkSaver is null) return;
+        var path = (CurrentPath ?? "").Trim();
+        if (path.Length == 0 || Bookmarks.Any(b => b.TrimmedPath == path)) return;
+        var last = System.IO.Path.GetFileName(path.TrimEnd('/'));
+        var label = string.IsNullOrEmpty(last) ? path : last;
+        var bookmark = new SftpBookmark { Label = label, Path = path };
+        _profile.SftpBookmarks.Add(bookmark);
+        Bookmarks.Add(bookmark);
+        _bookmarkSaver(_profile);
+        OnPropertyChanged(nameof(HasBookmarks));
+        OnPropertyChanged(nameof(CurrentPathIsBookmarked));
     }
 
     /// <summary>Retry the connection using the password typed in the reconnect bar.</summary>

@@ -2359,7 +2359,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             adHocPassword ?? _secrets.Get(profile.Id),
             // Ad-hoc tabs use a throwaway profile that's never saved, so there's
             // nothing to persist a password into — don't offer to save it.
-            passwordSaver: (profile.IsLocal || adHoc) ? null : pw => _secrets.Set(profile.Id, pw));
+            passwordSaver: (profile.IsLocal || adHoc) ? null : pw => _secrets.Set(profile.Id, pw),
+            // Only profile-backed tabs can save paths; persist them into the store.
+            bookmarkSaver: (profile.IsLocal || adHoc) ? null : p => _store.Update(p));
         tab.EditRequested += (name, content, saver) =>
         {
             var editor = new EditorTabViewModel(name, content, remoteSaver: saver);

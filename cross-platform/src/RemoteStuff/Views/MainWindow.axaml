@@ -173,18 +173,22 @@
                                             <MenuItem Header="Save Log…" IsVisible="{Binding SupportsTheme}"
                                                       x:CompileBindings="False"
                                                       Command="{Binding SaveScrollbackCommand}" />
-                                            <MenuItem Header="Log Session Output" IsVisible="{Binding ShowStartLog}"
-                                                      x:CompileBindings="False"
-                                                      Command="{Binding StartLogCommand}" />
-                                            <MenuItem Header="Stop Logging Output" IsVisible="{Binding ShowStopLog}"
-                                                      x:CompileBindings="False"
-                                                      Command="{Binding StopLogCommand}" />
-                                            <MenuItem Header="Open Log" IsVisible="{Binding HasSessionLog}"
-                                                      x:CompileBindings="False"
-                                                      Command="{Binding OpenLogCommand}" />
-                                            <MenuItem Header="Reveal Log in File Manager" IsVisible="{Binding HasSessionLog}"
-                                                      x:CompileBindings="False"
-                                                      Command="{Binding RevealLogCommand}" />
+                                            <MenuItem Header="Session Log" IsVisible="{Binding SupportsTheme}"
+                                                      x:CompileBindings="False">
+                                                <MenuItem Header="Log Session Output" IsVisible="{Binding ShowStartLog}"
+                                                          x:CompileBindings="False"
+                                                          Command="{Binding StartLogCommand}" />
+                                                <MenuItem Header="Stop Logging Output" IsVisible="{Binding ShowStopLog}"
+                                                          x:CompileBindings="False"
+                                                          Command="{Binding StopLogCommand}" />
+                                                <Separator IsVisible="{Binding HasSessionLog}" x:CompileBindings="False" />
+                                                <MenuItem Header="Open Log" IsVisible="{Binding HasSessionLog}"
+                                                          x:CompileBindings="False"
+                                                          Command="{Binding OpenLogCommand}" />
+                                                <MenuItem Header="Reveal Log in File Manager" IsVisible="{Binding HasSessionLog}"
+                                                          x:CompileBindings="False"
+                                                          Command="{Binding RevealLogCommand}" />
+                                            </MenuItem>
                                             <Separator />
                                             <MenuItem Header="Tab Colour" ItemsSource="{Binding TabColorMenuItems}">
                                                 <MenuItem.ItemContainerTheme>
@@ -234,11 +238,44 @@
                         <MenuItem Header="Browser" Command="{Binding NewBrowserCommand}" />
                         <MenuItem Header="VNC" Command="{Binding NewVncCommand}" />
                         <Separator />
+                        <MenuItem Header="SFTP Connection…" Command="{Binding NewSftpConnectionCommand}" />
+                        <MenuItem Header="MQTT Connection…" Command="{Binding NewMqttConnectionCommand}" />
+                        <MenuItem Header="Redis Connection…" Command="{Binding NewRedisConnectionCommand}" />
+                        <Separator />
                         <MenuItem Header="Network" Command="{Binding NewNetworkCommand}" />
                         <MenuItem Header="MikroTik" Command="{Binding NewMikroTikCommand}" />
                     </MenuItem>
                     <MenuItem Header="_Profile">
                         <MenuItem Header="New…" Command="{Binding NewProfileCommand}" />
+                        <Separator />
+                        <MenuItem Header="Connect" ItemsSource="{Binding ConnectMenuItems}"
+                                  IsEnabled="{Binding HasProfiles}">
+                            <MenuItem.ItemContainerTheme>
+                                <ControlTheme TargetType="MenuItem" x:DataType="vm:ProfileMenuItem"
+                                              BasedOn="{StaticResource {x:Type MenuItem}}">
+                                    <Setter Property="Header" Value="{Binding Name}" />
+                                    <Setter Property="Command" Value="{Binding Command}" />
+                                </ControlTheme>
+                            </MenuItem.ItemContainerTheme>
+                        </MenuItem>
+                        <MenuItem Header="Open SFTP" ItemsSource="{Binding SftpMenuItems}">
+                            <MenuItem.ItemContainerTheme>
+                                <ControlTheme TargetType="MenuItem" x:DataType="vm:ProfileMenuItem"
+                                              BasedOn="{StaticResource {x:Type MenuItem}}">
+                                    <Setter Property="Header" Value="{Binding Name}" />
+                                    <Setter Property="Command" Value="{Binding Command}" />
+                                </ControlTheme>
+                            </MenuItem.ItemContainerTheme>
+                        </MenuItem>
+                        <MenuItem Header="Open VNC" ItemsSource="{Binding VncMenuItems}">
+                            <MenuItem.ItemContainerTheme>
+                                <ControlTheme TargetType="MenuItem" x:DataType="vm:ProfileMenuItem"
+                                              BasedOn="{StaticResource {x:Type MenuItem}}">
+                                    <Setter Property="Header" Value="{Binding Name}" />
+                                    <Setter Property="Command" Value="{Binding Command}" />
+                                </ControlTheme>
+                            </MenuItem.ItemContainerTheme>
+                        </MenuItem>
                         <Separator />
                         <MenuItem Header="Edit…" Command="{Binding EditProfileCommand}" />
                         <MenuItem Header="Duplicate" Command="{Binding DuplicateProfileCommand}" />
@@ -247,6 +284,12 @@
                         <Separator />
                         <MenuItem Header="Compare &amp; Bulk Edit…" Command="{Binding CompareProfilesCommand}" />
                         <MenuItem Header="Sync Profiles with Git…" Command="{Binding SyncProfilesGitCommand}" />
+                    </MenuItem>
+                    <MenuItem Header="_Commands">
+                        <MenuItem Header="Disconnect All Tunnels" Command="{Binding DisconnectAllCommand}" />
+                        <Separator />
+                        <MenuItem Header="Broadcast Input to All Terminals"
+                                  ToggleType="CheckBox" IsChecked="{Binding BroadcastInput, Mode=TwoWay}" />
                     </MenuItem>
                     <MenuItem Header="_Workspace">
                         <MenuItem Header="New Workspace" Command="{Binding NewWorkspaceCommand}" />
@@ -561,58 +604,62 @@
                 <!-- Workspace bar -->
                 <Border Grid.Row="0" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1"
                         Padding="8,4">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
+                    <DockPanel LastChildFill="True">
                         <!-- Permanent Home pill: always present, non-closable, shows the
                              welcome screen. Mirrors the macOS app's Home tab. -->
-                        <Button Command="{Binding ShowHomeCommand}"
-                                Padding="10,4" CornerRadius="5"
+                        <Button DockPanel.Dock="Left" Command="{Binding ShowHomeCommand}"
+                                Padding="10,4" CornerRadius="5" Margin="0,0,6,0"
                                 ToolTip.Tip="Home &amp; welcome screen"
                                 Background="{Binding ShowWelcome, Converter={x:Static vm:BoolBrushConverter.Accent}}">
                             <TextBlock Text="⌂" FontSize="15" VerticalAlignment="Center" />
                         </Button>
-                        <ItemsControl ItemsSource="{Binding Workspaces}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" Spacing="4" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:WorkspaceViewModel">
-                                    <Border CornerRadius="6" Padding="2"
-                                            Background="{Binding PillBrush}">
-                                        <Button Command="{Binding SelectCommand}"
-                                                Padding="10,4" CornerRadius="5"
-                                                Background="{Binding IsCurrent, Converter={x:Static vm:BoolBrushConverter.Accent}}">
-                                            <Button.ContextMenu>
-                                                <ContextMenu>
-                                                    <MenuItem Header="Rename…" Command="{Binding RenameCommand}" />
-                                                    <MenuItem Header="Save Workspace" Command="{Binding SaveCommand}" />
-                                                    <MenuItem Header="Save as Workspace…" Command="{Binding SaveAsCommand}" />
-                                                    <MenuItem Header="Save as Profile…" Command="{Binding SaveAsProfileCommand}" />
-                                                    <Separator />
-                                                    <MenuItem Header="Connection Health…" Command="{Binding ConnectionHealthCommand}" />
-                                                    <Separator />
-                                                    <MenuItem Header="Close" Command="{Binding CloseCommand}" />
-                                                </ContextMenu>
-                                            </Button.ContextMenu>
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                                                <TextBlock Text="✓" FontSize="10" Foreground="#3FB950"
-                                                           VerticalAlignment="Center"
-                                                           IsVisible="{Binding IsSaved}" />
-                                                <Button Content="✕" Padding="3,0" FontSize="10"
-                                                        Background="Transparent" BorderThickness="0"
-                                                        Command="{Binding CloseCommand}"
-                                                        IsVisible="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).CanCloseWorkspace}" />
-                                            </StackPanel>
-                                        </Button>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <Button Content="＋" Padding="8,4" Command="{Binding NewWorkspaceCommand}"
+                        <Button DockPanel.Dock="Right" Content="＋" Padding="8,4" Margin="6,0,0,0"
+                                Command="{Binding NewWorkspaceCommand}"
                                 ToolTip.Tip="New workspace" />
-                    </StackPanel>
+                        <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                                      PointerWheelChanged="OnStripPointerWheel">
+                            <ItemsControl ItemsSource="{Binding Workspaces}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="4" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:WorkspaceViewModel">
+                                        <Border CornerRadius="6" Padding="2"
+                                                Background="{Binding PillBrush}">
+                                            <Button Command="{Binding SelectCommand}"
+                                                    Padding="10,4" CornerRadius="5"
+                                                    Background="{Binding IsCurrent, Converter={x:Static vm:BoolBrushConverter.Accent}}">
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="Rename…" Command="{Binding RenameCommand}" />
+                                                        <MenuItem Header="Save Workspace" Command="{Binding SaveCommand}" />
+                                                        <MenuItem Header="Save as Workspace…" Command="{Binding SaveAsCommand}" />
+                                                        <MenuItem Header="Save as Profile…" Command="{Binding SaveAsProfileCommand}" />
+                                                        <Separator />
+                                                        <MenuItem Header="Connection Health…" Command="{Binding ConnectionHealthCommand}" />
+                                                        <Separator />
+                                                        <MenuItem Header="Close" Command="{Binding CloseCommand}" />
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                                    <TextBlock Text="✓" FontSize="10" Foreground="#3FB950"
+                                                               VerticalAlignment="Center"
+                                                               IsVisible="{Binding IsSaved}" />
+                                                    <Button Content="✕" Padding="3,0" FontSize="10"
+                                                            Background="Transparent" BorderThickness="0"
+                                                            Command="{Binding CloseCommand}"
+                                                            IsVisible="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).CanCloseWorkspace}" />
+                                                </StackPanel>
+                                            </Button>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </DockPanel>
                 </Border>
 
                 <!-- Session tab strip -->
@@ -678,7 +725,10 @@
                         <ListBox ItemsSource="{Binding WorkspaceTabList}"
                                  x:Name="TabStrip"
                                  SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
-                                 Background="Transparent" BorderThickness="0">
+                                 Background="Transparent" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                                 ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                 PointerWheelChanged="OnStripPointerWheel">
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <StackPanel Orientation="Horizontal" />
@@ -747,25 +797,30 @@
                                                           IsVisible="{Binding SupportsTheme}"
                                                           Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).SaveTerminalScrollbackCommand}"
                                                           CommandParameter="{Binding}" />
-                                                <MenuItem Header="Log Session Output"
+                                                <MenuItem Header="Session Log"
                                                           x:CompileBindings="False"
-                                                          IsVisible="{Binding ShowStartLog}"
-                                                          Command="{Binding StartLogCommand}" />
-                                                <MenuItem Header="Stop Logging Output"
-                                                          x:CompileBindings="False"
-                                                          IsVisible="{Binding ShowStopLog}"
-                                                          Command="{Binding StopLogCommand}" />
-                                                <MenuItem Header="Open Log"
-                                                          x:CompileBindings="False"
-                                                          IsVisible="{Binding HasSessionLog}"
-                                                          Command="{Binding OpenLogCommand}" />
-                                                <MenuItem Header="Reveal Log in File Manager"
-                                                          x:CompileBindings="False"
-                                                          IsVisible="{Binding HasSessionLog}"
-                                                          Command="{Binding RevealLogCommand}" />
-                                                <MenuItem Header="Saved Session Logs…"
-                                                          IsVisible="{Binding SupportsTheme}"
-                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).ShowSessionLogsCommand}" />
+                                                          IsVisible="{Binding SupportsTheme}">
+                                                    <MenuItem Header="Log Session Output"
+                                                              x:CompileBindings="False"
+                                                              IsVisible="{Binding ShowStartLog}"
+                                                              Command="{Binding StartLogCommand}" />
+                                                    <MenuItem Header="Stop Logging Output"
+                                                              x:CompileBindings="False"
+                                                              IsVisible="{Binding ShowStopLog}"
+                                                              Command="{Binding StopLogCommand}" />
+                                                    <Separator IsVisible="{Binding HasSessionLog}" x:CompileBindings="False" />
+                                                    <MenuItem Header="Open Log"
+                                                              x:CompileBindings="False"
+                                                              IsVisible="{Binding HasSessionLog}"
+                                                              Command="{Binding OpenLogCommand}" />
+                                                    <MenuItem Header="Reveal Log in File Manager"
+                                                              x:CompileBindings="False"
+                                                              IsVisible="{Binding HasSessionLog}"
+                                                              Command="{Binding RevealLogCommand}" />
+                                                    <Separator />
+                                                    <MenuItem Header="Saved Session Logs…"
+                                                              Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).ShowSessionLogsCommand}" />
+                                                </MenuItem>
                                                 <Separator />
                                                 <MenuItem Header="Close" Command="{Binding CloseCommand}" />
                                             </ContextMenu>
@@ -883,80 +938,163 @@
                                        Foreground="{DynamicResource AppMutedTextBrush}" FontSize="16" />
 
                             <!-- Welcome screen (shown when the current workspace is empty) -->
-                            <StackPanel IsVisible="{Binding ShowWelcome}" Spacing="20" Margin="0,8,0,0" HorizontalAlignment="Left">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="Remote Stuff CP" FontSize="28" FontWeight="Bold" />
+                            <StackPanel IsVisible="{Binding ShowWelcome}" Spacing="24" Margin="0,20,0,0"
+                                        HorizontalAlignment="Center" MaxWidth="720">
+                                <StackPanel.Styles>
+                                    <Style Selector="Button.welcomeTile">
+                                        <Setter Property="Padding" Value="14,10" />
+                                        <Setter Property="MinWidth" Value="160" />
+                                        <Setter Property="Margin" Value="5" />
+                                        <Setter Property="CornerRadius" Value="8" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Left" />
+                                        <Setter Property="Background" Value="{DynamicResource AppInsetBrush}" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource AppDividerBrush}" />
+                                        <Setter Property="BorderThickness" Value="1" />
+                                    </Style>
+                                    <Style Selector="Button.welcomeTile:pointerover /template/ ContentPresenter">
+                                        <Setter Property="Background" Value="{DynamicResource AppPillBrush}" />
+                                        <Setter Property="BorderBrush" Value="#7FB0DE" />
+                                    </Style>
+                                    <Style Selector="Button.welcomeTile TextBlock.tileGlyph">
+                                        <Setter Property="FontSize" Value="17" />
+                                        <Setter Property="VerticalAlignment" Value="Center" />
+                                    </Style>
+                                </StackPanel.Styles>
+
+                                <!-- Hero -->
+                                <StackPanel Spacing="12" HorizontalAlignment="Center">
+                                    <Border Width="92" Height="92" CornerRadius="46" HorizontalAlignment="Center"
+                                            Background="{DynamicResource AppInsetBrush}"
+                                            BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1">
+                                        <TextBlock Text="🌐" FontSize="46" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <TextBlock Text="Remote Stuff" FontSize="32" FontWeight="Bold" HorizontalAlignment="Center" />
                                     <TextBlock Text="Open a local terminal, connect to a server, or click a profile to get started."
-                                               Foreground="{DynamicResource AppSecondaryTextBrush}" FontSize="14" TextWrapping="Wrap" MaxWidth="520" />
+                                               Foreground="{DynamicResource AppSecondaryTextBrush}" FontSize="14"
+                                               TextWrapping="Wrap" TextAlignment="Center" MaxWidth="460"
+                                               HorizontalAlignment="Center" />
                                 </StackPanel>
 
-                                <WrapPanel>
-                                    <Button Content="🖥  New Local Terminal" Margin="0,0,8,8" Command="{Binding NewLocalShellCommand}" />
-                                    <Button Content="🌐  New Browser Tab" Margin="0,0,8,8" Command="{Binding NewBrowserCommand}" />
-                                    <Button Content="📁  New Finder Tab" Margin="0,0,8,8" Command="{Binding NewFinderCommand}" />
-                                    <Button Content="📄  New Text Editor" Margin="0,0,8,8" Command="{Binding NewEditorCommand}" />
-                                    <Button Content="🧮  New Spreadsheet" Margin="0,0,8,8" Command="{Binding NewSpreadsheetCommand}" />
+                                <WrapPanel HorizontalAlignment="Center">
+                                    <Button Classes="welcomeTile" Command="{Binding NewLocalShellCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Classes="tileGlyph" Text="🖥" />
+                                            <TextBlock Text="New Local Terminal" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Classes="welcomeTile" Command="{Binding NewBrowserCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Classes="tileGlyph" Text="🌐" />
+                                            <TextBlock Text="New Browser Tab" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Classes="welcomeTile" Command="{Binding NewFinderCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Classes="tileGlyph" Text="📁" />
+                                            <TextBlock Text="New Finder Tab" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Classes="welcomeTile" Command="{Binding NewEditorCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Classes="tileGlyph" Text="📄" />
+                                            <TextBlock Text="New Text Editor" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Classes="welcomeTile" Command="{Binding NewSpreadsheetCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Classes="tileGlyph" Text="🧮" />
+                                            <TextBlock Text="New Spreadsheet" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
                                 </WrapPanel>
 
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="Connect to a server" FontWeight="SemiBold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
-                                    <WrapPanel>
-                                        <Button Content="🔗  Remote Terminal…" Margin="0,0,8,8" Command="{Binding NewRemoteTerminalCommand}" />
-                                        <Button Content="⬆⬇  SFTP…" Margin="0,0,8,8" Command="{Binding NewSftpConnectionCommand}" />
-                                        <Button Content="🖳  VNC…" Margin="0,0,8,8" Command="{Binding NewVncConnectionCommand}" />
-                                        <Button Content="📡  MQTT…" Margin="0,0,8,8" Command="{Binding NewMqttConnectionCommand}" />
-                                        <Button Content="🗄  Redis…" Margin="0,0,8,8" Command="{Binding NewRedisConnectionCommand}" />
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="Connect to a server" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                               Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                                    <WrapPanel HorizontalAlignment="Center">
+                                        <Button Classes="welcomeTile" Command="{Binding NewRemoteTerminalCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Classes="tileGlyph" Text="🔗" />
+                                                <TextBlock Text="Remote Terminal…" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Classes="welcomeTile" Command="{Binding NewSftpConnectionCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Classes="tileGlyph" Text="🗂" />
+                                                <TextBlock Text="SFTP…" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Classes="welcomeTile" Command="{Binding NewVncConnectionCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Classes="tileGlyph" Text="🖳" />
+                                                <TextBlock Text="VNC…" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Classes="welcomeTile" Command="{Binding NewMqttConnectionCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Classes="tileGlyph" Text="📡" />
+                                                <TextBlock Text="MQTT…" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Classes="welcomeTile" Command="{Binding NewRedisConnectionCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Classes="tileGlyph" Text="🗄" />
+                                                <TextBlock Text="Redis…" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
                                     </WrapPanel>
                                 </StackPanel>
 
-                                <StackPanel Spacing="8" IsVisible="{Binding HasProfiles}" MaxWidth="600">
-                                    <TextBlock Text="Profiles" FontWeight="SemiBold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
-                                    <ItemsControl ItemsSource="{Binding ConnectMenuItems}">
+                                <StackPanel Spacing="10" IsVisible="{Binding HasProfiles}">
+                                    <TextBlock Text="Profiles" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                               Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                                    <ItemsControl ItemsSource="{Binding ConnectMenuItems}" HorizontalAlignment="Center">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
-                                                <WrapPanel />
+                                                <WrapPanel HorizontalAlignment="Center" />
                                             </ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="vm:ProfileMenuItem">
-                                                <Button Margin="0,0,8,8" Command="{Binding Command}">
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <TextBlock Text="🔌" Foreground="#7FB0DE" />
-                                                        <TextBlock Text="{Binding Name}" />
-                                                    </StackPanel>
-                                                </Button>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </StackPanel>
-                            </StackPanel>
-
-                            <!-- Recently closed tabs -->
-                            <Border IsVisible="{Binding HasRecentlyClosed}"
-                                    Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
-                                    CornerRadius="6" Padding="14" Margin="0,8,0,0">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="Recently closed" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
-                                    <ItemsControl ItemsSource="{Binding RecentlyClosed}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:ClosedItem">
-                                                <Button HorizontalAlignment="Left" Margin="0,2"
-                                                        Background="Transparent" BorderThickness="0"
-                                                        Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).ReopenClosedCommand}"
-                                                        CommandParameter="{Binding}">
+                                                <Button Classes="welcomeTile" Command="{Binding Command}">
                                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                                        <TextBlock Text="{Binding Glyph}" Foreground="#7FB0DE" />
-                                                        <TextBlock Text="{Binding Title}" />
+                                                        <TextBlock Classes="tileGlyph" Text="🔌" />
+                                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
                                                     </StackPanel>
                                                 </Button>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
                                 </StackPanel>
-                            </Border>
 
-                            <TextBlock Text="{Binding StoragePath, StringFormat='Profiles stored at: {0}'}"
-                                       Foreground="#555" FontSize="11" TextWrapping="Wrap" Margin="0,24,0,0" />
+                                <!-- Recently closed -->
+                                <Border IsVisible="{Binding HasRecentlyClosed}"
+                                        Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
+                                        CornerRadius="8" Padding="16" HorizontalAlignment="Stretch">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Recently closed" FontWeight="SemiBold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                                        <ItemsControl ItemsSource="{Binding RecentlyClosed}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:ClosedItem">
+                                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,1"
+                                                            Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6"
+                                                            Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).ReopenClosedCommand}"
+                                                            CommandParameter="{Binding}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <TextBlock Text="{Binding Glyph}" Foreground="#7FB0DE" />
+                                                            <TextBlock Text="{Binding Title}" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="{Binding StoragePath, StringFormat='Profiles stored at: {0}'}"
+                                           Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11"
+                                           TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" Margin="0,4,0,20" />
+                            </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
 

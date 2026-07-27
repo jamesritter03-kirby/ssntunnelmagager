@@ -78,6 +78,31 @@ public partial class MainWindow : Window
             _vm?.CollapseTabDockCommand.Execute(tab);
     }
 
+    /// <summary>Let a vertical mouse wheel scroll the horizontal workspace / tab strips,
+    /// matching the macOS app. Trackpads (which already produce a horizontal delta) and
+    /// Shift+wheel are left untouched so their native horizontal scrolling still works.</summary>
+    private void OnStripPointerWheel(object? sender, PointerWheelEventArgs e)
+    {
+        if (sender is not Control control) return;
+        var scroll = control as ScrollViewer ?? control.FindDescendantOfType<ScrollViewer>();
+        if (scroll is null) return;
+
+        // Use whichever wheel axis the device reports the most movement on, so a
+        // plain vertical wheel scrolls the row sideways.
+        var delta = e.Delta;
+        var amount = System.Math.Abs(delta.X) > System.Math.Abs(delta.Y) ? delta.X : delta.Y;
+        if (amount == 0) return;
+
+        var max = scroll.Extent.Width - scroll.Viewport.Width;
+        if (max <= 0) return; // nothing to scroll horizontally
+
+        const double step = 60;
+        var x = scroll.Offset.X - amount * step;
+        x = System.Math.Clamp(x, 0, max);
+        scroll.Offset = scroll.Offset.WithX(x);
+        e.Handled = true;
+    }
+
     private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainWindowViewModel.IsPaletteOpen) && _vm?.IsPaletteOpen == true)

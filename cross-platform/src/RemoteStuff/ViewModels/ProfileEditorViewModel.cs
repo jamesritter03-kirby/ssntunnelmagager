@@ -124,6 +124,28 @@ public sealed partial class SnippetRowViewModel : ObservableObject
     };
 }
 
+/// <summary>Editable wrapper around one <see cref="SftpBookmark"/> row.</summary>
+public sealed partial class SftpBookmarkRowViewModel : ObservableObject
+{
+    public Guid Id { get; }
+    [ObservableProperty] private string _label;
+    [ObservableProperty] private string _path;
+
+    public SftpBookmarkRowViewModel(SftpBookmark b)
+    {
+        Id = b.Id;
+        _label = b.Label;
+        _path = b.Path;
+    }
+
+    public SftpBookmark ToModel() => new()
+    {
+        Id = Id,
+        Label = string.IsNullOrWhiteSpace(Label) ? Path?.Trim() ?? "" : Label.Trim(),
+        Path = Path?.Trim() ?? ""
+    };
+}
+
 public sealed partial class ProfileEditorViewModel : ViewModelBase
 {
     private readonly SshProfile _original;
@@ -179,6 +201,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
     public ObservableCollection<SnippetRowViewModel> Snippets { get; } = new();
     public ObservableCollection<EnvVarRowViewModel> EnvVars { get; } = new();
     public ObservableCollection<LinkRowViewModel> Links { get; } = new();
+    public ObservableCollection<SftpBookmarkRowViewModel> SftpBookmarks { get; } = new();
 
     public IReadOnlyList<string> IconChoices { get; } = new[]
     {
@@ -315,6 +338,8 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         foreach (var l in profile.Links)
             Links.Add(new LinkRowViewModel(l));
 
+        foreach (var b in profile.SftpBookmarks)
+            SftpBookmarks.Add(new SftpBookmarkRowViewModel(b));
         UpdatePreview();
     }
 
@@ -374,6 +399,12 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
     [RelayCommand]
     private void RemoveLink(LinkRowViewModel row) => Links.Remove(row);
 
+    [RelayCommand]
+    private void AddSftpBookmark() => SftpBookmarks.Add(new SftpBookmarkRowViewModel(new SftpBookmark()));
+
+    [RelayCommand]
+    private void RemoveSftpBookmark(SftpBookmarkRowViewModel row) => SftpBookmarks.Remove(row);
+
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
@@ -422,6 +453,8 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
                                .Select(e => e.ToModel()).ToList();
         p.Links = Links.Where(l => !string.IsNullOrWhiteSpace(l.Url))
                        .Select(l => l.ToModel()).ToList();
+        p.SftpBookmarks = SftpBookmarks.Where(b => !string.IsNullOrWhiteSpace(b.Path))
+                                       .Select(b => b.ToModel()).ToList();
 
         p.Icon = Icon?.Trim() ?? "";
         p.TabColor = TabColor?.Trim() ?? "";

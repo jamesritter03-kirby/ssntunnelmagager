@@ -132,6 +132,29 @@ public sealed class ProfileLink
     public string Url { get; set; } = "";
 }
 
+/// <summary>A saved remote directory an SFTP tab can jump to in one click.</summary>
+public sealed class SftpBookmark
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Label { get; set; } = "";
+    public string Path { get; set; } = "";
+
+    /// <summary>The remote path with surrounding whitespace removed.</summary>
+    [JsonIgnore]
+    public string TrimmedPath => Path.Trim();
+
+    /// <summary>The label to show, falling back to the path when no label is set.</summary>
+    [JsonIgnore]
+    public string DisplayLabel
+    {
+        get
+        {
+            var l = Label.Trim();
+            return l.Length == 0 ? TrimmedPath : l;
+        }
+    }
+}
+
 /// <summary>A saved SSH connection + tunnel configuration.</summary>
 public sealed class SshProfile
 {
@@ -194,6 +217,9 @@ public sealed class SshProfile
 
     public List<CommandSnippet> Snippets { get; set; } = new();
     public List<ProfileLink> Links { get; set; } = new();
+
+    /// <summary>Saved remote directories an SFTP tab can jump to in one click.</summary>
+    public List<SftpBookmark> SftpBookmarks { get; set; } = new();
 
     // --- Extended options (parity with the macOS app) ---
 
@@ -324,6 +350,7 @@ public sealed class SshProfile
         copy.Environment = Environment.ConvertAll(e => new EnvVar { Id = e.Id, Name = e.Name, Value = e.Value });
         copy.Snippets = Snippets.ConvertAll(s => new CommandSnippet { Id = s.Id, Label = s.Label, Command = s.Command });
         copy.Links = Links.ConvertAll(l => new ProfileLink { Id = l.Id, Label = l.Label, Url = l.Url });
+        copy.SftpBookmarks = SftpBookmarks.ConvertAll(b => new SftpBookmark { Id = b.Id, Label = b.Label, Path = b.Path });
         return copy;
     }
 }
