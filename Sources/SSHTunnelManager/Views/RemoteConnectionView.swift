@@ -42,6 +42,7 @@ final class RemoteConnectionModel: ObservableObject {
     @Published var port = ""
     @Published var username = ""
     @Published var password = ""
+    @Published var identityFile = ""
 
     /// Present the sheet for `kind`, pre-filled with the default SSH port (22).
     func present(_ kind: RemoteConnectionKind) {
@@ -50,6 +51,7 @@ final class RemoteConnectionModel: ObservableObject {
         port = "22"
         username = ""
         password = ""
+        identityFile = ""
         isPresented = true
     }
 }
@@ -126,6 +128,45 @@ struct RemoteConnectionView: View {
                 SecureField("optional", text: $model.password)
                     .textFieldStyle(.roundedBorder)
             }
+            GridRow {
+                Text("SSH key").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if model.identityFile.isEmpty {
+                        Text("optional")
+                            .foregroundStyle(.tertiary)
+                        Spacer(minLength: 0)
+                        Button("Choose…", action: chooseIdentityFile)
+                    } else {
+                        Text(displayPath(model.identityFile))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(model.identityFile)
+                        Spacer(minLength: 0)
+                        Button("Change…", action: chooseIdentityFile)
+                        Button("Clear") { model.identityFile = "" }
+                    }
+                }
+            }
+        }
+    }
+
+    private func displayPath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home) { return "~" + path.dropFirst(home.count) }
+        return path
+    }
+
+    private func chooseIdentityFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        panel.title = "Choose SSH Private Key"
+        let sshDir = (NSHomeDirectory() as NSString).appendingPathComponent(".ssh")
+        panel.directoryURL = URL(fileURLWithPath: sshDir)
+        if panel.runModal() == .OK, let url = panel.url {
+            model.identityFile = url.path
         }
     }
 
@@ -153,13 +194,16 @@ struct RemoteConnectionView: View {
 
     private func connect() {
         guard let port = parsedPort else { return }
+        let key = model.identityFile.trimmingCharacters(in: .whitespaces)
         switch model.kind {
         case .ssh:
             sessions.openAdHocSSH(host: trimmedHost, port: port,
-                                  username: model.username, password: model.password)
+                                  username: model.username, password: model.password,
+                                  identityFile: key)
         case .sftp:
             sessions.openAdHocSFTP(host: trimmedHost, port: port,
-                                   username: model.username, password: model.password)
+                                   username: model.username, password: model.password,
+                                   identityFile: key)
         }
         model.isPresented = false
     }

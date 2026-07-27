@@ -6,6 +6,7 @@ using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RemoteStuff.Models;
+using RemoteStuff.Services;
 
 namespace RemoteStuff.ViewModels;
 
@@ -44,79 +45,155 @@ public sealed class ProfileField
     public override string ToString() => Name;
 }
 
+/// <summary>
+/// A resizable table column. Its <see cref="Width"/> is bound by both the pinned header
+/// cell and every row cell beneath it, so dragging the header handle resizes the whole
+/// column at once.
+/// </summary>
+public sealed partial class ComparisonColumn : ObservableObject
+{
+    /// <summary>Persistence key ("Profile", "Host" or a field name).</summary>
+    public string Key { get; }
+    public string Header { get; }
+
+    [ObservableProperty] private double _width;
+
+    public ComparisonColumn(string key, string header, double width)
+    {
+        Key = key;
+        Header = header;
+        _width = width;
+    }
+}
+
+/// <summary>One value cell in a row, paired with the column that owns its width.</summary>
+public sealed class CompareCell
+{
+    public ComparisonColumn Column { get; }
+    public string Value { get; }
+
+    public CompareCell(ComparisonColumn column, string value)
+    {
+        Column = column;
+        Value = value;
+    }
+}
+
 /// <summary>A single profile row in the comparison table (checkbox + its per-field values).</summary>
 public sealed partial class ProfileCompareRow : ObservableObject
 {
     private readonly IReadOnlyList<ProfileField> _fields;
+    private readonly IReadOnlyList<ComparisonColumn> _fieldColumns;
 
     public SshProfile Profile { get; }
 
+    /// <summary>The (shared) Profile-name column, so its width drives this row's name cell.</summary>
+    public ComparisonColumn ProfileColumn { get; }
+    /// <summary>The (shared) Host column, so its width drives this row's host cell.</summary>
+    public ComparisonColumn HostColumn { get; }
+
     [ObservableProperty] private bool _isSelected;
 
-    public ProfileCompareRow(SshProfile profile, IReadOnlyList<ProfileField> fields)
+    public ProfileCompareRow(SshProfile profile, IReadOnlyList<ProfileField> fields,
+        ComparisonColumn profileColumn, ComparisonColumn hostColumn,
+        IReadOnlyList<ComparisonColumn> fieldColumns)
     {
         Profile = profile;
         _fields = fields;
+        ProfileColumn = profileColumn;
+        HostColumn = hostColumn;
+        _fieldColumns = fieldColumns;
     }
 
     public string Name => Profile.Name;
     public string Icon => Profile.DisplayIcon;
     public string Host => Profile.IsLocal ? "local shell" : Profile.Subtitle;
 
-    /// <summary>The field values in the same order as the table's column headers.</summary>
-    public IReadOnlyList<string> Values => _fields.Select(f => f.Get(Profile)).ToList();
+    /// <summary>The value cells, each carrying the column that owns its width.</summary>
+    public IReadOnlyList<CompareCell> Cells =>
+        _fields.Select((f, i) => new CompareCell(_fieldColumns[i], f.Get(Profile))).ToList();
 
     /// <summary>Re-read the profile after a bulk edit so the row's cells update.</summary>
     public void Refresh()
     {
         OnPropertyChanged(nameof(Name));
         OnPropertyChanged(nameof(Host));
-        OnPropertyChanged(nameof(Values));
+        OnPropertyChanged(nameof(Cells));
     }
 }
 
 /// <summary>
 /// Backs the "Compare &amp; Bulk Edit Profiles" window: shows every profile side by side and
-/// lets the user apply one setting's value to a group of selected profiles at once.
+/// lets the user apply one setting's value to a group of selected profiles at once, unify a
+/// shared password across a selection, and copy list-valued settings between profiles.
 /// </summary>
 public sealed partial class ProfileComparisonViewModel : ObservableObject
 {
     private static readonly string[] BoolOptions = { "Off", "On" };
 
     private readonly Action _onSaved;
+    private readonly SecretStore _secrets;
+    private readonly List<SshProfile> _allProfiles;
+    private readonly ComparisonColumnWidths _columnWidths = new();
 
     public IReadOnlyList<ProfileField> Fields { get; }
     /// <summary>The subset shown in the "apply setting" picker (compare-only columns excluded).</summary>
     public IReadOnlyList<ProfileField> EditableFields { get; }
     public ObservableCollection<ProfileCompareRow> Rows { get; } = new();
 
+    /// <summary>Every column in display order (Profile, Host, then one per field).</summary>
+    public IReadOnlyList<ComparisonColumn> Columns { get; }
+
     [ObservableProperty] private ProfileField? _selectedField;
     [ObservableProperty] private string _textValue = "";
     [ObservableProperty] private string? _optionValue;
     [ObservableProperty] private string _statusText = "";
 
+    /// <summary>The shared password typed into the "unify passwords" row.</summary>
+    [ObservableProperty] private string _passwordValue = "";
+
+    [ObservableProperty] private bool _hasCustomColumnWidths;
+
     public bool FieldIsOptions => SelectedField?.Kind is ProfileFieldKind.Options or ProfileFieldKind.Bool;
     public bool FieldIsText => SelectedField is not null && !FieldIsOptions;
     public IReadOnlyList<string> CurrentOptions => SelectedField?.Options ?? Array.Empty<string>();
 
+    public bool CanSetPassword => !string.IsNullOrEmpty(PasswordValue);
+
     public int SelectedCount => Rows.Count(r => r.IsSelected);
     public string SelectionSummary => $"{SelectedCount} of {Rows.Count} selected";
 
-    public ProfileComparisonViewModel(IEnumerable<SshProfile> profiles, Action onSaved)
+    /// <summary>Raised when the user opens the "copy lists between profiles" dialog.</summary>
+    public event Action<PropagateCollectionViewModel>? CopyListsRequested;
+
+    public ProfileComparisonViewModel(IEnumerable<SshProfile> profiles, SecretStore secrets, Action onSaved)
     {
+        _secrets = secrets;
         _onSaved = onSaved;
         Fields = BuildFields();
         EditableFields = Fields.Where(f => f.IsEditable).ToList();
 
-        foreach (var p in profiles.OrderBy(p => p.Group, StringComparer.OrdinalIgnoreCase)
-                                   .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
+        var profileColumn = new ComparisonColumn("Profile", "Profile", _columnWidths.WidthFor("Profile"));
+        var hostColumn = new ComparisonColumn("Host", "Host", _columnWidths.WidthFor("Host"));
+        var fieldColumns = Fields
+            .Select(f => new ComparisonColumn(f.Name, f.Name, _columnWidths.WidthFor(f.Name)))
+            .ToList();
+        Columns = new[] { profileColumn, hostColumn }.Concat(fieldColumns).ToList();
+
+        _allProfiles = profiles
+            .OrderBy(p => p.Group, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var p in _allProfiles)
         {
-            var row = new ProfileCompareRow(p, Fields);
+            var row = new ProfileCompareRow(p, Fields, profileColumn, hostColumn, fieldColumns);
             row.PropertyChanged += OnRowChanged;
             Rows.Add(row);
         }
 
         SelectedField = EditableFields.FirstOrDefault();
+        HasCustomColumnWidths = _columnWidths.HasCustom;
     }
 
     private static IReadOnlyList<ProfileField> BuildFields()
@@ -203,6 +280,24 @@ public sealed partial class ProfileComparisonViewModel : ObservableObject
         TextValue = "";
     }
 
+    partial void OnPasswordValueChanged(string value) => OnPropertyChanged(nameof(CanSetPassword));
+
+    /// <summary>Persist the current column widths (called after a resize drag ends).</summary>
+    public void SaveColumnWidths()
+    {
+        foreach (var c in Columns) _columnWidths.Set(c.Width, c.Key);
+        _columnWidths.Save();
+        HasCustomColumnWidths = true;
+    }
+
+    [RelayCommand]
+    private void ResetColumnWidths()
+    {
+        _columnWidths.Reset();
+        foreach (var c in Columns) c.Width = ComparisonColumnWidths.DefaultWidth(c.Key);
+        HasCustomColumnWidths = false;
+    }
+
     [RelayCommand]
     private void SelectAll()
     {
@@ -247,5 +342,48 @@ public sealed partial class ProfileComparisonViewModel : ObservableObject
 
         _onSaved();
         StatusText = $"Applied {f.Name} = \"{value}\" to {targets.Count} profile(s).";
+    }
+
+    /// <summary>
+    /// Store the typed password on every ticked remote profile (each keeps its own encrypted
+    /// entry). Local profiles are skipped — they have nothing to authenticate.
+    /// </summary>
+    [RelayCommand]
+    private void ApplyPassword()
+    {
+        var pw = PasswordValue;
+        if (string.IsNullOrEmpty(pw)) { StatusText = "Type a password to set."; return; }
+
+        var targets = Rows.Where(r => r.IsSelected && !r.Profile.IsLocal).ToList();
+        if (targets.Count == 0) { StatusText = "No remote profiles selected — tick one or more rows first."; return; }
+
+        foreach (var r in targets) _secrets.Set(r.Profile.Id, pw);
+        PasswordValue = "";
+        StatusText = $"Set a shared password on {targets.Count} profile(s).";
+    }
+
+    /// <summary>Remove the saved password from every ticked remote profile.</summary>
+    [RelayCommand]
+    private void ClearPasswords()
+    {
+        var targets = Rows.Where(r => r.IsSelected && !r.Profile.IsLocal).ToList();
+        if (targets.Count == 0) { StatusText = "No remote profiles selected — tick one or more rows first."; return; }
+
+        var cleared = 0;
+        foreach (var r in targets)
+        {
+            if (!_secrets.Has(r.Profile.Id)) continue;
+            _secrets.Set(r.Profile.Id, null);
+            cleared++;
+        }
+        StatusText = $"Cleared the saved password from {cleared} profile(s).";
+    }
+
+    [RelayCommand]
+    private void CopyLists()
+    {
+        var targets = Rows.Where(r => r.IsSelected).Select(r => r.Profile).ToList();
+        var vm = new PropagateCollectionViewModel(_allProfiles, targets, targets.FirstOrDefault()?.Id, _onSaved);
+        CopyListsRequested?.Invoke(vm);
     }
 }

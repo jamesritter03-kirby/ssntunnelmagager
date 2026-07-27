@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using RemoteStuff.Models;
 using RemoteStuff.ViewModels;
 
@@ -20,6 +21,7 @@ public sealed class AdHocConnectionWindow : Window
     private readonly TextBox _port;
     private readonly TextBox? _username;
     private readonly TextBox? _password;
+    private readonly TextBox? _identityFile;
     private readonly TextBox? _runOnConnect;
     private readonly StackPanel? _snippetRows;
     private readonly Panel? _snippetsSection;
@@ -37,6 +39,8 @@ public sealed class AdHocConnectionWindow : Window
         }
         // ssh tabs also carry a per-tab "run on connect" command.
         var showRunOnConnect = kind == AdHocConnectionKind.Ssh;
+        // ssh / sftp can supply a private key (identity file) in addition to a password.
+        var showKey = kind == AdHocConnectionKind.Ssh || kind == AdHocConnectionKind.Sftp;
 
         Title = title;
         Width = 400;
@@ -75,12 +79,36 @@ public sealed class AdHocConnectionWindow : Window
         AddRow(form, 0, "Host", hostRow);
         AddRow(form, 1, "Port", _port);
 
+        var nextRow = 2;
         if (showCreds)
         {
             _username = new TextBox { Watermark = "Optional", Text = prefill?.Username ?? "" };
             _password = new TextBox { PasswordChar = '\u2022', Watermark = "Optional" };
-            AddRow(form, 2, "Username", _username);
-            AddRow(form, 3, "Password", _password);
+            AddRow(form, nextRow++, "Username", _username);
+            AddRow(form, nextRow++, "Password", _password);
+        }
+
+        if (showKey)
+        {
+            _identityFile = new TextBox
+            {
+                Watermark = "Optional — path to a private key",
+                Text = prefill?.IdentityFile ?? ""
+            };
+            var browse = new Button
+            {
+                Content = "Browse…",
+                Padding = new Thickness(10, 3),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0)
+            };
+            browse.Click += async (_, _) => await PickIdentityFileAsync();
+            var keyRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+            Grid.SetColumn(_identityFile, 0);
+            Grid.SetColumn(browse, 1);
+            keyRow.Children.Add(_identityFile);
+            keyRow.Children.Add(browse);
+            AddRow(form, nextRow++, "SSH key", keyRow);
         }
 
         if (showRunOnConnect)
@@ -90,10 +118,10 @@ public sealed class AdHocConnectionWindow : Window
                 Watermark = "e.g. tmux attach || tmux new",
                 Text = prefill?.RunOnConnect ?? ""
             };
-            AddRow(form, 4, "On connect", _runOnConnect);
+            AddRow(form, nextRow++, "On connect", _runOnConnect);
         }
 
-        foreach (var box in new[] { _host, _port, _username, _password, _runOnConnect })
+        foreach (var box in new[] { _host, _port, _username, _password, _identityFile, _runOnConnect })
         {
             if (box is null) continue;
             box.KeyDown += (_, e) =>
@@ -254,8 +282,22 @@ public sealed class AdHocConnectionWindow : Window
             return;
         }
         _result = new AdHocConnectionResult(host, port, _username?.Text ?? "", _password?.Text ?? "",
-            _runOnConnect?.Text ?? "", CollectSnippets());
+            _identityFile?.Text?.Trim() ?? "", _runOnConnect?.Text ?? "", CollectSnippets());
         Close();
+    }
+
+    /// <summary>Let the user pick a private key file and drop its path into the
+    /// SSH key field. Keys aren't copied — only the path is remembered.</summary>
+    private async Task PickIdentityFileAsync()
+    {
+        if (_identityFile is null) return;
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Choose an SSH private key",
+            AllowMultiple = false
+        });
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { Length: > 0 } path)
+            _identityFile.Text = path;
     }
 
     /// <summary>The snippet rows as a list (empty allowed) when the editor is shown

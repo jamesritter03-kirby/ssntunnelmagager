@@ -1076,6 +1076,7 @@ private struct TabBar: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
+                .background(TabStripWheelScroller())
             }
 
             if let session = sessions.selectedSession {
@@ -1110,6 +1111,68 @@ private struct TabBar: View {
             }
         }
         .background(.bar)
+    }
+}
+
+/// Bridges a plain **mouse wheel** to the horizontal tab strip. A classic mouse
+/// wheel emits only vertical scroll deltas, which a horizontal `ScrollView`
+/// ignores — so hovering the tab strip and spinning the wheel does nothing. This
+/// installs a scroll-wheel monitor that, while the pointer is over the strip,
+/// remaps the vertical delta onto the strip's horizontal offset. Trackpad
+/// gestures (precise deltas) are left untouched so two-finger swipes still scroll
+/// the strip normally. Rendered as an invisible background *inside* the scroll
+/// content so `enclosingScrollView` resolves to the strip's `NSScrollView`.
+private struct TabStripWheelScroller: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.attach(to: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator {
+        private weak var anchor: NSView?
+        private var monitor: Any?
+
+        func attach(to view: NSView) {
+            anchor = view
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                self?.handle(event) ?? event
+            }
+        }
+
+        func detach() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            // Leave trackpad (precise) gestures alone — they already scroll the
+            // horizontal ScrollView correctly.
+            guard let scrollView = anchor?.enclosingScrollView,
+                  let window = anchor?.window, event.window === window,
+                  !event.hasPreciseScrollingDeltas else { return event }
+            // Only act while the pointer is actually over the tab strip.
+            let point = scrollView.convert(event.locationInWindow, from: nil)
+            guard scrollView.bounds.contains(point) else { return event }
+            let deltaY = event.scrollingDeltaY
+            guard deltaY != 0 else { return event }
+            let clip = scrollView.contentView
+            let maxX = max(0, (scrollView.documentView?.frame.width ?? 0) - clip.bounds.width)
+            guard maxX > 0 else { return event }   // nothing to scroll
+            var origin = clip.bounds.origin
+            origin.x = min(max(0, origin.x - deltaY), maxX)
+            clip.scroll(to: origin)
+            scrollView.reflectScrolledClipView(clip)
+            return nil   // consume so it doesn't bubble as a vertical scroll
+        }
     }
 }
 

@@ -1597,13 +1597,15 @@ final class TerminalSessionManager: ObservableObject {
     /// Build a throwaway `SSHProfile` (a fresh id, **not** saved to the store)
     /// from a host / port / username so the existing SSH and SFTP command
     /// builders can construct an ad-hoc, profile-free connection.
-    private func adHocProfile(host: String, port: Int, username: String) -> SSHProfile {
+    private func adHocProfile(host: String, port: Int, username: String,
+                              identityFile: String = "") -> SSHProfile {
         var profile = SSHProfile()
         let cleanHost = host.trimmingCharacters(in: .whitespaces)
         let cleanUser = username.trimmingCharacters(in: .whitespaces)
         profile.host = cleanHost
         profile.port = String(port)
         profile.username = cleanUser
+        profile.identityFile = identityFile.trimmingCharacters(in: .whitespaces)
         profile.name = cleanUser.isEmpty ? cleanHost : "\(cleanUser)@\(cleanHost)"
         return profile
     }
@@ -1612,10 +1614,12 @@ final class TerminalSessionManager: ObservableObject {
     /// profile. A typed password (optional — key auth is tried first) is sent at
     /// the prompt but never stored. Used by the “New Remote Terminal” setup sheet.
     func openAdHocSSH(host: String, port: Int, username: String, password: String,
+                      identityFile: String = "",
                       autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true) {
         let cleanHost = host.trimmingCharacters(in: .whitespaces)
         guard !cleanHost.isEmpty, port > 0 else { return }
-        let profile = adHocProfile(host: cleanHost, port: port, username: username)
+        let profile = adHocProfile(host: cleanHost, port: port, username: username,
+                                   identityFile: identityFile)
         let session = TerminalSession(
             kind: .ssh,
             title: profile.name,
@@ -1636,11 +1640,13 @@ final class TerminalSessionManager: ObservableObject {
     /// profile. A typed password (optional) is sent at the prompt but never
     /// stored. Used by the “New SFTP Connection” setup sheet.
     func openAdHocSFTP(host: String, port: Int, username: String, password: String,
+                       identityFile: String = "",
                        credentialID: UUID? = nil,
                        autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true) {
         let cleanHost = host.trimmingCharacters(in: .whitespaces)
         guard !cleanHost.isEmpty, port > 0 else { return }
-        let profile = adHocProfile(host: cleanHost, port: port, username: username)
+        let profile = adHocProfile(host: cleanHost, port: port, username: username,
+                                   identityFile: identityFile)
         let session = TerminalSession(
             kind: .sftp,
             title: "\(profile.name) — SFTP",

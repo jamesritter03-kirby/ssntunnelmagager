@@ -41,6 +41,7 @@ public partial class MainWindow : Window
             _vm.CompareProfilesRequested -= ShowCompareProfiles;
             _vm.GitSyncRequested -= ShowGitSync;
             _vm.DetachTerminalRequested -= ShowDetachedTerminal;
+            _vm.SessionLogsRequested -= ShowSessionLogs;
             _vm.PropertyChanged -= OnVmPropertyChanged;
         }
         _vm = DataContext as MainWindowViewModel;
@@ -59,6 +60,7 @@ public partial class MainWindow : Window
             _vm.CompareProfilesRequested += ShowCompareProfiles;
             _vm.GitSyncRequested += ShowGitSync;
             _vm.DetachTerminalRequested += ShowDetachedTerminal;
+            _vm.SessionLogsRequested += ShowSessionLogs;
             _vm.PropertyChanged += OnVmPropertyChanged;
         }
     }
@@ -259,6 +261,12 @@ public partial class MainWindow : Window
     private void ShowGitSync(GitSyncViewModel vm)
     {
         var window = new GitSyncWindow { DataContext = vm };
+        window.Show(this);
+    }
+
+    private void ShowSessionLogs(SessionLogsViewModel vm)
+    {
+        var window = new SessionLogsWindow { DataContext = vm };
         window.Show(this);
     }
 

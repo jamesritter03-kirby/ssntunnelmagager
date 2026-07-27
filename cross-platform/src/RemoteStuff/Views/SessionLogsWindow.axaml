@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RemoteStuff.ViewModels"
+        x:Class="RemoteStuff.Views.SessionLogsWindow"
+        x:DataType="vm:SessionLogsViewModel"
+        Width="860" Height="560"
+        MinWidth="560" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppSurfaceBrush}"
+        Title="Saved Session Logs">
+
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Padding="14,10"
+                Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="Saved Session Logs" FontWeight="SemiBold" FontSize="15" />
+                    <TextBlock Text="{Binding CountLabel}" Opacity="0.6" FontSize="12" />
+                </StackPanel>
+                <TextBox Grid.Column="1" Width="220" Watermark="Filter logs…"
+                         VerticalAlignment="Center" Text="{Binding Filter}" />
+            </Grid>
+        </Border>
+
+        <!-- Footer actions -->
+        <Border DockPanel.Dock="Bottom" Padding="12,8"
+                Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button Content="Refresh" Command="{Binding ReloadCommand}" />
+                <Button Content="Delete" Command="{Binding DeleteCommand}" IsEnabled="{Binding HasSelection}" />
+                <Button Content="Reveal in File Manager" Command="{Binding RevealCommand}" IsEnabled="{Binding HasSelection}" />
+                <Button Content="Open" Classes="accent" Command="{Binding OpenCommand}" IsEnabled="{Binding HasSelection}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Body: list + preview -->
+        <Grid ColumnDefinitions="280,1,*">
+            <ListBox Grid.Column="0" Background="Transparent"
+                     ItemsSource="{Binding Logs}"
+                     SelectedItem="{Binding SelectedLog}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SessionLogRow">
+                        <StackPanel Spacing="2" Margin="2,4">
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Subtitle}" Opacity="0.6" FontSize="11" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Rectangle Grid.Column="1" Fill="{DynamicResource AppDividerBrush}" Width="1" />
+
+            <Panel Grid.Column="2">
+                <TextBlock Text="Select a log to preview it." Opacity="0.5"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           IsVisible="{Binding !HasSelection}" />
+                <ScrollViewer IsVisible="{Binding HasSelection}" Padding="12">
+                    <SelectableTextBlock Text="{Binding Preview}"
+                                         FontFamily="Menlo,Consolas,monospace" FontSize="12"
+                                         TextWrapping="NoWrap" />
+                </ScrollViewer>
+            </Panel>
+        </Grid>
+    </DockPanel>
+</Window>

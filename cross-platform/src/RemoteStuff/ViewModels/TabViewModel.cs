@@ -159,6 +159,17 @@ public abstract partial class TabViewModel : ViewModelBase
     /// <summary>Whether this tab exposes typed-command history (terminal tabs only).</summary>
     public virtual bool HasHistory => false;
 
+    // ---- Session logging (terminal tabs only; base tabs never log) ----
+
+    /// <summary>Show the "Log Session Output" action (terminal not currently logging).</summary>
+    public virtual bool ShowStartLog => false;
+
+    /// <summary>Show the "Stop Logging Output" action (terminal currently logging).</summary>
+    public virtual bool ShowStopLog => false;
+
+    /// <summary>Whether a transcript file exists for this tab (enables Open / Reveal).</summary>
+    public virtual bool HasSessionLog => false;
+
     /// <summary>Whether this is a web browser tab (its nav controls live in the
     /// shared dock-cell header instead of a per-tab toolbar).</summary>
     public virtual bool IsBrowserTab => false;

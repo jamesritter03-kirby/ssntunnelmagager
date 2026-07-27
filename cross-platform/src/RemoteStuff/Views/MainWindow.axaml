@@ -169,6 +169,18 @@
                                             <MenuItem Header="Save Log…" IsVisible="{Binding SupportsTheme}"
                                                       x:CompileBindings="False"
                                                       Command="{Binding SaveScrollbackCommand}" />
+                                            <MenuItem Header="Log Session Output" IsVisible="{Binding ShowStartLog}"
+                                                      x:CompileBindings="False"
+                                                      Command="{Binding StartLogCommand}" />
+                                            <MenuItem Header="Stop Logging Output" IsVisible="{Binding ShowStopLog}"
+                                                      x:CompileBindings="False"
+                                                      Command="{Binding StopLogCommand}" />
+                                            <MenuItem Header="Open Log" IsVisible="{Binding HasSessionLog}"
+                                                      x:CompileBindings="False"
+                                                      Command="{Binding OpenLogCommand}" />
+                                            <MenuItem Header="Reveal Log in File Manager" IsVisible="{Binding HasSessionLog}"
+                                                      x:CompileBindings="False"
+                                                      Command="{Binding RevealLogCommand}" />
                                             <Separator />
                                             <MenuItem Header="Tab Colour" ItemsSource="{Binding TabColorMenuItems}">
                                                 <MenuItem.ItemContainerTheme>
@@ -272,6 +284,7 @@
                         <Separator />
                         <MenuItem Header="Preferences…" Command="{Binding OpenSettingsCommand}" />
                         <MenuItem Header="Manage Known Hosts…" Command="{Binding OpenKnownHostsCommand}" />
+                        <MenuItem Header="Saved Session Logs…" Command="{Binding ShowSessionLogsCommand}" />
                         <Separator />
                         <MenuItem Header="Developer Tools…" Command="{Binding OpenDeveloperToolsCommand}" />
                         <MenuItem Header="Check for Updates…" Command="{Binding CheckForUpdatesCommand}" />
@@ -545,6 +558,14 @@
                 <Border Grid.Row="0" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1"
                         Padding="8,4">
                     <StackPanel Orientation="Horizontal" Spacing="6">
+                        <!-- Permanent Home pill: always present, non-closable, shows the
+                             welcome screen. Mirrors the macOS app's Home tab. -->
+                        <Button Command="{Binding ShowHomeCommand}"
+                                Padding="10,4" CornerRadius="5"
+                                ToolTip.Tip="Home &amp; welcome screen"
+                                Background="{Binding ShowWelcome, Converter={x:Static vm:BoolBrushConverter.Accent}}">
+                            <TextBlock Text="⌂" FontSize="15" VerticalAlignment="Center" />
+                        </Button>
                         <ItemsControl ItemsSource="{Binding Workspaces}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -722,6 +743,25 @@
                                                           IsVisible="{Binding SupportsTheme}"
                                                           Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).SaveTerminalScrollbackCommand}"
                                                           CommandParameter="{Binding}" />
+                                                <MenuItem Header="Log Session Output"
+                                                          x:CompileBindings="False"
+                                                          IsVisible="{Binding ShowStartLog}"
+                                                          Command="{Binding StartLogCommand}" />
+                                                <MenuItem Header="Stop Logging Output"
+                                                          x:CompileBindings="False"
+                                                          IsVisible="{Binding ShowStopLog}"
+                                                          Command="{Binding StopLogCommand}" />
+                                                <MenuItem Header="Open Log"
+                                                          x:CompileBindings="False"
+                                                          IsVisible="{Binding HasSessionLog}"
+                                                          Command="{Binding OpenLogCommand}" />
+                                                <MenuItem Header="Reveal Log in File Manager"
+                                                          x:CompileBindings="False"
+                                                          IsVisible="{Binding HasSessionLog}"
+                                                          Command="{Binding RevealLogCommand}" />
+                                                <MenuItem Header="Saved Session Logs…"
+                                                          IsVisible="{Binding SupportsTheme}"
+                                                          Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).ShowSessionLogsCommand}" />
                                                 <Separator />
                                                 <MenuItem Header="Close" Command="{Binding CloseCommand}" />
                                             </ContextMenu>
@@ -917,7 +957,7 @@
                          drawers docked to any of the four edges. VisibleTabs holds
                          only the center tabs to show now, so each terminal control is
                          hosted exactly once. -->
-                    <Grid IsVisible="{Binding HasWorkspaceTabs}">
+                    <Grid IsVisible="{Binding ShowSessionHost}">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="{Binding TopDockHeight, Mode=TwoWay}" />
                             <RowDefinition Height="Auto" />

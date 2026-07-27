@@ -224,13 +224,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>True when a session tab is selected (show the terminal instead of the detail pane).</summary>
     public bool HasSelectedTab => SelectedTab != null;
-    public bool ShowDetail => SelectedTab == null;
+    public bool ShowDetail => SelectedTab == null || IsHomeSelected;
     public bool HasTabs => Tabs.Count > 0;
+
+    /// <summary>True while the permanent "Home" pill is chosen, forcing the welcome
+    /// screen to show even when the current workspace already has open tabs. Mirrors
+    /// the macOS app's persistent Home tab.</summary>
+    [ObservableProperty] private bool _isHomeSelected;
 
     /// <summary>The welcome screen shows when the current workspace has no tabs and
     /// no profile is selected — a set of quick starting points, mirroring the macOS
-    /// app's empty-workspace welcome view.</summary>
-    public bool ShowWelcome => !HasWorkspaceTabs && SelectedProfile == null;
+    /// app's empty-workspace welcome view. It is also shown on demand from the Home pill.</summary>
+    public bool ShowWelcome => IsHomeSelected || (!HasWorkspaceTabs && SelectedProfile == null);
+
+    /// <summary>The center session host (terminals / drawers) shows when the workspace
+    /// has tabs and the Home welcome screen isn't being displayed on top.</summary>
+    public bool ShowSessionHost => HasWorkspaceTabs && !IsHomeSelected;
 
     /// <summary>The plain "select a profile" hint shows only when the detail pane is
     /// otherwise empty (no profile, and the welcome screen isn't showing).</summary>
@@ -238,6 +247,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Whether any profiles exist (drives the welcome screen's Profiles list).</summary>
     public bool HasProfiles => Profiles.Count > 0;
+
+    /// <summary>Show the permanent Home / welcome screen (invoked by the Home pill).</summary>
+    [RelayCommand]
+    private void ShowHome()
+    {
+        SelectedTab = null;
+        SelectedProfile = null;
+        IsHomeSelected = true;
+    }
+
+    partial void OnIsHomeSelectedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowDetail));
+        OnPropertyChanged(nameof(ShowWelcome));
+        OnPropertyChanged(nameof(ShowSessionHost));
+        OnPropertyChanged(nameof(ShowSelectProfileHint));
+    }
 
     /// <summary>When true, all open tabs are shown side-by-side in a grid.</summary>
     [ObservableProperty] private bool _isTiled;
@@ -353,6 +379,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(WorkspaceTabList));
         OnPropertyChanged(nameof(HasWorkspaceTabs));
         OnPropertyChanged(nameof(ShowWelcome));
+        OnPropertyChanged(nameof(ShowSessionHost));
         OnPropertyChanged(nameof(ShowSelectProfileHint));
         OnPropertyChanged(nameof(HasWorkspaceServer));
         OnPropertyChanged(nameof(WorkspaceServerName));
@@ -760,6 +787,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnSelectedProfileChanged(SshProfile? value)
     {
         CommandPreview = value == null ? "" : SshCommandBuilder.CommandPreview(value);
+        if (value != null) IsHomeSelected = false;
         OnPropertyChanged(nameof(ShowWelcome));
         OnPropertyChanged(nameof(ShowSelectProfileHint));
 
@@ -772,6 +800,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedTabChanged(TabViewModel? value)
     {
+        if (value != null) IsHomeSelected = false;
         OnPropertyChanged(nameof(HasSelectedTab));
         OnPropertyChanged(nameof(ShowDetail));
         OnPropertyChanged(nameof(ShowSingleTab));
@@ -1054,10 +1083,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         if (profile.LogSession)
         {
-            var dir = Path.Combine(Path.GetDirectoryName(_store.StoragePath) ?? ".", "logs");
-            var safe = string.Join("_", profile.Name.Split(Path.GetInvalidFileNameChars()));
-            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-            tab.Terminal.StartLogging(Path.Combine(dir, $"{safe}-{stamp}.log"));
+            var title = profile.IsLocal ? profile.Name : (string.IsNullOrEmpty(profile.Name) ? profile.Host : profile.Name);
+            tab.BeginSessionLog(SessionLogs.NewLogPath(title),
+                                SessionLogs.Header(title, profile.IsLocal ? null : SshCommandBuilder.CommandPreview(profile)));
         }
 
         Tabs.Add(tab);
@@ -1162,6 +1190,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The currently selected terminal tab, if any (used by palette actions).</summary>
     private TerminalTabViewModel? ActiveTerminal => SelectedTab as TerminalTabViewModel;
+
+    // ---- Session logging ----
+
+    /// <summary>Raised to open the "Saved Session Logs" browser window.</summary>
+    public event Action<SessionLogsViewModel>? SessionLogsRequested;
+
+    /// <summary>Open the browser listing every saved session transcript.</summary>
+    [RelayCommand]
+    private void ShowSessionLogs()
+        => SessionLogsRequested?.Invoke(new SessionLogsViewModel(SystemOpen.Open, SystemOpen.Reveal));
 
     /// <summary>Disconnect every live terminal session across all workspaces.</summary>
     [RelayCommand]
@@ -1370,16 +1408,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var prefill = new AdHocConnectionPrefill(
             p.Host, int.TryParse(p.Port, out var pt) ? pt : 22, p.Username,
-            term.RunOnConnect ?? "", IsEdit: true, Snippets: p.Snippets);
+            term.RunOnConnect ?? "", IsEdit: true, Snippets: p.Snippets, IdentityFile: p.IdentityFile);
         var r = await AdHocConnectionRequested(AdHocConnectionKind.Ssh, prefill);
         if (r is null) return;
 
-        var connChanged = r.Host != p.Host || r.Port.ToString() != p.Port || r.Username != p.Username;
+        var connChanged = r.Host != p.Host || r.Port.ToString() != p.Port || r.Username != p.Username
+            || r.IdentityFile != p.IdentityFile;
 
         var updated = p.Clone();
         updated.Host = r.Host;
         updated.Port = r.Port.ToString();
         updated.Username = r.Username;
+        updated.IdentityFile = r.IdentityFile;
         updated.RunOnConnect = string.IsNullOrWhiteSpace(r.RunOnConnect) ? "" : r.RunOnConnect.Trim();
         // Apply the edited command snippets to the profile and, so the ❏ header
         // button reflects them immediately, to the live tab.
@@ -1565,6 +1605,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     public void SelectWorkspace(WorkspaceViewModel ws)    {
         if (CurrentWorkspace == ws) return;
+        IsHomeSelected = false;
         foreach (var w in Workspaces) w.IsCurrent = w == ws;
         CurrentWorkspace = ws;
         // Refresh the tab lists FIRST so the tab-strip ListBox already contains this
@@ -1599,6 +1640,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void CompareProfiles() =>
         CompareProfilesRequested?.Invoke(new ProfileComparisonViewModel(
             _store.Profiles,
+            _secrets,
             () => { _store.Save(); ReloadProfiles(); }));
 
     [RelayCommand]
@@ -2548,7 +2590,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Build a throwaway, unsaved profile from host/port/username so the
     /// existing tab launchers can open a profile-free connection — mirrors the
     /// macOS app's ad-hoc tabs.</summary>
-    private static SshProfile AdHocProfile(string host, int port, string username, Guid? id = null)
+    private static SshProfile AdHocProfile(string host, int port, string username, Guid? id = null, string identityFile = "")
     {
         var h = host.Trim();
         var u = username.Trim();
@@ -2558,6 +2600,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Host = h,
             Port = port.ToString(),
             Username = u,
+            IdentityFile = identityFile.Trim(),
             Name = string.IsNullOrEmpty(u) ? h : $"{u}@{h}"
         };
     }
@@ -2569,7 +2612,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (AdHocConnectionRequested is null) return;
         var r = await AdHocConnectionRequested(AdHocConnectionKind.Ssh, null);
         if (r is null) return;
-        var profile = AdHocProfile(r.Host, r.Port, r.Username);
+        var profile = AdHocProfile(r.Host, r.Port, r.Username, identityFile: r.IdentityFile);
         if (r.Snippets is { } sn)
             profile.Snippets = sn.Select(s => new CommandSnippet { Label = s.Label, Command = s.Command }).ToList();
         OpenSession(profile,
@@ -2584,7 +2627,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (AdHocConnectionRequested is null) return;
         var r = await AdHocConnectionRequested(AdHocConnectionKind.Sftp, null);
         if (r is null) return;
-        OpenSftpTab(AdHocProfile(r.Host, r.Port, r.Username),
+        OpenSftpTab(AdHocProfile(r.Host, r.Port, r.Username, identityFile: r.IdentityFile),
                     r.Password.Length == 0 ? null : r.Password, adHoc: true);
     }
 
@@ -2925,9 +2968,9 @@ public enum AdHocConnectionKind { Ssh, Sftp, Vnc, Mqtt, Redis }
 
 /// <summary>The connection details typed into the ad-hoc setup sheet. For ssh the
 /// optional <paramref name="RunOnConnect"/> is a command auto-run once connected.</summary>
-public sealed record AdHocConnectionResult(string Host, int Port, string Username, string Password, string RunOnConnect = "", IReadOnlyList<CommandSnippet>? Snippets = null);
+public sealed record AdHocConnectionResult(string Host, int Port, string Username, string Password, string IdentityFile = "", string RunOnConnect = "", IReadOnlyList<CommandSnippet>? Snippets = null);
 
 /// <summary>Pre-fills the ad-hoc setup sheet when it's reused to *edit* an existing
 /// tab's connection (right-click "Edit Connection Settings…") rather than create a
 /// new one. <paramref name="IsEdit"/> switches the sheet's title / confirm button.</summary>
-public sealed record AdHocConnectionPrefill(string Host, int Port, string Username, string RunOnConnect, bool IsEdit, IReadOnlyList<CommandSnippet>? Snippets = null);
+public sealed record AdHocConnectionPrefill(string Host, int Port, string Username, string RunOnConnect, bool IsEdit, IReadOnlyList<CommandSnippet>? Snippets = null, string IdentityFile = "");

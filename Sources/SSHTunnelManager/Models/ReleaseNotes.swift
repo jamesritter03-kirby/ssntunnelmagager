@@ -45,12 +45,20 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.64", build: 74, date: "Jul 27, 2026",
+            highlights: [
+                "New Remote Terminal and New SFTP Connection now let you pick an SSH private key: use the SSH key row's Choose… button to point at a key file (defaults to your ~/.ssh folder) and it's passed to the connection with -i.",
+                "The tab strip now scrolls with a plain mouse wheel: hover the tabs and spin the wheel to move through them when there are more tabs than fit. Trackpad two-finger swipes still work as before.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.63", build: 73, date: "Jul 25, 2026",
             highlights: [
                 "Finder tabs docked to a narrow side panel now keep their left side (folder buttons and the Name column) visible when you shrink them, instead of clipping it off.",
                 "The Compare & Bulk Edit Profiles window is now a real window: resize it freely from any edge, zoom it to full screen, and its contents always stay in view.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.62", build: 72, date: "Jul 25, 2026",

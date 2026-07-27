@@ -118,7 +118,7 @@
                             <ToggleButton Classes="segment" Content="All"
                                           IsChecked="{Binding !ShowMemberOfOnly, Mode=TwoWay}"
                                           ToolTip.Tip="Show every network" />
-                            <ToggleButton Classes="segment" Content="Member of"
+                            <ToggleButton Classes="segment" Content="Connected to"
                                           IsChecked="{Binding ShowMemberOfOnly, Mode=TwoWay}"
                                           ToolTip.Tip="Show only networks this device has joined" />
                         </StackPanel>
@@ -161,7 +161,8 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:ZtNetworkRowViewModel">
                                         <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
-                                                CornerRadius="6" Padding="10" Margin="0,0,0,10">
+                                                CornerRadius="6" Padding="10" Margin="0,0,0,10"
+                                                DoubleTapped="OnNetworkDoubleTapped">
                                             <StackPanel Spacing="6">
                                                 <Grid ColumnDefinitions="*,Auto">
                                                     <!-- Collapse toggle: chevron + name -->

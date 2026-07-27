@@ -187,6 +187,75 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     private async System.Threading.Tasks.Task SaveScrollback()
         => await Terminal.SaveScrollbackAsync($"{_baseTitle.Replace('/', '-')}.log");
 
+    // ---- Session logging (write a transcript of output to a .log file) ----
+
+    /// <summary>True while this tab is recording its output to a transcript file.</summary>
+    [ObservableProperty] private bool _isLoggingSession;
+
+    /// <summary>Path of this tab's current (or most recent) transcript, or null.</summary>
+    [ObservableProperty] private string? _sessionLogPath;
+
+    /// <summary>True once a transcript exists for this tab (so "Open Log" can show).</summary>
+    public override bool HasSessionLog => !string.IsNullOrEmpty(SessionLogPath);
+    public override bool ShowStartLog => !IsLoggingSession;
+    public override bool ShowStopLog => IsLoggingSession;
+
+    partial void OnSessionLogPathChanged(string? value) => OnPropertyChanged(nameof(HasSessionLog));
+
+    partial void OnIsLoggingSessionChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowStartLog));
+        OnPropertyChanged(nameof(ShowStopLog));
+    }
+
+    /// <summary>Start recording this session's output to <paramref name="path"/>.</summary>
+    public void BeginSessionLog(string path, string? header = null)
+    {
+        Terminal.StartLogging(path, header);
+        IsLoggingSession = Terminal.IsLogging;
+        SessionLogPath = Terminal.LogPath;
+    }
+
+    /// <summary>Stop recording; the transcript stays on disk and openable.</summary>
+    public void EndSessionLog()
+    {
+        Terminal.StopLogging();
+        IsLoggingSession = false;
+    }
+
+    /// <summary>Start recording this tab's output from the tab menu.</summary>
+    [RelayCommand]
+    private void StartLog()
+    {
+        if (IsLoggingSession) return;
+        var title = string.IsNullOrWhiteSpace(Title) ? _baseTitle : Title;
+        var preview = Profile is { IsLocal: false } p
+            ? RemoteStuff.Services.SshCommandBuilder.CommandPreview(p)
+            : null;
+        BeginSessionLog(RemoteStuff.Services.SessionLogs.NewLogPath(title),
+                        RemoteStuff.Services.SessionLogs.Header(title, preview));
+    }
+
+    /// <summary>Stop recording this tab's output from the tab menu.</summary>
+    [RelayCommand]
+    private void StopLog() => EndSessionLog();
+
+    /// <summary>Open this tab's transcript in the OS default text viewer.</summary>
+    [RelayCommand]
+    private void OpenLog()
+    {
+        if (!string.IsNullOrEmpty(SessionLogPath))
+            RemoteStuff.Services.SystemOpen.Open(SessionLogPath!);
+    }
+
+    /// <summary>Reveal this tab's transcript in Finder / Explorer / file manager.</summary>
+    [RelayCommand]
+    private void RevealLog()
+    {
+        if (!string.IsNullOrEmpty(SessionLogPath))
+            RemoteStuff.Services.SystemOpen.Reveal(SessionLogPath!);
+    }
+
     [RelayCommand]
     private void Disconnect()
     {

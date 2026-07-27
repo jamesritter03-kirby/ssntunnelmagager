@@ -292,10 +292,10 @@ public sealed class TerminalControl : Control
             try { n = _pty!.Read(buf); }
             catch { break; }
             if (n <= 0) break; // EOF or error
-            try { _log?.Write(buf, 0, n); } catch { /* logging is best-effort */ }
             var count = decoder.GetChars(buf, 0, n, chars, 0);
             if (count > 0)
             {
+                try { WriteToLog(chars, count); } catch { /* logging is best-effort */ }
                 // Guard the emulator + prompt scanning: an unhandled exception on
                 // this background thread would abort the entire process, so a
                 // stray parsing edge case must never escape here.
@@ -811,15 +811,33 @@ public sealed class TerminalControl : Control
     // ---- Session logging ----
 
     private System.IO.FileStream? _log;
+    private EscState _escState = EscState.Normal;
+    private System.Text.StringBuilder? _logScratch;
 
-    /// <summary>Begin appending raw session output to <paramref name="path"/>.</summary>
-    public void StartLogging(string path)
+    /// <summary>True while a transcript is being written for this session.</summary>
+    public bool IsLogging => _log != null;
+
+    /// <summary>Path of the current (or most recent) transcript file, or null if none
+    /// has been started. Kept after logging stops so the log can still be opened.</summary>
+    public string? LogPath { get; private set; }
+
+    /// <summary>Begin appending a plain-text transcript of session output to
+    /// <paramref name="path"/>. ANSI/VT escape sequences are stripped so the file
+    /// reads as clean text. An optional <paramref name="header"/> is written first.</summary>
+    public void StartLogging(string path, string? header = null)
     {
         try
         {
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
             _log = new System.IO.FileStream(path, System.IO.FileMode.Append,
                 System.IO.FileAccess.Write, System.IO.FileShare.Read);
+            _escState = EscState.Normal;
+            LogPath = path;
+            if (!string.IsNullOrEmpty(header))
+            {
+                var bytes = Encoding.UTF8.GetBytes(header);
+                _log.Write(bytes, 0, bytes.Length);
+            }
         }
         catch { _log = null; }
     }
@@ -828,6 +846,54 @@ public sealed class TerminalControl : Control
     {
         try { _log?.Flush(); _log?.Dispose(); } catch { }
         _log = null;
+    }
+
+    private enum EscState { Normal, Esc, Csi, Osc, OscEsc }
+
+    /// <summary>Append decoded output to the transcript, stripping ANSI/VT control
+    /// sequences (state is carried across reads so sequences split over buffer
+    /// boundaries are still removed). Newlines, carriage returns and tabs survive.</summary>
+    private void WriteToLog(char[] src, int count)
+    {
+        var log = _log;
+        if (log is null || count <= 0) return;
+        var sb = _logScratch ??= new System.Text.StringBuilder(256);
+        sb.Clear();
+        for (var i = 0; i < count; i++)
+        {
+            var c = src[i];
+            uint u = c;
+            switch (_escState)
+            {
+                case EscState.Normal:
+                    if (u == 0x1b) _escState = EscState.Esc;
+                    else if (u < 0x20 && u != 0x0a && u != 0x0d && u != 0x09) { /* drop C0 */ }
+                    else sb.Append(c);
+                    break;
+                case EscState.Esc:
+                    if (u == 0x5b) _escState = EscState.Csi;       // '[' → CSI
+                    else if (u == 0x5d) _escState = EscState.Osc;  // ']' → OSC
+                    else _escState = EscState.Normal;              // 2-char ESC seq consumed
+                    break;
+                case EscState.Csi:
+                    if (u is >= 0x40 and <= 0x7e) _escState = EscState.Normal; // final byte
+                    break;
+                case EscState.Osc:
+                    if (u == 0x07) _escState = EscState.Normal;      // BEL terminates
+                    else if (u == 0x1b) _escState = EscState.OscEsc; // maybe ESC '\'
+                    break;
+                case EscState.OscEsc:
+                    _escState = EscState.Normal;                     // consume terminator
+                    break;
+            }
+        }
+        if (sb.Length == 0) return;
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            log.Write(bytes, 0, bytes.Length);
+        }
+        catch { /* logging is best-effort */ }
     }
 
     /// <summary>The full scrollback + live screen as plain text (for copy / save).</summary>
