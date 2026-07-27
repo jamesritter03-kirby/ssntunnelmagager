@@ -819,7 +819,7 @@
                                                               Command="{Binding RevealLogCommand}" />
                                                     <Separator />
                                                     <MenuItem Header="Saved Session Logs…"
-                                                              Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).ShowSessionLogsCommand}" />
+                                                              Command="{Binding $parent[ListBox].DataContext.ShowSessionLogsCommand}" />
                                                 </MenuItem>
                                                 <Separator />
                                                 <MenuItem Header="Close" Command="{Binding CloseCommand}" />
