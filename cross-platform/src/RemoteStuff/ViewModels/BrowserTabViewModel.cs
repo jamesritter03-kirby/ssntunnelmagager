@@ -313,21 +313,23 @@ public sealed partial class BrowserTabViewModel : TabViewModel
         catch { /* best effort — dialogs simply remain unavailable */ }
     }
 
-    private bool _installedTrust;
-
     /// <summary>
     /// Wrap the native WKWebView's navigation delegate (via the macOS-only
     /// <c>RemoteStuff.MacWebHelper</c> assembly) so HTTPS sites whose certificate is not
     /// trusted — self-signed or private-CA hosts, routers and local devices reached by IP —
     /// can load after a one-time per-host confirmation. The <c>WebView.Avalonia</c> macOS
     /// backend implements no server-trust handler, so WKWebView silently rejects such certs
-    /// and the page never loads (Safari and the native Mac app implement this). Must run
-    /// before the first navigation's TLS handshake, so it is installed the moment the native
-    /// view attaches. Idempotent and fully guarded: a no-op on Windows/Linux or if absent.
+    /// and the page never loads (Safari and the native Mac app implement this).
+    ///
+    /// Called on every navigation (and on load) rather than once: the library re-assigns its
+    /// own <c>WKNavigationDelegate</c> when a URL is set, which would drop our shim, so we
+    /// re-wrap whenever the current delegate is not already ours. The installer is idempotent
+    /// (a no-op if our shim is already in place) and fully guarded — a no-op on Windows/Linux
+    /// or if the helper assembly is absent.
     /// </summary>
     private void EnsureNativeServerTrust()
     {
-        if (_installedTrust || _web is null) return;
+        if (_web is null) return;
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return;
         try
         {
@@ -339,8 +341,7 @@ public sealed partial class BrowserTabViewModel : TabViewModel
             var install = installer?.GetMethod("Install", BindingFlags.Public | BindingFlags.Static);
             if (install is null) return;
 
-            if (install.Invoke(null, new[] { wk }) is true)
-                _installedTrust = true;
+            install.Invoke(null, new[] { wk });
         }
         catch { /* best effort — untrusted-cert sites simply remain unreachable */ }
     }

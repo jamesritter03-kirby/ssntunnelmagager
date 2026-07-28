@@ -47,6 +47,19 @@ public sealed class ServerTrustNavigationDelegate : NSObject
     [DllImport("/System/Library/Frameworks/Security.framework/Security")]
     private static extern bool SecTrustEvaluateWithError(IntPtr trust, out IntPtr error);
 
+    // Objective-C block lifetime + CoreFoundation refcounting, so a deferred (asynchronous)
+    // trust prompt can keep the WebKit completion block and the SecTrust alive until the user
+    // answers — without blocking the WebKit callback (which would spin a nested run loop and
+    // wedge Avalonia's native compositor, blanking every web view).
+    [DllImport("/usr/lib/libSystem.dylib", EntryPoint = "_Block_copy")]
+    private static extern IntPtr BlockCopy(IntPtr block);
+    [DllImport("/usr/lib/libSystem.dylib", EntryPoint = "_Block_release")]
+    private static extern void BlockRelease(IntPtr block);
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern IntPtr CFRetain(IntPtr cf);
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRelease(IntPtr cf);
+
     // Hosts the user has chosen to trust for the lifetime of the process, and hosts with a
     // trust prompt currently on screen (so we don't stack duplicate dialogs).
     private static readonly HashSet<string> TrustedHosts = new();
@@ -62,8 +75,6 @@ public sealed class ServerTrustNavigationDelegate : NSObject
     public void DidReceiveAuthenticationChallenge(
         IntPtr webView, IntPtr challengePtr, IntPtr completionHandler)
     {
-        long disposition = PerformDefaultHandling;
-        NSUrlCredential? credential = null;
         try
         {
             // NOTE: The parameters are declared as raw IntPtr on purpose. The legacy Xamarin.Mac
@@ -76,47 +87,111 @@ public sealed class ServerTrustNavigationDelegate : NSObject
             // ObjC message forwarding on the proxy answers protectionSpace/serverTrust correctly.
             using var challenge = new NSUrlAuthenticationChallenge(challengePtr);
             var space = challenge.ProtectionSpace;
-            if (space is not null && space.AuthenticationMethod == ServerTrustMethod)
+
+            // Not a TLS server-trust challenge (e.g. HTTP auth) — let WebKit handle it.
+            if (space is null || space.AuthenticationMethod != ServerTrustMethod)
             {
-                var trust = space.ServerTrust;
-                if (trust != IntPtr.Zero)
+                Complete(completionHandler, PerformDefaultHandling, IntPtr.Zero);
+                return;
+            }
+
+            var trust = space.ServerTrust;
+            if (trust == IntPtr.Zero)
+            {
+                Complete(completionHandler, PerformDefaultHandling, IntPtr.Zero);
+                return;
+            }
+
+            // The certificate already chains to a trusted CA — default handling accepts it.
+            if (SecTrustEvaluateWithError(trust, out _))
+            {
+                Complete(completionHandler, PerformDefaultHandling, IntPtr.Zero);
+                return;
+            }
+
+            var host = space.Host ?? string.Empty;
+
+            // Previously confirmed for this session — accept immediately, no prompt.
+            if (TrustedHosts.Contains(host))
+            {
+                AcceptWithCredential(completionHandler, trust);
+                return;
+            }
+
+            // A prompt for this host is already on screen — cancel this extra challenge so we
+            // don't stack duplicate dialogs.
+            if (!PromptingHosts.Add(host))
+            {
+                Complete(completionHandler, CancelAuthenticationChallenge, IntPtr.Zero);
+                return;
+            }
+
+            // Unknown untrusted host: ask the user, but do NOT block here. Blocking the WebKit
+            // callback with a modal run loop freezes Avalonia's render loop and blanks every web
+            // view. Instead retain the completion block + the trust, return now, and present the
+            // alert on the next main-run-loop turn; answer the challenge from the alert handler.
+            var savedBlock = BlockCopy(completionHandler);
+            CFRetain(trust);
+            BeginInvokeOnMainThread(() =>
+            {
+                long disposition = CancelAuthenticationChallenge;
+                NSUrlCredential? credential = null;
+                try
                 {
-                    if (SecTrustEvaluateWithError(trust, out _))
+                    if (PromptTrust(host))
                     {
-                        // Certificate is already valid — let WebKit's default handling accept it.
-                        disposition = PerformDefaultHandling;
-                    }
-                    else if (ShouldTrust(space.Host ?? string.Empty))
-                    {
+                        TrustedHosts.Add(host);
                         credential = NSUrlCredential.FromTrust(trust);
-                        disposition = credential is not null ? UseCredential : CancelAuthenticationChallenge;
-                    }
-                    else
-                    {
-                        disposition = CancelAuthenticationChallenge;
+                        if (credential is not null) disposition = UseCredential;
                     }
                 }
-            }
+                catch
+                {
+                    disposition = CancelAuthenticationChallenge;
+                }
+                finally
+                {
+                    PromptingHosts.Remove(host);
+                    Complete(savedBlock, disposition, credential?.Handle ?? IntPtr.Zero);
+                    credential?.Dispose();
+                    CFRelease(trust);
+                    BlockRelease(savedBlock);
+                }
+            });
         }
         catch
         {
-            disposition = PerformDefaultHandling;
-        }
-        finally
-        {
-            var invoke = Marshal.GetDelegateForFunctionPointer<AuthBlockInvoke>(BlockInvokePtr(completionHandler));
-            invoke(completionHandler, (nint)disposition, credential?.Handle ?? IntPtr.Zero);
-            credential?.Dispose();
+            Complete(completionHandler, PerformDefaultHandling, IntPtr.Zero);
         }
     }
 
-    /// <summary>Decide whether to proceed with an untrusted certificate for <paramref name="host"/>,
-    /// remembering the answer for the session. Prompts the user once per host (Safari-style).</summary>
-    private static bool ShouldTrust(string host)
+    /// <summary>Invoke the WebKit completion block with a disposition + optional credential.</summary>
+    private static void Complete(IntPtr block, long disposition, IntPtr credential)
     {
-        if (TrustedHosts.Contains(host)) return true;
-        if (PromptingHosts.Contains(host)) return false; // a prompt is already up for this host
-        PromptingHosts.Add(host);
+        var invoke = Marshal.GetDelegateForFunctionPointer<AuthBlockInvoke>(BlockInvokePtr(block));
+        invoke(block, (nint)disposition, credential);
+    }
+
+    /// <summary>Accept the connection by forming a credential from the server trust.</summary>
+    private static void AcceptWithCredential(IntPtr block, IntPtr trust)
+    {
+        NSUrlCredential? credential = null;
+        try { credential = NSUrlCredential.FromTrust(trust); } catch { /* fall through to cancel */ }
+        if (credential is not null)
+        {
+            Complete(block, UseCredential, credential.Handle);
+            credential.Dispose();
+        }
+        else
+        {
+            Complete(block, CancelAuthenticationChallenge, IntPtr.Zero);
+        }
+    }
+
+    /// <summary>Prompt the user (Safari-style) whether to proceed with an untrusted certificate
+    /// for <paramref name="host"/>. Must run on the main thread. Returns true to proceed.</summary>
+    private static bool PromptTrust(string host)
+    {
         try
         {
             using var alert = new NSAlert
@@ -131,17 +206,11 @@ public sealed class ServerTrustNavigationDelegate : NSObject
             alert.AddButton("Continue");
             alert.AddButton("Cancel");
             // NSAlertFirstButtonReturn (1000) == "Continue".
-            var proceed = alert.RunModal() == 1000;
-            if (proceed) TrustedHosts.Add(host);
-            return proceed;
+            return alert.RunModal() == 1000;
         }
         catch
         {
             return false;
-        }
-        finally
-        {
-            PromptingHosts.Remove(host);
         }
     }
 
