@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    macOS-only helper that provides a working WKUIDelegate for JavaScript
+    alert()/confirm()/prompt() dialogs (the WebView.Avalonia macOS backend ships
+    empty ones). It is referenced by RemoteStuff only for osx-* builds (and mac
+    dev builds) and is loaded via reflection at runtime on macOS. It references
+    the exact same Xamarin.Mac.dll the library deploys so WKWebView type identity
+    matches the instances the app locates via reflection.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>RemoteStuff.MacWebHelper</AssemblyName>
+    <RootNamespace>RemoteStuff.MacWebHelper</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- The Xamarin.Mac binding is a design-time facade; suppress unrelated warnings.
+         CS8765: base overrides carry differing nullable annotations we intentionally match. -->
+    <NoWarn>$(NoWarn);CA1416;NU1701;CS8765</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WebView.Avalonia.MacCatalyst" Version="11.0.0.1" />
+  </ItemGroup>
+
+</Project>

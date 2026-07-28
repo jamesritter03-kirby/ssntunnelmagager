@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using AvaloniaWebView;
@@ -278,6 +279,36 @@ public sealed partial class BrowserTabViewModel : TabViewModel
         catch { /* best effort */ }
     }
 
+    private bool _installedJsDialogs;
+
+    /// <summary>
+    /// Install a native <c>WKUIDelegate</c> (from the macOS-only <c>RemoteStuff.MacWebHelper</c>
+    /// assembly) so JavaScript <c>alert()</c>/<c>confirm()</c>/<c>prompt()</c> dialogs actually
+    /// appear — the <c>WebView.Avalonia</c> macOS backend ships empty handlers, so WKWebView
+    /// silently drops them (they work in Safari, which implements them). Runs once the native
+    /// view exists (after the first navigation completes); idempotent and fully guarded so it is
+    /// a no-op on Windows/Linux or if the helper is absent.
+    /// </summary>
+    private void EnsureNativeJsDialogs()
+    {
+        if (_installedJsDialogs || _web is null) return;
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return;
+        try
+        {
+            var wk = FindNativeWebView(_web, 0, new HashSet<object>());
+            if (wk is null) return;
+
+            var helper = Assembly.Load("RemoteStuff.MacWebHelper");
+            var installer = helper.GetType("RemoteStuff.MacWebHelper.JsDialogInstaller");
+            var install = installer?.GetMethod("Install", BindingFlags.Public | BindingFlags.Static);
+            if (install is null) return;
+
+            if (install.Invoke(null, new[] { wk }) is true)
+                _installedJsDialogs = true;
+        }
+        catch { /* best effort — dialogs simply remain unavailable */ }
+    }
+
     /// <summary>
     /// Best-effort programmatic open of the macOS Web Inspector by walking to the
     /// native WKWebView and, via key-value coding, marking it inspectable and asking
@@ -382,6 +413,9 @@ public sealed partial class BrowserTabViewModel : TabViewModel
             // right-click ▸ Inspect Element item actually opens the Web Inspector
             // (required on macOS 13.3+ in addition to developerExtrasEnabled).
             MarkNativeInspectable();
+            // ...and give it a working UI delegate so JavaScript alert/confirm/prompt
+            // dialogs show instead of being silently dropped by the library's empty one.
+            EnsureNativeJsDialogs();
             if (_web?.Url is { } uri)
                 OnNavigated(uri.ToString(), TitleFor(uri));
             // A second browser tab's freshly-created WKWebView can paint black until its

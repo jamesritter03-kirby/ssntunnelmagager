@@ -753,6 +753,77 @@ final class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
+    /// Present a page's JavaScript `alert()`. Without this `WKUIDelegate` hook,
+    /// WebKit silently drops the alert once a UI delegate is assigned, so pages
+    /// that rely on it (confirmation notices, "are you sure" guards, etc.) appear
+    /// broken — this restores the native Safari-like panel.
+    func webView(_ webView: WKWebView,
+                 runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = Self.dialogTitle(for: frame)
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        Self.runDialog(alert, on: webView) { _ in completionHandler() }
+    }
+
+    /// Present a page's JavaScript `confirm()` and report the user's choice.
+    func webView(_ webView: WKWebView,
+                 runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = Self.dialogTitle(for: frame)
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        Self.runDialog(alert, on: webView) { response in
+            completionHandler(response == .alertFirstButtonReturn)
+        }
+    }
+
+    /// Present a page's JavaScript `prompt()` and return the entered text (or nil
+    /// if the user cancelled).
+    func webView(_ webView: WKWebView,
+                 runJavaScriptTextInputPanelWithPrompt prompt: String,
+                 defaultText: String?,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (String?) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = Self.dialogTitle(for: frame)
+        alert.informativeText = prompt
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = defaultText ?? ""
+        alert.accessoryView = field
+        Self.runDialog(alert, on: webView) { response in
+            completionHandler(response == .alertFirstButtonReturn ? field.stringValue : nil)
+        }
+    }
+
+    /// A short title identifying the page that raised a JavaScript dialog, e.g.
+    /// "example.com says:", matching how browsers label these panels.
+    private static func dialogTitle(for frame: WKFrameInfo) -> String {
+        if let host = frame.request.url?.host, !host.isEmpty {
+            return "“\(host)” says:"
+        }
+        return "This page says:"
+    }
+
+    /// Run a JavaScript dialog as a sheet on the web view's window when possible
+    /// (so it's clearly tied to the page), falling back to a modal panel.
+    private static func runDialog(_ alert: NSAlert,
+                                  on webView: WKWebView,
+                                  handler: @escaping (NSApplication.ModalResponse) -> Void) {
+        if let window = webView.window {
+            alert.beginSheetModal(for: window, completionHandler: handler)
+        } else {
+            handler(alert.runModal())
+        }
+    }
+
     /// Whether two URLs point at the same host (ignoring scheme / path). Host-only
     /// so an upgrade that also normalizes the path (""→"/") is still recognized.
     private func sameHost(_ a: URL, _ b: URL) -> Bool {
