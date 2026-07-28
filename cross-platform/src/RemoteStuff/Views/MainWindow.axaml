@@ -5,6 +5,7 @@
         xmlns:vm="using:RemoteStuff.ViewModels"
         xmlns:m="using:RemoteStuff.Models"
         xmlns:conv="using:Avalonia.Data.Converters"
+        xmlns:controls="using:RemoteStuff.Views.Controls"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
         x:Class="RemoteStuff.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -1176,17 +1177,8 @@
                         <ItemsControl Grid.Row="2" Grid.Column="2"
                                       ItemsSource="{Binding CenterCells}"
                                       ItemTemplate="{StaticResource DockCellTemplate}">
-                            <ItemsControl.Styles>
-                                <!-- Every center tab stays mounted so a browser's native web view
-                                     isn't destroyed on tab switch; hide the non-selected cells at
-                                     the container level so the UniformGrid collapses to one cell in
-                                     single mode. -->
-                                <Style Selector="ContentPresenter" x:DataType="vm:TabViewModel">
-                                    <Setter Property="IsVisible" Value="{Binding IsCellVisible}" />
-                                </Style>
-                            </ItemsControl.Styles>
                             <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate><UniformGrid /></ItemsPanelTemplate>
+                                <ItemsPanelTemplate><controls:CenterCellsPanel /></ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
 
