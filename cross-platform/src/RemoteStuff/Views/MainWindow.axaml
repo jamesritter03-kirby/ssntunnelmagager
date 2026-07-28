@@ -871,9 +871,9 @@
 
                     <!-- Detail pane -->
                     <ScrollViewer IsVisible="{Binding ShowDetail}">
-                        <StackPanel Spacing="16" MaxWidth="760" HorizontalAlignment="Left" Margin="24">
+                        <StackPanel Spacing="16" HorizontalAlignment="Stretch" Margin="24">
                             <StackPanel IsVisible="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                        Spacing="16">
+                                        Spacing="16" MaxWidth="760" HorizontalAlignment="Left">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                     <controls:LineIcon Kind="{Binding SelectedProfile.Icon}" Width="24" Height="24"
                                                VerticalAlignment="Center"
