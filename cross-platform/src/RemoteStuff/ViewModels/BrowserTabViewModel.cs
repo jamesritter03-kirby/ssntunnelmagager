@@ -84,6 +84,10 @@ public sealed partial class BrowserTabViewModel : TabViewModel
         var have = _web.Url?.ToString();
         var blank = string.IsNullOrEmpty(have) || have == "about:blank";
 
+        // Install the server-trust handler now — before the first navigation's TLS handshake —
+        // so untrusted-certificate HTTPS sites (self-signed / private-CA hosts) can load.
+        EnsureNativeServerTrust();
+
         if (!_didInitialNavigate)
         {
             _didInitialNavigate = true;
@@ -309,6 +313,38 @@ public sealed partial class BrowserTabViewModel : TabViewModel
         catch { /* best effort — dialogs simply remain unavailable */ }
     }
 
+    private bool _installedTrust;
+
+    /// <summary>
+    /// Wrap the native WKWebView's navigation delegate (via the macOS-only
+    /// <c>RemoteStuff.MacWebHelper</c> assembly) so HTTPS sites whose certificate is not
+    /// trusted — self-signed or private-CA hosts, routers and local devices reached by IP —
+    /// can load after a one-time per-host confirmation. The <c>WebView.Avalonia</c> macOS
+    /// backend implements no server-trust handler, so WKWebView silently rejects such certs
+    /// and the page never loads (Safari and the native Mac app implement this). Must run
+    /// before the first navigation's TLS handshake, so it is installed the moment the native
+    /// view attaches. Idempotent and fully guarded: a no-op on Windows/Linux or if absent.
+    /// </summary>
+    private void EnsureNativeServerTrust()
+    {
+        if (_installedTrust || _web is null) return;
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return;
+        try
+        {
+            var wk = FindNativeWebView(_web, 0, new HashSet<object>());
+            if (wk is null) return;
+
+            var helper = Assembly.Load("RemoteStuff.MacWebHelper");
+            var installer = helper.GetType("RemoteStuff.MacWebHelper.ServerTrustInstaller");
+            var install = installer?.GetMethod("Install", BindingFlags.Public | BindingFlags.Static);
+            if (install is null) return;
+
+            if (install.Invoke(null, new[] { wk }) is true)
+                _installedTrust = true;
+        }
+        catch { /* best effort — untrusted-cert sites simply remain unreachable */ }
+    }
+
     /// <summary>
     /// Best-effort programmatic open of the macOS Web Inspector by walking to the
     /// native WKWebView and, via key-value coding, marking it inspectable and asking
@@ -403,7 +439,13 @@ public sealed partial class BrowserTabViewModel : TabViewModel
     }
 
     private void OnNavigationStarting(object? sender, EventArgs e)
-        => Dispatcher.UIThread.Post(() => IsLoading = true);
+    {
+        // Runs synchronously on the native callback (during decidePolicyForNavigationAction,
+        // before the TLS handshake) so the server-trust handler is in place in time to accept
+        // an untrusted certificate on the very first navigation.
+        EnsureNativeServerTrust();
+        Dispatcher.UIThread.Post(() => IsLoading = true);
+    }
 
     private void OnNavigationCompleted(object? sender, EventArgs e)
         => Dispatcher.UIThread.Post(() =>
@@ -416,6 +458,9 @@ public sealed partial class BrowserTabViewModel : TabViewModel
             // ...and give it a working UI delegate so JavaScript alert/confirm/prompt
             // dialogs show instead of being silently dropped by the library's empty one.
             EnsureNativeJsDialogs();
+            // Fallback in case the native view was not yet findable when the tab attached
+            // (e.g. a restored tab): make sure untrusted-cert sites can still load.
+            EnsureNativeServerTrust();
             if (_web?.Url is { } uri)
                 OnNavigated(uri.ToString(), TitleFor(uri));
             // A second browser tab's freshly-created WKWebView can paint black until its
