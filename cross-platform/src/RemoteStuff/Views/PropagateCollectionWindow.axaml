@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:RemoteStuff.ViewModels"
+        xmlns:controls="using:RemoteStuff.Views.Controls"
         x:Class="RemoteStuff.Views.PropagateCollectionWindow"
         x:DataType="vm:PropagateCollectionViewModel"
         Width="540" Height="560"
@@ -17,7 +18,8 @@
                 BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
             <StackPanel Spacing="2">
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="🗂" FontSize="15" VerticalAlignment="Center" />
+                    <controls:LineIcon Kind="folders" Width="16" Height="16" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppTextBrush}" />
                     <TextBlock Text="Copy Lists Between Profiles" FontWeight="Bold" FontSize="15"
                                Foreground="{DynamicResource AppTextBrush}" VerticalAlignment="Center" />
                 </StackPanel>

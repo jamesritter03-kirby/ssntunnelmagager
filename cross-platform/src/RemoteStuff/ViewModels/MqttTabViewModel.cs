@@ -54,7 +54,7 @@ public sealed partial class MqttTabViewModel : TabViewModel
     private string? _pass;
     private IMqttClient? _client;
 
-    public override string Glyph => "📡";
+    public override string Glyph => "radio";
 
     public override string? Host => _host;
     public int Port => _port;

@@ -18,7 +18,7 @@ public sealed partial class RedisTabViewModel : TabViewModel
     private string? _password;
     private ConnectionMultiplexer? _mux;
 
-    public override string Glyph => "🗄";
+    public override string Glyph => "database";
 
     public override string? Host => _host;
     public int Port => _port;

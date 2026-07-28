@@ -14,7 +14,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
 {
     private readonly Func<string, Task>? _remoteSaver;
 
-    public override string Glyph => "✎";
+    public override string Glyph => "file-text";
 
     [ObservableProperty] private string _text = "";
     [ObservableProperty] private string? _filePath;

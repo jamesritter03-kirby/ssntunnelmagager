@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:RemoteStuff.ViewModels"
+        xmlns:controls="using:RemoteStuff.Views.Controls"
         x:Class="RemoteStuff.Views.GitSyncWindow"
         x:DataType="vm:GitSyncViewModel"
         Width="640" Height="560"
@@ -17,7 +18,7 @@
                 BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
             <StackPanel Spacing="2">
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="🔃" FontSize="15" VerticalAlignment="Center" />
+                    <controls:LineIcon Kind="refresh-cw" Width="16" Height="16" VerticalAlignment="Center" />
                     <TextBlock Text="Sync Profiles with Git" FontWeight="Bold" FontSize="15"
                                Foreground="{DynamicResource AppTextBrush}" VerticalAlignment="Center" />
                 </StackPanel>
@@ -48,8 +49,18 @@
                 </Grid>
 
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Content="⬇ Pull (import)" Command="{Binding PullCommand}" />
-                    <Button Content="⬆ Push (share)" Classes="accent" Command="{Binding PushCommand}" />
+                    <Button Command="{Binding PullCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <controls:LineIcon Kind="download" Width="15" Height="15" VerticalAlignment="Center" />
+                            <TextBlock Text="Pull (import)" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="accent" Command="{Binding PushCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <controls:LineIcon Kind="upload" Width="15" Height="15" VerticalAlignment="Center" />
+                            <TextBlock Text="Push (share)" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                     <Button Content="Init / Clone" Command="{Binding InitOrCloneCommand}" />
                     <Button Content="Status" Command="{Binding StatusCommand}" />
                     <TextBlock Text="Working…" IsVisible="{Binding IsBusy}" VerticalAlignment="Center"

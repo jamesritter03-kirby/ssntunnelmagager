@@ -84,10 +84,10 @@ public abstract partial class TabViewModel : ViewModelBase
     /// <summary>Chevron pointing toward the docked edge, for the collapse button.</summary>
     public string CollapseGlyph => Dock switch
     {
-        DockSide.Left => "\u21E4",   // ⇤ tuck to left edge
-        DockSide.Right => "\u21E5",  // ⇥ tuck to right edge
-        DockSide.Top => "\u2912",    // ⤒ tuck to top edge
-        DockSide.Bottom => "\u2913", // ⤓ tuck to bottom edge
+        DockSide.Left => "chevron-left",
+        DockSide.Right => "chevron-right",
+        DockSide.Top => "chevron-up",
+        DockSide.Bottom => "chevron-down",
         _ => ""
     };
 

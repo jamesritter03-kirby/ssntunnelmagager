@@ -117,7 +117,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public double SidebarWidth => IsSidebarVisible ? ExpandedSidebarWidth : 0;
 
     /// <summary>Chevron shown on the sidebar toggle button.</summary>
-    public string SidebarToggleGlyph => IsSidebarVisible ? "\u276E" : "\u276F";
+    public string SidebarToggleGlyph => "panel-left";
 
     [RelayCommand]
     private void ToggleSidebar() => IsSidebarVisible = !IsSidebarVisible;
@@ -135,7 +135,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private bool _isZeroTierVisible;
 
     /// <summary>Globe glyph used for the toolbar toggle button.</summary>
-    public string ZeroTierToggleGlyph => "\U0001F310";
+    public string ZeroTierToggleGlyph => "globe";
 
     [RelayCommand]
     private void ToggleZeroTier()

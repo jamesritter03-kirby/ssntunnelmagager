@@ -246,6 +246,12 @@ public sealed class SshProfile
     [JsonIgnore]
     public string DisplayIcon => IconIsEmoji ? Icon : "";
 
+    /// <summary>True when <see cref="Icon"/> can be shown either as an emoji or as a bundled
+    /// vector icon (an SF Symbol name that maps to a Lucide glyph).</summary>
+    [JsonIgnore]
+    public bool HasRenderableIcon =>
+        IconIsEmoji || RemoteStuff.Views.Controls.AppIcons.Resolve(Icon) != null;
+
     /// <summary>Optional tab accent colour (hex like <c>#4C8BF5</c>, empty = default).</summary>
     public string TabColor { get; set; } = "";
 

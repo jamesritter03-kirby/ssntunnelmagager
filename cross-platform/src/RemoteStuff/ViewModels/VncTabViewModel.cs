@@ -35,7 +35,7 @@ public sealed partial class VncTabViewModel : TabViewModel
     private CancellationTokenSource? _cts;
     private readonly StringBuilder _log = new();
 
-    public override string Glyph => "🖥";
+    public override string Glyph => "monitor";
 
     public override (string Host, int Port)? ConnectionEndpoint =>
         string.IsNullOrWhiteSpace(_targetHost) ? null : (_targetHost, _targetPort);

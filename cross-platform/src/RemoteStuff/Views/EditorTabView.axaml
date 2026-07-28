@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:controls="using:RemoteStuff.Views.Controls"
              xmlns:ae="using:AvaloniaEdit"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="RemoteStuff.Views.EditorTabView"
@@ -31,16 +32,16 @@
     <Grid RowDefinitions="Auto,*,Auto">
         <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="6,3">
             <StackPanel Orientation="Horizontal" Spacing="1">
-                <Button Content="🆕" Classes="tool" Command="{Binding NewCommand}" ToolTip.Tip="New document" />
-                <Button Content="📂" Classes="tool" Command="{Binding OpenCommand}" ToolTip.Tip="Open a file…" />
-                <Button Content="💾" Classes="tool" Command="{Binding SaveCommand}" ToolTip.Tip="Save (Ctrl+S)" />
-                <Button Content="🗄" Classes="tool" Command="{Binding SaveAsCommand}" ToolTip.Tip="Save As…" />
+                <Button Content="{controls:Icon file-plus}" Classes="tool" Command="{Binding NewCommand}" ToolTip.Tip="New document" />
+                <Button Content="{controls:Icon folder-open}" Classes="tool" Command="{Binding OpenCommand}" ToolTip.Tip="Open a file…" />
+                <Button Content="{controls:Icon save}" Classes="tool" Command="{Binding SaveCommand}" ToolTip.Tip="Save (Ctrl+S)" />
+                <Button Content="{controls:Icon save-all}" Classes="tool" Command="{Binding SaveAsCommand}" ToolTip.Tip="Save As…" />
 
                 <Rectangle Classes="sep" />
 
-                <Button Content="🔍" Classes="tool" Click="OnFind" ToolTip.Tip="Find / Replace (Ctrl+F)" />
-                <Button Content="↧" Classes="tool" Command="{Binding GoToLineCommand}" ToolTip.Tip="Go to line… (Ctrl+G)" />
-                <Button Content="⇄" Classes="tool" IsVisible="{Binding HasCompareTargets}"
+                <Button Content="{controls:Icon search}" Classes="tool" Click="OnFind" ToolTip.Tip="Find / Replace (Ctrl+F)" />
+                <Button Content="{controls:Icon arrow-down-to-line}" Classes="tool" Command="{Binding GoToLineCommand}" ToolTip.Tip="Go to line… (Ctrl+G)" />
+                <Button Content="{controls:Icon git-compare}" Classes="tool" IsVisible="{Binding HasCompareTargets}"
                         ToolTip.Tip="Compare with another open file">
                     <Button.Flyout>
                         <Flyout>
@@ -60,27 +61,27 @@
 
                 <Rectangle Classes="sep" />
 
-                <ToggleButton Content="↩" Classes="tool" IsChecked="{Binding WordWrap, Mode=TwoWay}"
+                <ToggleButton Content="{controls:Icon wrap-text}" Classes="tool" IsChecked="{Binding WordWrap, Mode=TwoWay}"
                               ToolTip.Tip="Wrap long lines" />
-                <ToggleButton Content="#" Classes="tool" IsChecked="{Binding ShowLineNumbers, Mode=TwoWay}"
+                <ToggleButton Content="{controls:Icon list-ordered}" Classes="tool" IsChecked="{Binding ShowLineNumbers, Mode=TwoWay}"
                               ToolTip.Tip="Show line numbers" />
-                <ToggleButton Content="▤" Classes="tool" IsChecked="{Binding HighlightCurrentLine, Mode=TwoWay}"
+                <ToggleButton Content="{controls:Icon highlighter}" Classes="tool" IsChecked="{Binding HighlightCurrentLine, Mode=TwoWay}"
                               ToolTip.Tip="Highlight current line" />
-                <ToggleButton Content="␣" Classes="tool" IsChecked="{Binding ShowWhitespace, Mode=TwoWay}"
+                <ToggleButton Content="{controls:Icon pilcrow}" Classes="tool" IsChecked="{Binding ShowWhitespace, Mode=TwoWay}"
                               ToolTip.Tip="Show whitespace" />
-                <ToggleButton Content="📏" Classes="tool" IsChecked="{Binding ShowColumnRuler, Mode=TwoWay}"
+                <ToggleButton Content="{controls:Icon ruler}" Classes="tool" IsChecked="{Binding ShowColumnRuler, Mode=TwoWay}"
                               ToolTip.Tip="Column ruler (80)" />
 
                 <Rectangle Classes="sep" />
 
-                <Button Content="A－" Classes="tool" Command="{Binding DecreaseFontCommand}"
+                <Button Content="{controls:Icon a-arrow-down}" Classes="tool" Command="{Binding DecreaseFontCommand}"
                         ToolTip.Tip="Decrease font size" />
-                <Button Content="A＋" Classes="tool" Command="{Binding IncreaseFontCommand}"
+                <Button Content="{controls:Icon a-arrow-up}" Classes="tool" Command="{Binding IncreaseFontCommand}"
                         ToolTip.Tip="Increase font size" />
 
                 <Rectangle Classes="sep" />
 
-                <Button Content="✨" Classes="tool" ToolTip.Tip="Editing actions">
+                <Button Content="{controls:Icon wand-sparkles}" Classes="tool" ToolTip.Tip="Editing actions">
                     <Button.Flyout>
                         <MenuFlyout>
                             <MenuItem Header="Move Line Up" Command="{Binding MoveLineUpCommand}"

@@ -18,7 +18,7 @@ namespace RemoteStuff.ViewModels;
 /// </summary>
 public sealed partial class MikroTikTabViewModel : TabViewModel
 {
-    public override string Glyph => "📡";
+    public override string Glyph => "router";
 
     public override (string Host, int Port)? ConnectionEndpoint =>
         string.IsNullOrWhiteSpace(Host) ? null : (Host.Trim(), Port);

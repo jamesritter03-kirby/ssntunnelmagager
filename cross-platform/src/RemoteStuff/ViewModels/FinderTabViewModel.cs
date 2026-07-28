@@ -22,7 +22,7 @@ public sealed class LocalEntryViewModel
     public long Size { get; init; }
     public DateTime Modified { get; init; }
 
-    public string Glyph => IsParent ? "\u21A9" : IsDirectory ? "\U0001F4C1" : "\U0001F4C4";
+    public string Glyph => IsParent ? "corner-up-left" : IsDirectory ? "folder" : "file";
     public string SizeText => IsDirectory ? "" : HumanSize(Size);
     public string ModifiedText => IsParent ? "" : Modified.ToString("yyyy-MM-dd HH:mm");
 
@@ -41,7 +41,7 @@ public sealed class LocalEntryViewModel
 /// <summary>A local file-browser ("Finder") tab.</summary>
 public sealed partial class FinderTabViewModel : TabViewModel
 {
-    public override string Glyph => "\U0001F5C2";
+    public override string Glyph => "folder-open";
 
     public ObservableCollection<LocalEntryViewModel> Entries { get; } = new();
 

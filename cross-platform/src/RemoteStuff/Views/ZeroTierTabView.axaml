@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:controls="using:RemoteStuff.Views.Controls"
              xmlns:m="using:RemoteStuff.Models"
              mc:Ignorable="d" d:DesignWidth="820" d:DesignHeight="620"
              x:Class="RemoteStuff.Views.ZeroTierTabView"
@@ -17,7 +18,7 @@
                     <Border Grid.Column="0" Background="{DynamicResource AppPillBrush}" CornerRadius="6" Padding="6,3"
                             VerticalAlignment="Center">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <TextBlock Grid.Column="0" Text="&#x1F50D;" FontSize="11"
+                            <controls:LineIcon Grid.Column="0" Kind="search" Width="12" Height="12"
                                        Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" Margin="2,0,6,0" />
                             <TextBox Grid.Column="1" Text="{Binding FilterText, Mode=TwoWay}"
                                      Watermark="Filter networks &amp; devices…" BorderThickness="0"
@@ -29,10 +30,10 @@
                                     Command="{Binding ClearFilterCommand}" />
                         </Grid>
                     </Border>
-                    <Button Grid.Column="1" Content="🔑" Click="OnManageAccounts" FontSize="14"
+                    <Button Grid.Column="1" Content="{controls:Icon key-round}" Click="OnManageAccounts"
                             MinHeight="0" Padding="8,3" Margin="6,0,0,0" VerticalAlignment="Center"
                             ToolTip.Tip="Manage accounts — add or remove ZeroTier accounts" />
-                    <Button Grid.Column="2" Content="⟳" Command="{Binding RefreshCommand}" FontSize="15"
+                    <Button Grid.Column="2" Content="{controls:Icon refresh-cw}" Command="{Binding RefreshCommand}"
                             Classes.refreshing="{Binding IsBusy}"
                             MinHeight="0" Padding="8,3" Margin="6,0,0,0" VerticalAlignment="Center"
                             ToolTip.Tip="Refresh networks and members">
@@ -61,7 +62,7 @@
                              MinHeight="0" Padding="6,3" Margin="0,0,6,0" VerticalContentAlignment="Center"
                              ToolTip.Tip="Password sent when connecting (this session only)" />
                     <ToggleButton Grid.Column="4" IsChecked="{Binding ShowPassword, Mode=TwoWay}"
-                                  Content="👁" FontSize="12" Padding="6,2" MinHeight="0"
+                                  Content="{controls:Icon eye}" Padding="6,2" MinHeight="0"
                                   ToolTip.Tip="Show / hide password" />
                 </Grid>
                 <WrapPanel Orientation="Horizontal">
@@ -123,11 +124,11 @@
                                           ToolTip.Tip="Show only networks this device has joined" />
                         </StackPanel>
                     </Border>
-                    <Button Content="⇊" Command="{Binding ExpandAllCommand}"
-                            IsVisible="{Binding HasNetworks}" FontSize="15"
+                    <Button Content="{controls:Icon chevrons-down}" Command="{Binding ExpandAllCommand}"
+                            IsVisible="{Binding HasNetworks}"
                             ToolTip.Tip="Expand every network" Margin="0,0,6,6" />
-                    <Button Content="⇈" Command="{Binding CollapseAllCommand}"
-                            IsVisible="{Binding HasNetworks}" FontSize="15"
+                    <Button Content="{controls:Icon chevrons-up}" Command="{Binding CollapseAllCommand}"
+                            IsVisible="{Binding HasNetworks}"
                             ToolTip.Tip="Collapse every network" Margin="0,0,6,6" />
                 </WrapPanel>
             </StackPanel>
@@ -218,12 +219,12 @@
                                                                         CornerRadius="4" Padding="5,1" Margin="4,0"
                                                                         VerticalAlignment="Center"
                                                                         ToolTip.Tip="{Binding AuthTooltip}">
-                                                                    <TextBlock Text="{Binding LockGlyph}"
+                                                                    <controls:LineIcon Kind="{Binding LockGlyph}"
                                                                                Foreground="{Binding LockBrush}"
-                                                                               FontSize="12" FontWeight="Bold"
+                                                                               Width="13" Height="13"
                                                                                VerticalAlignment="Center" />
                                                                 </Border>
-                                                                <Button Grid.Column="3" Content="&#x2699;" FontSize="14"
+                                                                <Button Grid.Column="3" Content="{controls:Icon settings}"
                                                                         Background="Transparent" BorderThickness="0"
                                                                         Foreground="{DynamicResource AppSecondaryTextBrush}" Padding="6,2" Margin="2,0,0,0"
                                                                         VerticalAlignment="Center" Cursor="Hand"

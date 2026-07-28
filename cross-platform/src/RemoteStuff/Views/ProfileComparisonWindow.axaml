@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:RemoteStuff.ViewModels"
+        xmlns:controls="using:RemoteStuff.Views.Controls"
         xmlns:primitives="using:Avalonia.Controls.Primitives"
         x:Class="RemoteStuff.Views.ProfileComparisonWindow"
         x:DataType="vm:ProfileComparisonViewModel"
@@ -38,7 +39,8 @@
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Grid.Column="0" Spacing="2">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="🧮" FontSize="15" VerticalAlignment="Center" />
+                        <controls:LineIcon Kind="table" Width="16" Height="16" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource AppTextBrush}" />
                         <TextBlock Text="Compare &amp; Bulk Edit Profiles" FontWeight="Bold" FontSize="15"
                                    Foreground="{DynamicResource AppTextBrush}" VerticalAlignment="Center" />
                     </StackPanel>

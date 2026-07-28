@@ -22,7 +22,7 @@ namespace RemoteStuff.ViewModels;
 /// </summary>
 public sealed partial class NetworkTabViewModel : TabViewModel
 {
-    public override string Glyph => "🌐";
+    public override string Glyph => "network";
 
     public override RemoteStuff.Services.TabSnapshot? CreateSnapshot() =>
         new RemoteStuff.Services.TabSnapshot { Kind = "network", Title = Title };

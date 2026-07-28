@@ -26,8 +26,8 @@ public sealed partial class ProfileRowViewModel : ObservableObject
     public bool IsLocal => Profile.IsLocal;
 
     /// <summary>The profile's emoji/glyph icon, shown in the sidebar row.</summary>
-    public string Icon => Profile.DisplayIcon;
-    public bool HasIcon => Profile.IconIsEmoji;
+    public string Icon => Profile.Icon;
+    public bool HasIcon => Profile.HasRenderableIcon;
 
     /// <summary>True while at least one live session for this profile is open.</summary>
     [ObservableProperty]

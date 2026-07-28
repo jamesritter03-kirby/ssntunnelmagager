@@ -8,7 +8,7 @@ namespace RemoteStuff.ViewModels;
 /// the macOS app's compare view. Rows are pre-aligned by <see cref="TextDiff"/>.</summary>
 public sealed partial class DiffTabViewModel : TabViewModel
 {
-    public override string Glyph => "⇄";
+    public override string Glyph => "git-compare";
 
     public string LeftHeader { get; }
     public string RightHeader { get; }

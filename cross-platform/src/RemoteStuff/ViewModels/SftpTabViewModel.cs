@@ -25,7 +25,7 @@ public sealed class SftpEntryViewModel
     public DateTime Modified { get; init; }
     public string Permissions { get; init; } = "";
 
-    public string Glyph => IsParent ? "↩" : IsDirectory ? "📁" : "📄";
+    public string Glyph => IsParent ? "corner-up-left" : IsDirectory ? "folder" : "file";
     public string SizeText => IsDirectory ? "" : HumanSize(Size);
     public string ModifiedText => IsParent ? "" : Modified.ToString("yyyy-MM-dd HH:mm");
 
@@ -57,7 +57,7 @@ public sealed partial class SftpTabViewModel : TabViewModel
     private SftpClient? _client;
     private readonly Action<string>? _passwordSaver;
 
-    public override string Glyph => "📁";
+    public override string Glyph => "folder";
 
     public override (string Host, int Port)? ConnectionEndpoint =>
         _profile is { IsLocal: false, Host: { Length: > 0 } h }

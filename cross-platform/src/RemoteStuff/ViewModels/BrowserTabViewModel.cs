@@ -21,7 +21,7 @@ namespace RemoteStuff.ViewModels;
 /// </summary>
 public sealed partial class BrowserTabViewModel : TabViewModel
 {
-    public override string Glyph => "\U0001F310";
+    public override string Glyph => "globe";
 
     /// <summary>The URL loaded when the tab is first shown.</summary>
     public string InitialUrl { get; }

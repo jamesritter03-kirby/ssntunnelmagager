@@ -13,7 +13,7 @@ namespace RemoteStuff.ViewModels;
 public sealed partial class TerminalTabViewModel : TabViewModel
 {
     public TerminalControl Terminal { get; }
-    public override string Glyph => ">_";
+    public override string Glyph => "square-terminal";
 
     /// <summary>ControlMaster socket path for a profile-backed ssh tunnel, enabling
     /// live add/remove of port forwards via <c>ssh -O forward</c>. Null otherwise.</summary>

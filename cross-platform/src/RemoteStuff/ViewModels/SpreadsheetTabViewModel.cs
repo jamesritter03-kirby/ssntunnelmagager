@@ -20,7 +20,7 @@ public sealed partial class SpreadsheetTabViewModel : TabViewModel
 {
     public SpreadsheetDocument Document { get; } = new();
 
-    public override string Glyph => "▦";
+    public override string Glyph => "table";
 
     /// <summary>Raised when columns/rows are rebuilt so the view regenerates its grid columns.</summary>
     public event Action? StructureChanged;

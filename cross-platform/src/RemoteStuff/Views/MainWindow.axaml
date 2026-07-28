@@ -30,7 +30,7 @@
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,6,0">
                                 <Border Width="4" Height="14" CornerRadius="2" VerticalAlignment="Center"
                                         Background="{Binding TabColorBrush}" IsVisible="{Binding HasTabColor}" />
-                                <TextBlock Text="{Binding Glyph}" Foreground="#7FB0DE" VerticalAlignment="Center" />
+                                <controls:LineIcon Kind="{Binding Glyph}" Foreground="#7FB0DE" Width="15" Height="15" VerticalAlignment="Center" />
                                 <TextBlock Text="⏺" VerticalAlignment="Center" FontSize="10" Foreground="#E0533D"
                                            x:CompileBindings="False" IsVisible="{Binding ShowStopLog}"
                                            ToolTip.Tip="Session logging is on" />
@@ -48,23 +48,23 @@
                             <DockPanel Grid.Column="1" LastChildFill="True"
                                        IsVisible="{Binding IsBrowserTab}" x:CompileBindings="False"
                                        Margin="0,0,4,0">
-                                <Button DockPanel.Dock="Left" Content="◀" Command="{Binding GoBackCommand}"
-                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                <Button DockPanel.Dock="Left" Content="{controls:Icon chevron-left}" Command="{Binding GoBackCommand}"
+                                        Padding="5,0" Background="Transparent" BorderThickness="0"
                                         Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Back" />
-                                <Button DockPanel.Dock="Left" Content="▶" Command="{Binding GoForwardCommand}"
-                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                <Button DockPanel.Dock="Left" Content="{controls:Icon chevron-right}" Command="{Binding GoForwardCommand}"
+                                        Padding="5,0" Background="Transparent" BorderThickness="0"
                                         Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Forward" />
-                                <Button DockPanel.Dock="Left" Content="⟳" Command="{Binding ReloadCommand}"
-                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                <Button DockPanel.Dock="Left" Content="{controls:Icon refresh-cw}" Command="{Binding ReloadCommand}"
+                                        Padding="5,0" Background="Transparent" BorderThickness="0"
                                         Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Reload" />
-                                <Button DockPanel.Dock="Left" Content="✕" Command="{Binding StopCommand}"
-                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                <Button DockPanel.Dock="Left" Content="{controls:Icon x}" Command="{Binding StopCommand}"
+                                        Padding="5,0" Background="Transparent" BorderThickness="0"
                                         Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Stop"
                                         IsVisible="{Binding IsLoading}" />
                                 <Button DockPanel.Dock="Right" Content="Go" Command="{Binding NavigateCommand}"
                                         Padding="8,1" FontSize="11" Margin="4,0,0,0" />
-                                <Button DockPanel.Dock="Right" Content="&#x1F527;" Command="{Binding OpenDevToolsCommand}"
-                                        Padding="5,0" FontSize="11" Background="Transparent" BorderThickness="0"
+                                <Button DockPanel.Dock="Right" Content="{controls:Icon settings}" Command="{Binding OpenDevToolsCommand}"
+                                        Padding="5,0" Background="Transparent" BorderThickness="0"
                                         Foreground="{DynamicResource AppSecondaryTextBrush}" ToolTip.Tip="Developer Tools" />
                                 <TextBox Watermark="Enter a URL or search" Text="{Binding AddressText, Mode=TwoWay}"
                                          VerticalAlignment="Center" MinHeight="0" Padding="6,1" FontSize="11">
@@ -74,8 +74,8 @@
                                 </TextBox>
                             </DockPanel>
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                <Button Content="❏" IsVisible="{Binding HasSnippets}" x:CompileBindings="False"
-                                        Padding="4,0" FontSize="11"
+                                <Button Content="{controls:Icon square-code}" IsVisible="{Binding HasSnippets}" x:CompileBindings="False"
+                                        Padding="4,0"
                                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                         ToolTip.Tip="Snippets">
                                     <Button.Flyout>
@@ -94,8 +94,8 @@
                                         </Flyout>
                                     </Button.Flyout>
                                 </Button>
-                                <Button Content="🕘" IsVisible="{Binding HasHistory}" x:CompileBindings="False"
-                                        Padding="4,0" FontSize="11"
+                                <Button Content="{controls:Icon history}" IsVisible="{Binding HasHistory}" x:CompileBindings="False"
+                                        Padding="4,0"
                                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                         ToolTip.Tip="Command history">
                                     <Button.Flyout>
@@ -117,19 +117,19 @@
                                         </Flyout>
                                     </Button.Flyout>
                                 </Button>
-                                <Button Content="A−" IsVisible="{Binding SupportsTheme}" x:CompileBindings="False"
-                                        Command="{Binding ZoomOutCommand}" Padding="4,0" FontSize="11"
+                                <Button Content="{controls:Icon a-arrow-down}" IsVisible="{Binding SupportsTheme}" x:CompileBindings="False"
+                                        Command="{Binding ZoomOutCommand}" Padding="4,0"
                                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                         ToolTip.Tip="Decrease font size" />
-                                <Button Content="A" IsVisible="{Binding SupportsTheme}" x:CompileBindings="False"
-                                        Command="{Binding ZoomResetCommand}" Padding="4,0" FontSize="11"
+                                <Button Content="{controls:Icon type}" IsVisible="{Binding SupportsTheme}" x:CompileBindings="False"
+                                        Command="{Binding ZoomResetCommand}" Padding="4,0"
                                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                         ToolTip.Tip="Reset font size" />
-                                <Button Content="A+" IsVisible="{Binding SupportsTheme}" x:CompileBindings="False"
-                                        Command="{Binding ZoomInCommand}" Padding="4,0" FontSize="11"
+                                <Button Content="{controls:Icon a-arrow-up}" IsVisible="{Binding SupportsTheme}" x:CompileBindings="False"
+                                        Command="{Binding ZoomInCommand}" Padding="4,0"
                                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                         ToolTip.Tip="Increase font size" />
-                                <Button Content="🎨" IsVisible="{Binding SupportsTheme}" Padding="4,0" FontSize="11"
+                                <Button Content="{controls:Icon palette}" IsVisible="{Binding SupportsTheme}" Padding="4,0"
                                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                         ToolTip.Tip="Colour theme">
                                     <Button.Flyout>
@@ -148,13 +148,15 @@
                                         </Flyout>
                                     </Button.Flyout>
                                 </Button>
-                                <Button Content="{Binding CollapseGlyph}" Padding="4,0" FontSize="12"
+                                <Button Padding="4,0"
                                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                         IsVisible="{Binding IsDocked}"
                                         ToolTip.Tip="Collapse this panel to the edge"
                                         Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).CollapseTabDockCommand}"
-                                        CommandParameter="{Binding}" />
-                                <Button Content="⋮" Padding="4,0" FontSize="12"
+                                        CommandParameter="{Binding}">
+                                    <controls:LineIcon Kind="{Binding CollapseGlyph}" Width="14" Height="14" />
+                                </Button>
+                                <Button Content="{controls:Icon ellipsis-vertical}" Padding="4,0"
                                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                         ToolTip.Tip="Dock…">
                                     <Button.Flyout>
@@ -206,7 +208,7 @@
                                         </MenuFlyout>
                                     </Button.Flyout>
                                 </Button>
-                                <Button Content="✕" Padding="4,0" FontSize="11"
+                                <Button Content="{controls:Icon x}" Padding="4,0"
                                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                         Command="{Binding CloseCommand}" />
                             </StackPanel>
@@ -223,10 +225,12 @@
         <!-- Toolbar -->
         <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" Padding="6,3" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
             <DockPanel LastChildFill="False">
-                <Button DockPanel.Dock="Left" Content="{Binding SidebarToggleGlyph}"
+                <Button DockPanel.Dock="Left"
                         Command="{Binding ToggleSidebarCommand}"
                         ToolTip.Tip="Show/hide profile panel" Padding="8,2"
-                        Background="Transparent" BorderThickness="0" VerticalAlignment="Center" />
+                        Background="Transparent" BorderThickness="0" VerticalAlignment="Center">
+                    <controls:LineIcon Kind="{Binding SidebarToggleGlyph}" Width="16" Height="16" />
+                </Button>
 
                 <Menu DockPanel.Dock="Left" VerticalAlignment="Center">
                     <MenuItem Header="_New">
@@ -342,9 +346,10 @@
 
                 <ToggleButton DockPanel.Dock="Right" IsChecked="{Binding IsZeroTierVisible, Mode=OneWay}"
                         Command="{Binding ToggleZeroTierCommand}"
-                        Content="{Binding ZeroTierToggleGlyph}" FontSize="15"
                         ToolTip.Tip="Show/hide ZeroTier panel" Padding="8,2"
-                        Background="Transparent" BorderThickness="0" VerticalAlignment="Center" />
+                        Background="Transparent" BorderThickness="0" VerticalAlignment="Center">
+                    <controls:LineIcon Kind="{Binding ZeroTierToggleGlyph}" Width="16" Height="16" />
+                </ToggleButton>
             </DockPanel>
         </Border>
 
@@ -373,13 +378,13 @@
                         <Grid ColumnDefinitions="*,Auto">
                             <Border Grid.Column="0" Background="{DynamicResource AppPillBrush}" CornerRadius="6" Padding="6,3">
                                 <Grid ColumnDefinitions="Auto,*,Auto">
-                                    <TextBlock Grid.Column="0" Text="&#x1F50D;" FontSize="11"
+                                    <controls:LineIcon Grid.Column="0" Kind="search" Width="12" Height="12"
                                                Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" Margin="2,0,6,0" />
                                     <TextBox Grid.Column="1" Text="{Binding SearchText, Mode=TwoWay}"
                                              Watermark="Search profiles…" BorderThickness="0"
                                              Background="Transparent" Padding="0" MinHeight="0"
                                              VerticalAlignment="Center" VerticalContentAlignment="Center" />
-                                    <Button Grid.Column="2" Content="✕" FontSize="10" Padding="4,0"
+                                    <Button Grid.Column="2" Content="{controls:Icon Kind=x, Size=11}" Padding="4,0"
                                             Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppMutedTextBrush}"
                                             IsVisible="{Binding SearchText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                             Command="{Binding ClearSearchCommand}" />
@@ -507,8 +512,8 @@
                                                             </Panel>
                                                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                                                    <TextBlock Text="{Binding Icon}" IsVisible="{Binding HasIcon}"
-                                                                               FontSize="13" LineHeight="15" VerticalAlignment="Center" />
+                                                                    <controls:LineIcon Kind="{Binding Icon}" IsVisible="{Binding HasIcon}"
+                                                                               Width="14" Height="14" VerticalAlignment="Center" />
                                                                     <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
                                                                                FontSize="13" LineHeight="15" />
                                                                 </StackPanel>
@@ -587,9 +592,13 @@
                     <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}"
                             BorderThickness="0,0,0,1" Padding="8,5">
                         <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Grid.Column="0" Text="🌎 ZeroTier" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource AppTextBrush}" VerticalAlignment="Center" />
-                            <Button Grid.Column="1" Content="✕" Padding="6,0" FontSize="12"
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <controls:LineIcon Kind="globe" Width="15" Height="15" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource AppTextBrush}" />
+                                <TextBlock Text="ZeroTier" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource AppTextBrush}" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="{controls:Icon x}" Padding="6,0"
                                     Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppSecondaryTextBrush}"
                                     ToolTip.Tip="Hide ZeroTier panel"
                                     Command="{Binding HideZeroTierCommand}" />
@@ -612,9 +621,9 @@
                                 Padding="10,4" CornerRadius="5" Margin="0,0,6,0"
                                 ToolTip.Tip="Home &amp; welcome screen"
                                 Background="{Binding ShowWelcome, Converter={x:Static vm:BoolBrushConverter.Accent}}">
-                            <TextBlock Text="⌂" FontSize="15" VerticalAlignment="Center" />
+                            <controls:LineIcon Kind="house" Width="16" Height="16" VerticalAlignment="Center" />
                         </Button>
-                        <Button DockPanel.Dock="Right" Content="＋" Padding="8,4" Margin="6,0,0,0"
+                        <Button DockPanel.Dock="Right" Content="{controls:Icon Kind=file-plus, Size=15}" Padding="8,4" Margin="6,0,0,0"
                                 Command="{Binding NewWorkspaceCommand}"
                                 ToolTip.Tip="New workspace" />
                         <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
@@ -646,10 +655,10 @@
                                                 </Button.ContextMenu>
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                                                    <TextBlock Text="✓" FontSize="10" Foreground="#3FB950"
+                                                    <controls:LineIcon Kind="check" Width="11" Height="11" Foreground="#3FB950"
                                                                VerticalAlignment="Center"
                                                                IsVisible="{Binding IsSaved}" />
-                                                    <Button Content="✕" Padding="3,0" FontSize="10"
+                                                    <Button Content="{controls:Icon Kind=x, Size=10}" Padding="3,0"
                                                             Background="Transparent" BorderThickness="0"
                                                             Command="{Binding CloseCommand}"
                                                             IsVisible="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).CanCloseWorkspace}" />
@@ -667,8 +676,14 @@
                 <Border Grid.Row="1" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1"
                         IsVisible="{Binding HasWorkspaceTabs}">
                     <DockPanel Margin="8,4" LastChildFill="True">
-                        <Button Content="＋ New" Padding="8,3" DockPanel.Dock="Right" Margin="6,0,0,0"
+                        <Button Padding="8,3" DockPanel.Dock="Right" Margin="6,0,0,0"
                                 ToolTip.Tip="Add a tab to this workspace">
+                            <Button.Content>
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <controls:LineIcon Kind="file-plus" Width="14" Height="14" VerticalAlignment="Center" />
+                                    <TextBlock Text="New" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button.Content>
                             <Button.Flyout>
                                 <MenuFlyout>
                                     <MenuItem Header="{Binding NewTerminalHereLabel}"
@@ -828,7 +843,7 @@
                                         </StackPanel.ContextMenu>
                                         <Border Width="4" Height="14" CornerRadius="2" VerticalAlignment="Center"
                                                 Background="{Binding TabColorBrush}" IsVisible="{Binding HasTabColor}" />
-                                        <TextBlock Text="{Binding Glyph}" VerticalAlignment="Center" Foreground="#7FB0DE" />
+                                        <controls:LineIcon Kind="{Binding Glyph}" Width="15" Height="15" VerticalAlignment="Center" Foreground="#7FB0DE" />
                                         <TextBlock Text="📢" VerticalAlignment="Center" FontSize="10"
                                                    ToolTip.Tip="Broadcast input is on">
                                             <TextBlock.IsVisible>
@@ -842,7 +857,7 @@
                                                    x:CompileBindings="False" IsVisible="{Binding ShowStopLog}"
                                                    ToolTip.Tip="Session logging is on" />
                                         <TextBlock Text="{Binding DisplayTitle}" VerticalAlignment="Center" />
-                                        <Button Content="✕" Padding="4,0" FontSize="11"
+                                        <Button Content="{controls:Icon x}" Padding="4,0"
                                                 Command="{Binding CloseCommand}" />
                                     </StackPanel>
                                 </DataTemplate>
@@ -860,9 +875,9 @@
                             <StackPanel IsVisible="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}"
                                         Spacing="16">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <TextBlock Text="{Binding SelectedProfile.DisplayIcon}" FontSize="24"
+                                    <controls:LineIcon Kind="{Binding SelectedProfile.Icon}" Width="24" Height="24"
                                                VerticalAlignment="Center"
-                                               IsVisible="{Binding SelectedProfile.IconIsEmoji}" />
+                                               IsVisible="{Binding SelectedProfile.HasRenderableIcon}" />
                                     <TextBlock Text="{Binding SelectedProfile.Name}" FontSize="24" FontWeight="Bold" />
                                 </StackPanel>
                                 <TextBlock Text="{Binding SelectedProfile.Subtitle}" Foreground="{DynamicResource AppSecondaryTextBrush}" FontSize="14" />
@@ -879,8 +894,13 @@
                                 </Border>
 
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button Content="Connect ▶" Command="{Binding ConnectCommand}"
-                                            Background="#0E639C" Foreground="White" Padding="16,8" />
+                                    <Button Command="{Binding ConnectCommand}"
+                                            Background="#0E639C" Foreground="White" Padding="16,8">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="Connect" VerticalAlignment="Center" />
+                                            <controls:LineIcon Kind="play" Width="14" Height="14" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
                                     <Button Content="SFTP" Command="{Binding OpenSftpCommand}" Padding="16,8" />
                                     <Button Content="Edit" Command="{Binding EditProfileCommand}" Padding="16,8" />
                                 </StackPanel>
@@ -967,7 +987,8 @@
                                     <Border Width="92" Height="92" CornerRadius="46" HorizontalAlignment="Center"
                                             Background="{DynamicResource AppInsetBrush}"
                                             BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1">
-                                        <TextBlock Text="🌐" FontSize="46" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <controls:LineIcon Kind="globe" Width="46" Height="46" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource AppTextBrush}" />
                                     </Border>
                                     <TextBlock Text="Remote Stuff" FontSize="32" FontWeight="Bold" HorizontalAlignment="Center" />
                                     <TextBlock Text="Open a local terminal, connect to a server, or click a profile to get started."
@@ -979,31 +1000,31 @@
                                 <WrapPanel HorizontalAlignment="Center">
                                     <Button Classes="welcomeTile" Command="{Binding NewLocalShellCommand}">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Classes="tileGlyph" Text="🖥" />
+                                            <controls:LineIcon Kind="square-terminal" Width="20" Height="20" VerticalAlignment="Center" />
                                             <TextBlock Text="New Local Terminal" VerticalAlignment="Center" />
                                         </StackPanel>
                                     </Button>
                                     <Button Classes="welcomeTile" Command="{Binding NewBrowserCommand}">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Classes="tileGlyph" Text="🌐" />
+                                            <controls:LineIcon Kind="globe" Width="20" Height="20" VerticalAlignment="Center" />
                                             <TextBlock Text="New Browser Tab" VerticalAlignment="Center" />
                                         </StackPanel>
                                     </Button>
                                     <Button Classes="welcomeTile" Command="{Binding NewFinderCommand}">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Classes="tileGlyph" Text="📁" />
+                                            <controls:LineIcon Kind="folder" Width="20" Height="20" VerticalAlignment="Center" />
                                             <TextBlock Text="New Finder Tab" VerticalAlignment="Center" />
                                         </StackPanel>
                                     </Button>
                                     <Button Classes="welcomeTile" Command="{Binding NewEditorCommand}">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Classes="tileGlyph" Text="📄" />
+                                            <controls:LineIcon Kind="file-text" Width="20" Height="20" VerticalAlignment="Center" />
                                             <TextBlock Text="New Text Editor" VerticalAlignment="Center" />
                                         </StackPanel>
                                     </Button>
                                     <Button Classes="welcomeTile" Command="{Binding NewSpreadsheetCommand}">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Classes="tileGlyph" Text="🧮" />
+                                            <controls:LineIcon Kind="table" Width="20" Height="20" VerticalAlignment="Center" />
                                             <TextBlock Text="New Spreadsheet" VerticalAlignment="Center" />
                                         </StackPanel>
                                     </Button>
@@ -1015,31 +1036,31 @@
                                     <WrapPanel HorizontalAlignment="Center">
                                         <Button Classes="welcomeTile" Command="{Binding NewRemoteTerminalCommand}">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Classes="tileGlyph" Text="🔗" />
+                                                <controls:LineIcon Kind="square-terminal" Width="20" Height="20" VerticalAlignment="Center" />
                                                 <TextBlock Text="Remote Terminal…" VerticalAlignment="Center" />
                                             </StackPanel>
                                         </Button>
                                         <Button Classes="welcomeTile" Command="{Binding NewSftpConnectionCommand}">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Classes="tileGlyph" Text="🗂" />
+                                                <controls:LineIcon Kind="folder" Width="20" Height="20" VerticalAlignment="Center" />
                                                 <TextBlock Text="SFTP…" VerticalAlignment="Center" />
                                             </StackPanel>
                                         </Button>
                                         <Button Classes="welcomeTile" Command="{Binding NewVncConnectionCommand}">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Classes="tileGlyph" Text="🖳" />
+                                                <controls:LineIcon Kind="monitor" Width="20" Height="20" VerticalAlignment="Center" />
                                                 <TextBlock Text="VNC…" VerticalAlignment="Center" />
                                             </StackPanel>
                                         </Button>
                                         <Button Classes="welcomeTile" Command="{Binding NewMqttConnectionCommand}">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Classes="tileGlyph" Text="📡" />
+                                                <controls:LineIcon Kind="radio" Width="20" Height="20" VerticalAlignment="Center" />
                                                 <TextBlock Text="MQTT…" VerticalAlignment="Center" />
                                             </StackPanel>
                                         </Button>
                                         <Button Classes="welcomeTile" Command="{Binding NewRedisConnectionCommand}">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Classes="tileGlyph" Text="🗄" />
+                                                <controls:LineIcon Kind="database" Width="20" Height="20" VerticalAlignment="Center" />
                                                 <TextBlock Text="Redis…" VerticalAlignment="Center" />
                                             </StackPanel>
                                         </Button>
@@ -1059,7 +1080,7 @@
                                             <DataTemplate x:DataType="vm:ProfileMenuItem">
                                                 <Button Classes="welcomeTile" Command="{Binding Command}">
                                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                                        <TextBlock Classes="tileGlyph" Text="🔌" />
+                                                        <controls:LineIcon Kind="plug" Width="20" Height="20" VerticalAlignment="Center" />
                                                         <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
                                                     </StackPanel>
                                                 </Button>
@@ -1082,8 +1103,8 @@
                                                             Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).ReopenClosedCommand}"
                                                             CommandParameter="{Binding}">
                                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                                            <TextBlock Text="{Binding Glyph}" Foreground="#7FB0DE" />
-                                                            <TextBlock Text="{Binding Title}" />
+                                                            <controls:LineIcon Kind="{Binding Glyph}" Foreground="#7FB0DE" Width="15" Height="15" VerticalAlignment="Center" />
+                                                            <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
                                                         </StackPanel>
                                                     </Button>
                                                 </DataTemplate>
@@ -1135,7 +1156,7 @@
                                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                 HorizontalContentAlignment="Center" ToolTip.Tip="Show top panel">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="⌄" FontSize="13" VerticalAlignment="Center" />
+                                <controls:LineIcon Kind="chevron-down" Width="14" Height="14" VerticalAlignment="Center" />
                                 <TextBlock Text="Show panel" FontSize="11" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
@@ -1160,7 +1181,7 @@
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                 ToolTip.Tip="Show left panel">
                             <StackPanel Orientation="Vertical" Spacing="6" VerticalAlignment="Center">
-                                <TextBlock Text="›" FontSize="13" HorizontalAlignment="Center" />
+                                <controls:LineIcon Kind="chevron-right" Width="14" Height="14" HorizontalAlignment="Center" />
                                 <LayoutTransformControl HorizontalAlignment="Center">
                                     <LayoutTransformControl.LayoutTransform>
                                         <RotateTransform Angle="90" />
@@ -1202,7 +1223,7 @@
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                 ToolTip.Tip="Show right panel">
                             <StackPanel Orientation="Vertical" Spacing="6" VerticalAlignment="Center">
-                                <TextBlock Text="‹" FontSize="13" HorizontalAlignment="Center" />
+                                <controls:LineIcon Kind="chevron-left" Width="14" Height="14" HorizontalAlignment="Center" />
                                 <LayoutTransformControl HorizontalAlignment="Center">
                                     <LayoutTransformControl.LayoutTransform>
                                         <RotateTransform Angle="90" />
@@ -1231,7 +1252,7 @@
                                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                 HorizontalContentAlignment="Center" ToolTip.Tip="Show bottom panel">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="⌃" FontSize="13" VerticalAlignment="Center" />
+                                <controls:LineIcon Kind="chevron-up" Width="14" Height="14" VerticalAlignment="Center" />
                                 <TextBlock Text="Show panel" FontSize="11" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>

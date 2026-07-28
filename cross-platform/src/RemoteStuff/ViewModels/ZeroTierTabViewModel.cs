@@ -45,7 +45,7 @@ public sealed partial class ZtMemberRowViewModel : ObservableObject
     [ObservableProperty] private bool _authBusy;
 
     /// <summary>A high-contrast status glyph: ✓ (authorized) or ✕ (not) — honours Foreground.</summary>
-    public string LockGlyph => Authorized ? "\u2714" : "\u2718";
+    public string LockGlyph => Authorized ? "check" : "x";
 
     /// <summary>Short badge label shown beside the glyph.</summary>
     public string AuthLabel => Authorized ? "Authorized" : "Blocked";
@@ -239,7 +239,7 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
 {
     private readonly ZeroTierService _service;
 
-    public override string Glyph => "\U0001F310";
+    public override string Glyph => "globe";
 
     public ObservableCollection<ZtAccountGroupViewModel> AccountGroups { get; } = new();
     public ObservableCollection<ZeroTierAccount> Accounts { get; } = new();

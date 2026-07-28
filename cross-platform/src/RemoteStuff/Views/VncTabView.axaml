@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:controls="using:RemoteStuff.Views.Controls"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="RemoteStuff.Views.VncTabView"
              x:DataType="vm:VncTabViewModel">
@@ -12,9 +13,24 @@
         <!-- Toolbar -->
         <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
             <StackPanel Orientation="Horizontal" Spacing="6">
-                <Button Content="🖥 Open Viewer" Command="{Binding OpenViewerCommand}" />
-                <Button Content="⟳ Reconnect" Command="{Binding ReconnectCommand}" />
-                <Button Content="⨯ Disconnect" Command="{Binding DisconnectCommand}" />
+                <Button Command="{Binding OpenViewerCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <controls:LineIcon Kind="monitor" Width="15" Height="15" VerticalAlignment="Center" />
+                        <TextBlock Text="Open Viewer" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding ReconnectCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <controls:LineIcon Kind="refresh-cw" Width="15" Height="15" VerticalAlignment="Center" />
+                        <TextBlock Text="Reconnect" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding DisconnectCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <controls:LineIcon Kind="x" Width="15" Height="15" VerticalAlignment="Center" />
+                        <TextBlock Text="Disconnect" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Border>
 
@@ -27,9 +43,14 @@
             <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppTextBrush}" FontSize="14"
                        TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
 
-            <Button Content="⨯ Abort" Command="{Binding AbortCommand}"
+            <Button Command="{Binding AbortCommand}"
                     IsVisible="{Binding IsConnecting}"
-                    HorizontalAlignment="Center" Padding="16,6" />
+                    HorizontalAlignment="Center" Padding="16,6">
+                <StackPanel Orientation="Horizontal" Spacing="5">
+                    <controls:LineIcon Kind="x" Width="15" Height="15" VerticalAlignment="Center" />
+                    <TextBlock Text="Abort" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
 
             <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" Padding="16">
                 <StackPanel Spacing="8">
@@ -46,8 +67,13 @@
                 </StackPanel>
             </Border>
 
-            <Button Content="🖥 Open in VNC Viewer" Command="{Binding OpenViewerCommand}"
-                    HorizontalAlignment="Center" Padding="16,8" />
+            <Button Command="{Binding OpenViewerCommand}"
+                    HorizontalAlignment="Center" Padding="16,8">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <controls:LineIcon Kind="monitor" Width="16" Height="16" VerticalAlignment="Center" />
+                    <TextBlock Text="Open in VNC Viewer" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
         </StackPanel>
 
         <!-- Log -->

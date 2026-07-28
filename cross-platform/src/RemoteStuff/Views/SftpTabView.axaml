@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:controls="using:RemoteStuff.Views.Controls"
              xmlns:m="using:RemoteStuff.Models"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="RemoteStuff.Views.SftpTabView"
@@ -13,9 +14,9 @@
         <!-- Toolbar -->
         <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
             <StackPanel Orientation="Horizontal" Spacing="3">
-                <Button Content="↑" FontSize="14" Padding="8,3" ToolTip.Tip="Up one folder" Command="{Binding GoUpCommand}" />
-                <Button Content="⟳" FontSize="14" Padding="8,3" ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}" />
-                <Button Content="🔖" FontSize="14" Padding="8,3" ToolTip.Tip="Saved paths" IsVisible="{Binding CanBookmark}">
+                <Button Content="{controls:Icon chevron-up}" FontSize="14" Padding="8,3" ToolTip.Tip="Up one folder" Command="{Binding GoUpCommand}" />
+                <Button Content="{controls:Icon refresh-cw}" FontSize="14" Padding="8,3" ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}" />
+                <Button Content="{controls:Icon bookmark}" FontSize="14" Padding="8,3" ToolTip.Tip="Saved paths" IsVisible="{Binding CanBookmark}">
                     <Button.Flyout>
                         <Flyout>
                             <StackPanel MinWidth="220" Spacing="2">
@@ -44,17 +45,21 @@
                     </Button.Flyout>
                 </Button>
                 <Rectangle Width="1" Fill="{DynamicResource AppDividerBrush}" Margin="4,2" />
-                <Button Content="📤" FontSize="14" Padding="8,3" ToolTip.Tip="Upload…" Command="{Binding UploadCommand}" />
-                <Button Content="📥" FontSize="14" Padding="8,3" ToolTip.Tip="Download…" Command="{Binding DownloadCommand}" />
-                <Button Content="✎" FontSize="14" Padding="8,3" ToolTip.Tip="Edit" Command="{Binding EditCommand}" />
-                <Button Content="🏷" FontSize="14" Padding="8,3" ToolTip.Tip="Rename…" Command="{Binding RenameCommand}" />
-                <Button Content="📄" FontSize="14" Padding="8,3" ToolTip.Tip="New file…" Command="{Binding NewFileCommand}" />
-                <Button Content="📁" FontSize="14" Padding="8,3" ToolTip.Tip="New folder…" Command="{Binding NewFolderCommand}" />
-                <Button Content="🗑" FontSize="14" Padding="8,3" ToolTip.Tip="Delete" Command="{Binding DeleteCommand}" />
+                <Button Content="{controls:Icon upload}" FontSize="14" Padding="8,3" ToolTip.Tip="Upload…" Command="{Binding UploadCommand}" />
+                <Button Content="{controls:Icon download}" FontSize="14" Padding="8,3" ToolTip.Tip="Download…" Command="{Binding DownloadCommand}" />
+                <Button Content="{controls:Icon square-pen}" FontSize="14" Padding="8,3" ToolTip.Tip="Edit" Command="{Binding EditCommand}" />
+                <Button Content="{controls:Icon text-cursor-input}" FontSize="14" Padding="8,3" ToolTip.Tip="Rename…" Command="{Binding RenameCommand}" />
+                <Button Content="{controls:Icon file-plus}" FontSize="14" Padding="8,3" ToolTip.Tip="New file…" Command="{Binding NewFileCommand}" />
+                <Button Content="{controls:Icon folder-plus}" FontSize="14" Padding="8,3" ToolTip.Tip="New folder…" Command="{Binding NewFolderCommand}" />
+                <Button Content="{controls:Icon trash-2}" FontSize="14" Padding="8,3" ToolTip.Tip="Delete" Command="{Binding DeleteCommand}" />
                 <Rectangle Width="1" Fill="{DynamicResource AppDividerBrush}" Margin="4,2" IsVisible="{Binding CanMount}" />
-                <Button Content="💽 Mount" FontSize="13" Padding="8,3"
+                <Button FontSize="13" Padding="8,3"
                         Command="{Binding ToggleMountCommand}" IsEnabled="{Binding !IsMountBusy}"
                         ToolTip.Tip="Mount the remote home folder locally via sshfs" >
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <controls:LineIcon Kind="hard-drive" Width="15" Height="15" VerticalAlignment="Center" />
+                        <TextBlock Text="Mount" VerticalAlignment="Center" />
+                    </StackPanel>
                     <Button.IsVisible>
                         <MultiBinding Converter="{x:Static BoolConverters.And}">
                             <Binding Path="CanMount" />
@@ -62,10 +67,15 @@
                         </MultiBinding>
                     </Button.IsVisible>
                 </Button>
-                <Button Content="⏏ Unmount" FontSize="13" Padding="8,3" IsVisible="{Binding IsMounted}"
+                <Button FontSize="13" Padding="8,3" IsVisible="{Binding IsMounted}"
                         Command="{Binding ToggleMountCommand}" IsEnabled="{Binding !IsMountBusy}"
-                        ToolTip.Tip="Unmount the remote folder" />
-                <Button Content="📂" FontSize="13" Padding="8,3" IsVisible="{Binding IsMounted}"
+                        ToolTip.Tip="Unmount the remote folder">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <controls:LineIcon Kind="eject" Width="15" Height="15" VerticalAlignment="Center" />
+                        <TextBlock Text="Unmount" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Content="{controls:Icon folder-open}" FontSize="13" Padding="8,3" IsVisible="{Binding IsMounted}"
                         Command="{Binding RevealMountCommand}" ToolTip.Tip="Reveal the mounted folder" />
                 <TextBlock Text="{Binding MountStatus}" Opacity="0.75" FontSize="11"
                            VerticalAlignment="Center" MaxWidth="320" TextTrimming="CharacterEllipsis"
@@ -167,7 +177,7 @@
                                           CommandParameter="{Binding}" />
                             </ContextMenu>
                         </Grid.ContextMenu>
-                        <TextBlock Grid.Column="0" Text="{Binding Glyph}" />
+                        <controls:LineIcon Grid.Column="0" Kind="{Binding Glyph}" Width="16" Height="16" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                         <TextBlock Grid.Column="2" Text="{Binding Permissions}" Foreground="#7FA7C7"
                                    FontFamily="Menlo, Consolas, monospace" />
