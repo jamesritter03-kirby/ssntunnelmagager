@@ -19,6 +19,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     [ObservableProperty] private bool _isCurrent;
     [ObservableProperty] private bool _isSaved;
 
+    /// <summary>True when this workspace's connections have been paused, so the pill
+    /// menu offers Resume instead of Pause.</summary>
+    [ObservableProperty] private bool _isPaused;
+
     /// <summary>Optional hex tint for the pill (empty = default accent).</summary>
     [ObservableProperty] private string _color = "";
 
@@ -51,6 +55,8 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     [RelayCommand] private void SaveAs() => _owner.SaveWorkspaceAs(this);
     [RelayCommand] private void SaveAsProfile() => _owner.SaveWorkspaceAsProfile(this);
     [RelayCommand] private void ConnectionHealth() => _owner.ShowWorkspaceStats(this);
+    [RelayCommand] private void PauseConnections() => _owner.PauseWorkspaceConnections(this);
+    [RelayCommand] private void ResumeConnections() => _owner.ResumeWorkspaceConnections(this);
 }
 
 /// <summary>One entry in the Workspace menu's "Open / Delete Saved Workspace"

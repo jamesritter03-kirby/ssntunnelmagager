@@ -73,7 +73,9 @@ public static class SshCommandBuilder
 
         var identity = profile.IdentityFile.Trim();
         if (identity.Length > 0)
-            args.AddRange(new[] { "-i", ExpandPath(identity) });
+            // Use only this key; without IdentitiesOnly ssh may offer agent keys
+            // first, hit MaxAuthTries, and fall back to a password prompt.
+            args.AddRange(new[] { "-i", ExpandPath(identity), "-o", "IdentitiesOnly=yes" });
 
         var jump = profile.JumpHost.Trim();
         if (jump.Length > 0)
@@ -122,7 +124,7 @@ public static class SshCommandBuilder
 
         var identity = profile.IdentityFile.Trim();
         if (identity.Length > 0)
-            sshOpts.AddRange(new[] { "-i", ExpandPath(identity) });
+            sshOpts.AddRange(new[] { "-i", ExpandPath(identity), "-o", "IdentitiesOnly=yes" });
 
         var jump = profile.JumpHost.Trim();
         if (jump.Length > 0)
@@ -190,7 +192,7 @@ public static class SshCommandBuilder
 
         var identity = profile.IdentityFile.Trim();
         if (identity.Length > 0)
-            args.AddRange(new[] { "-i", ExpandPath(identity) });
+            args.AddRange(new[] { "-i", ExpandPath(identity), "-o", "IdentitiesOnly=yes" });
 
         var jump = profile.JumpHost.Trim();
         if (jump.Length > 0)

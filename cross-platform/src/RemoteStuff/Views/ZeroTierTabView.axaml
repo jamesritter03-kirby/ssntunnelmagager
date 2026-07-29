@@ -124,12 +124,14 @@
                                           ToolTip.Tip="Show only networks this device has joined" />
                         </StackPanel>
                     </Border>
-                    <Button Content="{controls:Icon chevrons-down}" Command="{Binding ExpandAllCommand}"
-                            IsVisible="{Binding HasNetworks}"
-                            ToolTip.Tip="Expand every network" Margin="0,0,6,6" />
-                    <Button Content="{controls:Icon chevrons-up}" Command="{Binding CollapseAllCommand}"
-                            IsVisible="{Binding HasNetworks}"
-                            ToolTip.Tip="Collapse every network" Margin="0,0,6,6" />
+                    <!-- Grouped so the WrapPanel moves both buttons to the next line together. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6"
+                                IsVisible="{Binding HasNetworks}">
+                        <Button Content="{controls:Icon chevrons-down}" Command="{Binding ExpandAllCommand}"
+                                ToolTip.Tip="Expand every network" Margin="0,0,6,0" />
+                        <Button Content="{controls:Icon chevrons-up}" Command="{Binding CollapseAllCommand}"
+                                ToolTip.Tip="Collapse every network" Margin="0,0,6,0" />
+                    </StackPanel>
                 </WrapPanel>
             </StackPanel>
         </Border>

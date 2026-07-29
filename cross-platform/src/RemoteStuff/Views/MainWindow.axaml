@@ -25,7 +25,21 @@
             <Border BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" Margin="1">
                 <DockPanel>
                     <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}" Padding="6,2"
-                            DoubleTapped="OnDockHeaderDoubleTapped">
+                            DoubleTapped="OnDockHeaderDoubleTapped"
+                            ContextRequested="OnDockHeaderContextRequested">
+                        <Border.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Log Session Output" IsVisible="{Binding ShowStartLog}"
+                                          x:CompileBindings="False" Command="{Binding StartLogCommand}" />
+                                <MenuItem Header="Stop Logging Output" IsVisible="{Binding ShowStopLog}"
+                                          x:CompileBindings="False" Command="{Binding StopLogCommand}" />
+                                <Separator IsVisible="{Binding HasSessionLog}" x:CompileBindings="False" />
+                                <MenuItem Header="Open Log" IsVisible="{Binding HasSessionLog}"
+                                          x:CompileBindings="False" Command="{Binding OpenLogCommand}" />
+                                <MenuItem Header="Reveal Log in File Manager" IsVisible="{Binding HasSessionLog}"
+                                          x:CompileBindings="False" Command="{Binding RevealLogCommand}" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
                         <Grid ColumnDefinitions="Auto,*,Auto">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,6,0">
                                 <Border Width="4" Height="14" CornerRadius="2" VerticalAlignment="Center"
@@ -34,6 +48,9 @@
                                 <TextBlock Text="⏺" VerticalAlignment="Center" FontSize="10" Foreground="#E0533D"
                                            x:CompileBindings="False" IsVisible="{Binding ShowStopLog}"
                                            ToolTip.Tip="Session logging is on" />
+                                <TextBlock Text="⏸" VerticalAlignment="Center" FontSize="10" Foreground="#E0B84D"
+                                           x:CompileBindings="False" IsVisible="{Binding IsPaused}"
+                                           ToolTip.Tip="Connection paused" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
                                         VerticalAlignment="Center" IsVisible="{Binding !IsBrowserTab}">
@@ -289,6 +306,9 @@
                         <Separator />
                         <MenuItem Header="Compare &amp; Bulk Edit…" Command="{Binding CompareProfilesCommand}" />
                         <MenuItem Header="Sync Profiles &amp; Workspaces with Git…" Command="{Binding SyncProfilesGitCommand}" />
+                        <Separator />
+                        <MenuItem Header="Import profiles…" Command="{Binding ImportProfilesCommand}" />
+                        <MenuItem Header="Export profiles…" Command="{Binding ExportProfilesCommand}" />
                     </MenuItem>
                     <MenuItem Header="_Commands">
                         <MenuItem Header="Disconnect All Tunnels" Command="{Binding DisconnectAllCommand}" />
@@ -332,10 +352,10 @@
                         <MenuItem Header="Import Workspaces…" Command="{Binding ImportWorkspacesCommand}" />
                         <MenuItem Header="Export Workspaces…" Command="{Binding ExportWorkspacesCommand}"
                                   IsEnabled="{Binding HasSavedWorkspaces}" />
+                        <Separator />
+                        <MenuItem Header="Sync Profiles &amp; Workspaces with Git…" Command="{Binding SyncProfilesGitCommand}" />
                     </MenuItem>
                     <MenuItem Header="_Tools">
-                        <MenuItem Header="Import profiles…" Command="{Binding ImportProfilesCommand}" />
-                        <MenuItem Header="Export profiles…" Command="{Binding ExportProfilesCommand}" />
                         <MenuItem Header="Import from ~/.ssh/config" Command="{Binding ImportSshConfigCommand}" />
                         <Separator />
                         <MenuItem Header="Preferences…" Command="{Binding OpenSettingsCommand}" />
@@ -652,6 +672,10 @@
                                                         <MenuItem Header="Save as Workspace…" Command="{Binding SaveAsCommand}" />
                                                         <MenuItem Header="Save as Profile…" Command="{Binding SaveAsProfileCommand}" />
                                                         <Separator />
+                                                        <MenuItem Header="Pause Connections" Command="{Binding PauseConnectionsCommand}"
+                                                                  IsVisible="{Binding !IsPaused}" />
+                                                        <MenuItem Header="Resume Connections" Command="{Binding ResumeConnectionsCommand}"
+                                                                  IsVisible="{Binding IsPaused}" />
                                                         <MenuItem Header="Connection Health…" Command="{Binding ConnectionHealthCommand}" />
                                                         <Separator />
                                                         <MenuItem Header="Close" Command="{Binding CloseCommand}" />
@@ -860,6 +884,9 @@
                                         <TextBlock Text="⏺" VerticalAlignment="Center" FontSize="10" Foreground="#E0533D"
                                                    x:CompileBindings="False" IsVisible="{Binding ShowStopLog}"
                                                    ToolTip.Tip="Session logging is on" />
+                                        <TextBlock Text="⏸" VerticalAlignment="Center" FontSize="10" Foreground="#E0B84D"
+                                                   x:CompileBindings="False" IsVisible="{Binding IsPaused}"
+                                                   ToolTip.Tip="Connection paused" />
                                         <TextBlock Text="{Binding DisplayTitle}" VerticalAlignment="Center" />
                                         <Button Content="{controls:Icon x}" Padding="4,0"
                                                 Command="{Binding CloseCommand}" />

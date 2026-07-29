@@ -142,7 +142,8 @@ public sealed partial class TerminalTabViewModel : TabViewModel
         Terminal.Exited += _ => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             IsRunning = false;
-            Title = EffectiveBaseTitle + " — disconnected";
+            Title = EffectiveBaseTitle + (IsPaused ? " — paused" : " — disconnected");
+            MaybeScheduleAutoReconnect();
         });
 
         Terminal.LineEntered += line => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -236,9 +237,14 @@ public sealed partial class TerminalTabViewModel : TabViewModel
                         RemoteStuff.Services.SessionLogs.Header(title, preview));
     }
 
-    /// <summary>Stop recording this tab's output from the tab menu.</summary>
+    /// <summary>Stop recording this tab's output from the tab menu, then open the
+    /// finished transcript in the OS default viewer.</summary>
     [RelayCommand]
-    private void StopLog() => EndSessionLog();
+    private void StopLog()
+    {
+        EndSessionLog();
+        OpenLog();
+    }
 
     /// <summary>Open this tab's transcript in the OS default text viewer.</summary>
     [RelayCommand]
@@ -259,6 +265,9 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     [RelayCommand]
     private void Disconnect()
     {
+        _userInitiatedStop = true;
+        IsPaused = false;
+        CancelAutoReconnect();
         Terminal.Terminate();
         IsRunning = false;
         Title = EffectiveBaseTitle + " — disconnected";
@@ -267,9 +276,87 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     [RelayCommand]
     private void Reconnect()
     {
+        _userInitiatedStop = false;
+        IsPaused = false;
+        _reconnectAttempt = 0;
+        CancelAutoReconnect();
         Terminal.Restart();
         IsRunning = true;
         Title = EffectiveBaseTitle;
+    }
+
+    // ---- Workspace pause / resume ----
+
+    /// <summary>True while this session is paused as part of a workspace pause. Distinct
+    /// from a plain disconnect so the workspace can offer a matching Resume action and
+    /// the tab can show a paused indicator.</summary>
+    [ObservableProperty] private bool _isPaused;
+
+    /// <summary>Pause a live session: drop the connection but remember it should come
+    /// back when the workspace is resumed. No-op if not currently running.</summary>
+    public void PauseSession()
+    {
+        if (!IsRunning) return;
+        _userInitiatedStop = true;
+        IsPaused = true;
+        CancelAutoReconnect();
+        Terminal.Terminate();
+        IsRunning = false;
+        Title = EffectiveBaseTitle + " — paused";
+    }
+
+    /// <summary>Resume a paused session by reconnecting it.</summary>
+    public void ResumeSession()
+    {
+        if (!IsPaused) return;
+        IsPaused = false;
+        _userInitiatedStop = false;
+        _reconnectAttempt = 0;
+        CancelAutoReconnect();
+        Terminal.Restart();
+        IsRunning = true;
+        Title = EffectiveBaseTitle;
+    }
+
+    // ---- Auto-reconnect ----
+
+    /// <summary>Set when the user disconnects on purpose, so a deliberate hang-up
+    /// isn't treated as a dropped connection to reconnect.</summary>
+    private bool _userInitiatedStop;
+    private int _reconnectAttempt;
+    private Avalonia.Threading.DispatcherTimer? _reconnectTimer;
+
+    /// <summary>When the profile opts into auto-reconnect and the drop wasn't
+    /// user-initiated, schedule a restart using exponential backoff (2, 4, 8, 16 s,
+    /// capped at 30 s). The attempt counter keeps climbing across failed retries and
+    /// only resets on a manual reconnect.</summary>
+    private void MaybeScheduleAutoReconnect()
+    {
+        if (_userInitiatedStop || Profile is not { IsLocal: false, AutoReconnect: true })
+            return;
+
+        _reconnectAttempt = System.Math.Min(_reconnectAttempt + 1, 5);
+        var delay = System.TimeSpan.FromSeconds(
+            System.Math.Min(30.0, System.Math.Pow(2, _reconnectAttempt)));
+
+        CancelAutoReconnect();
+        _reconnectTimer = new Avalonia.Threading.DispatcherTimer { Interval = delay };
+        _reconnectTimer.Tick += (_, _) =>
+        {
+            CancelAutoReconnect();
+            // Bail if it reconnected or the user stopped it while we waited.
+            if (IsRunning || _userInitiatedStop) return;
+            Terminal.Restart();
+            IsRunning = true;
+            Title = EffectiveBaseTitle;
+        };
+        _reconnectTimer.Start();
+    }
+
+    private void CancelAutoReconnect()
+    {
+        _reconnectTimer?.Stop();
+        _reconnectTimer = null;
     }
 
     // ---- Host-key-changed banner ----

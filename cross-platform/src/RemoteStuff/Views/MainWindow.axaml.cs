@@ -81,6 +81,15 @@ public partial class MainWindow : Window
             _vm?.CollapseTabDockCommand.Execute(tab);
     }
 
+    // The docked header's right-click menu only offers session logging, which only
+    // terminal tabs support. Cancel the request for other tab types so right-clicking
+    // their toolbar doesn't pop an empty menu.
+    private void OnDockHeaderContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not TabViewModel { SupportsTheme: true })
+            e.Handled = true;
+    }
+
     /// <summary>Let a vertical mouse wheel scroll the horizontal workspace / tab strips,
     /// matching the macOS app. Trackpads (which already produce a horizontal delta) and
     /// Shift+wheel are left untouched so their native horizontal scrolling still works.</summary>

@@ -53,7 +53,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             SavedWorkspaces.Add(new SavedWorkspaceMenuItem(
                 template.Name,
                 new RelayCommand(() => OpenWorkspaceTemplate(template)),
-                new RelayCommand(() => DeleteSavedWorkspaceTemplate(template))));
+                new AsyncRelayCommand(() => DeleteSavedWorkspaceTemplate(template))));
         }
         OnPropertyChanged(nameof(HasSavedWorkspaces));
     }
@@ -1255,6 +1255,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SetStatus($"Disconnected {live.Count} session{(live.Count == 1 ? "" : "s")}.");
     }
 
+    /// <summary>Pause every live terminal session that belongs to one workspace
+    /// (the workspace pill's “Pause Connections” action). Paused sessions are marked
+    /// so the workspace can resume them and the tabs show a paused indicator.</summary>
+    public void PauseWorkspaceConnections(WorkspaceViewModel ws)
+    {
+        var live = Tabs.OfType<TerminalTabViewModel>()
+            .Where(t => t.WorkspaceId == ws.Id && t.IsRunning).ToList();
+        foreach (var t in live)
+            t.PauseSession();
+        ws.IsPaused = true;
+        RecomputeConnections();
+        SetStatus($"Paused {live.Count} connection{(live.Count == 1 ? "" : "s")} in “{ws.Name}”.");
+    }
+
+    /// <summary>Resume every paused terminal session in a workspace
+    /// (the workspace pill's “Resume Connections” action).</summary>
+    public void ResumeWorkspaceConnections(WorkspaceViewModel ws)
+    {
+        var paused = Tabs.OfType<TerminalTabViewModel>()
+            .Where(t => t.WorkspaceId == ws.Id && t.IsPaused).ToList();
+        foreach (var t in paused)
+            t.ResumeSession();
+        ws.IsPaused = false;
+        RecomputeConnections();
+        SetStatus($"Resumed {paused.Count} connection{(paused.Count == 1 ? "" : "s")} in “{ws.Name}”.");
+    }
+
     /// <summary>Insert snippet text into the active terminal (from the command palette).</summary>
     private void RunSnippetInActive(CommandSnippet snippet)
     {
@@ -2228,8 +2255,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (CurrentWorkspace is { } ws) BeginRenameWorkspace(ws);
     }
 
-    private void DeleteSavedWorkspaceTemplate(WorkspaceTemplate template)
+    private async Task DeleteSavedWorkspaceTemplate(WorkspaceTemplate template)
     {
+        if (!await DialogService.ConfirmAsync(
+                "Delete saved workspace",
+                $"Delete the saved workspace “{template.Name}”? This can’t be undone.",
+                "Delete", "Cancel"))
+            return;
         _store.DeleteWorkspaceTemplate(template.Name);
         RefreshSavedWorkspaces();
         SetStatus($"Deleted saved workspace “{template.Name}”.");

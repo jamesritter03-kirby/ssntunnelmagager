@@ -70,7 +70,9 @@ enum SSHCommandBuilder {
         }
         let identity = profile.identityFile.trimmingCharacters(in: .whitespaces)
         if !identity.isEmpty {
-            args += ["-i", expandPath(identity)]
+            // Use only this key; without IdentitiesOnly ssh may offer agent keys
+            // first, hit MaxAuthTries, and fall back to a password prompt.
+            args += ["-i", expandPath(identity), "-o", "IdentitiesOnly=yes"]
         }
         let jump = profile.jumpHost.trimmingCharacters(in: .whitespaces)
         if !jump.isEmpty {
@@ -181,7 +183,9 @@ enum MoshCommandBuilder {
             parts += ["-p", "\(port)"]
         }
         let identity = profile.identityFile.trimmingCharacters(in: .whitespaces)
-        if !identity.isEmpty { parts += ["-i", SSHCommandBuilder.expandPath(identity)] }
+        if !identity.isEmpty {
+            parts += ["-i", SSHCommandBuilder.expandPath(identity), "-o", "IdentitiesOnly=yes"]
+        }
         let jump = profile.jumpHost.trimmingCharacters(in: .whitespaces)
         if !jump.isEmpty { parts += ["-J", jump] }
         if let value = profile.strictHostKeyChecking.optionValue {
