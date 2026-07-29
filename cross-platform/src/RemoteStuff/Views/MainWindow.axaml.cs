@@ -33,6 +33,7 @@ public partial class MainWindow : Window
             _vm.ImportFileRequested -= PickImportFile;
             _vm.ExportFileRequested -= PickExportFile;
             _vm.WorkspaceNameRequested -= PromptForName;
+            _vm.AdHocConnectionRequested -= ShowAdHocConnection;
             _vm.SettingsRequested -= ShowSettings;
             _vm.KnownHostsRequested -= ShowKnownHosts;
             _vm.HelpRequested -= ShowHelp;
@@ -52,6 +53,7 @@ public partial class MainWindow : Window
             _vm.ImportFileRequested += PickImportFile;
             _vm.ExportFileRequested += PickExportFile;
             _vm.WorkspaceNameRequested += PromptForName;
+            _vm.AdHocConnectionRequested += ShowAdHocConnection;
             _vm.SettingsRequested += ShowSettings;
             _vm.KnownHostsRequested += ShowKnownHosts;
             _vm.HelpRequested += ShowHelp;

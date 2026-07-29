@@ -416,13 +416,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         for (var i = CenterCells.Count - 1; i >= 0; i--)
             if (!target.Contains(CenterCells[i]))
                 CenterCells.RemoveAt(i);
-        for (var i = 0; i < target.Count; i++)
-        {
-            var t = target[i];
-            var cur = CenterCells.IndexOf(t);
-            if (cur < 0) CenterCells.Insert(i, t);
-            else if (cur != i) CenterCells.Move(cur, i);
-        }
+        // Add newly-appeared cells at the end. We deliberately do NOT reorder existing
+        // cells to match the tab strip: moving an ItemsControl container reparents its
+        // native control host, which tears down and recreates the child window and leaves
+        // a WebView2 browser painted solid black on Windows (drag-reordering tabs). The
+        // cell order only affects tiled-grid placement — never the single-tab view — so
+        // keeping the native hosts stationary is a safe trade for reliable browser tabs.
+        foreach (var t in target)
+            if (!CenterCells.Contains(t))
+                CenterCells.Add(t);
         RefreshCellVisibility();
     }
 
@@ -889,15 +891,28 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var existing = SshCopyIdBuilder.PublicKey(profile);
         var generateKey = existing is null;
         var publicKey = existing ?? SshCopyIdBuilder.DefaultGeneratedPublicKey();
-        var script = SshCopyIdBuilder.SetupScript(profile, publicKey, generateKey);
 
-        var shell = Environment.GetEnvironmentVariable("SHELL")
+        string shell;
+        string[] shellArgs;
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows has no ssh-copy-id; run a PowerShell equivalent instead.
+            var script = SshCopyIdBuilder.SetupScriptWindows(profile, publicKey, generateKey);
+            shell = "powershell.exe";
+            shellArgs = new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script };
+        }
+        else
+        {
+            var script = SshCopyIdBuilder.SetupScript(profile, publicKey, generateKey);
+            shell = Environment.GetEnvironmentVariable("SHELL")
                     ?? (OperatingSystem.IsMacOS() ? "/bin/zsh" : "/bin/bash");
+            shellArgs = new[] { "-c", script };
+        }
 
         var tab = new TerminalTabViewModel(
             title: $"Key setup · {profile.Name}",
             executable: shell,
-            args: new[] { "-c", script },
+            args: shellArgs,
             env: null,
             workingDirectory: null,
             runOnConnect: null,
@@ -1034,9 +1049,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         if (profile.IsLocal)
         {
-            exe = Environment.GetEnvironmentVariable("SHELL")
-                  ?? (OperatingSystem.IsMacOS() ? "/bin/zsh" : "/bin/bash");
-            args = new[] { "-l" };
+            if (OperatingSystem.IsWindows())
+            {
+                // No forkpty on Windows: launch the user's shell under ConPTY.
+                var comspec = Environment.GetEnvironmentVariable("ComSpec");
+                var pwsh = Environment.GetEnvironmentVariable("RSCP_SHELL");
+                exe = !string.IsNullOrEmpty(pwsh) ? pwsh
+                    : !string.IsNullOrEmpty(comspec) ? comspec
+                    : "powershell.exe";
+                args = Array.Empty<string>();
+            }
+            else
+            {
+                exe = Environment.GetEnvironmentVariable("SHELL")
+                      ?? (OperatingSystem.IsMacOS() ? "/bin/zsh" : "/bin/bash");
+                args = new[] { "-l" };
+            }
             var start = SshCommandBuilder.ExpandPath(profile.StartPath.Trim());
             cwd = Directory.Exists(start) ? start : null;
         }
@@ -1052,7 +1080,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             else
             {
                 // A ControlMaster socket lets us add/remove forwards live (ssh -O forward).
-                controlPath = ControlSocketPath(profile.Id);
+                // Windows OpenSSH doesn't support connection multiplexing, so skip it there.
+                controlPath = OperatingSystem.IsWindows() ? null : ControlSocketPath(profile.Id);
                 exe = File.Exists("/usr/bin/ssh") ? "/usr/bin/ssh" : "ssh";
                 args = SshCommandBuilder.Arguments(profile, controlPath).ToArray();
             }
@@ -1434,7 +1463,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (connChanged && Profiles.Any(x => x.Id == p.Id))
             updated.Id = Guid.NewGuid();
 
-        var controlPath = ControlSocketPath(updated.Id);
+        var controlPath = OperatingSystem.IsWindows() ? null : ControlSocketPath(updated.Id);
         var exe = File.Exists("/usr/bin/ssh") ? "/usr/bin/ssh" : "ssh";
         var args = SshCommandBuilder.Arguments(updated, controlPath).ToArray();
 
@@ -1647,7 +1676,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void SyncProfilesGit() =>
         GitSyncRequested?.Invoke(new GitSyncViewModel(
             new GitProfileSync(_store.StoragePath),
-            () => { _store.Reload(); ReloadProfiles(); }));
+            () =>
+            {
+                _store.Reload();
+                _store.ReloadWorkspaces();
+                ReloadProfiles();
+                RefreshSavedWorkspaces();
+            }));
 
     /// <summary>Snapshot of runtime + app state for the Developer Tools popout.</summary>
     public string BuildDiagnosticsReport()

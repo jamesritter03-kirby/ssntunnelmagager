@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -365,6 +366,37 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         OnPropertyChanged(nameof(HasAccounts));
     }
 
+    // Accounts / networks the user has manually collapsed, keyed so their state
+    // survives the periodic rebuild (which recreates every row view-model). Updated
+    // the moment the user toggles a row, so it never depends on rebuild timing.
+    private readonly HashSet<Guid> _collapsedAccounts = new();
+    private readonly HashSet<string> _collapsedNetworks = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Keep <see cref="_collapsedAccounts"/> in sync with a group's live
+    /// expand state. Subscribed after the initial value is set so a filter-forced
+    /// expansion never erases the user's saved collapse preference.</summary>
+    private void TrackAccountExpansion(ZtAccountGroupViewModel group)
+    {
+        group.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(ZtAccountGroupViewModel.IsExpanded)) return;
+            if (group.IsExpanded) _collapsedAccounts.Remove(group.Account.Id);
+            else _collapsedAccounts.Add(group.Account.Id);
+        };
+    }
+
+    /// <summary>Keep <see cref="_collapsedNetworks"/> in sync with a network row's
+    /// live expand state (see <see cref="TrackAccountExpansion"/>).</summary>
+    private void TrackNetworkExpansion(ZtNetworkRowViewModel row)
+    {
+        row.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(ZtNetworkRowViewModel.IsExpanded)) return;
+            if (row.IsExpanded) _collapsedNetworks.Remove(row.Network.Id);
+            else _collapsedNetworks.Add(row.Network.Id);
+        };
+    }
+
     private void Rebuild()
     {
         var filter = FilterText?.Trim() ?? "";
@@ -373,6 +405,9 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         bool memberOfOnly = ShowMemberOfOnly;
         bool anyFilter = filtering || onlineOnly || memberOfOnly;
 
+        // Restore each account/network's expand state from the persistent collapse sets
+        // (updated whenever the user toggles a row) so a periodic refresh — which rebuilds
+        // every row from scratch — doesn't spring collapsed items back open.
         AccountGroups.Clear();
         int networkCount = 0;
         foreach (var account in _service.Accounts)
@@ -409,8 +444,11 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
                     || (memberOfOnly && !onlineOnly && !filtering);
                 if (!keep) continue;
 
-                if (anyFilter)
-                    row.IsExpanded = true;
+                // A text search forces networks open (so matches are visible);
+                // otherwise — including under the persistent online-only / member-of
+                // toggles — honour the user's last expand/collapse choice.
+                row.IsExpanded = filtering || !_collapsedNetworks.Contains(n.Id);
+                TrackNetworkExpansion(row);
                 group.Networks.Add(row);
                 networkCount++;
             }
@@ -418,8 +456,10 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
             // With any filter active, hide accounts that have no visible networks.
             if (anyFilter && group.Networks.Count == 0)
                 continue;
-            if (anyFilter)
-                group.IsExpanded = true;
+            // Only a text search forces accounts open; the persistent online-only /
+            // member-of toggles preserve the user's collapse choice across refreshes.
+            group.IsExpanded = filtering || !_collapsedAccounts.Contains(account.Id);
+            TrackAccountExpansion(group);
             AccountGroups.Add(group);
         }
 

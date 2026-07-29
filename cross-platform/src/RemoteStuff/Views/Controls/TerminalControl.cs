@@ -22,7 +22,7 @@ namespace RemoteStuff.Views.Controls;
 public sealed class TerminalControl : Control
 {
     private readonly TerminalEmulator _emu = new(80, 24);
-    private UnixPtyProcess? _pty;
+    private IPtyProcess? _pty;
     private Thread? _reader;
     private volatile bool _running;
 
@@ -225,14 +225,6 @@ public sealed class TerminalControl : Control
     public void Start(string executable, string[] args,
         (string Name, string Value)[]? env = null, string? workingDirectory = null)
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
-            !RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            _emu.Feed("\r\n  The embedded terminal currently requires macOS or Linux.\r\n".AsSpan());
-            InvalidateVisual();
-            return;
-        }
-
         var (cols, rows) = ComputeGrid();
         _emu.Resize(cols, rows);
 
@@ -244,7 +236,9 @@ public sealed class TerminalControl : Control
         };
         var allEnv = env == null ? baseEnv : Combine(baseEnv, env);
 
-        _pty = new UnixPtyProcess();
+        _pty = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? new WindowsPtyProcess()
+            : new UnixPtyProcess();
         try
         {
             _pty.Start(executable, args, (ushort)cols, (ushort)rows, allEnv, workingDirectory);
@@ -580,6 +574,15 @@ public sealed class TerminalControl : Control
         base.OnPointerPressed(e);
         Focus();
         var pt = e.GetCurrentPoint(this);
+        // Right-click pastes the clipboard (classic terminal behaviour). A drag
+        // selection already auto-copies on release, so this is its natural complement.
+        if (pt.Properties.IsRightButtonPressed)
+        {
+            if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb)
+                _ = PasteFromClipboardAsync(cb);
+            e.Handled = true;
+            return;
+        }
         if (pt.Properties.IsLeftButtonPressed)
         {
             _selAnchor = _selFocus = PointToCell(pt.Position);

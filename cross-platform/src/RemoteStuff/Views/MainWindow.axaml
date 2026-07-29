@@ -288,7 +288,7 @@
                         <MenuItem Header="Delete" Command="{Binding DeleteProfileCommand}" />
                         <Separator />
                         <MenuItem Header="Compare &amp; Bulk Edit…" Command="{Binding CompareProfilesCommand}" />
-                        <MenuItem Header="Sync Profiles with Git…" Command="{Binding SyncProfilesGitCommand}" />
+                        <MenuItem Header="Sync Profiles &amp; Workspaces with Git…" Command="{Binding SyncProfilesGitCommand}" />
                     </MenuItem>
                     <MenuItem Header="_Commands">
                         <MenuItem Header="Disconnect All Tunnels" Command="{Binding DisconnectAllCommand}" />

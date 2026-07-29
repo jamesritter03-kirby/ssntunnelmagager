@@ -111,4 +111,65 @@ public static class SshCopyIdBuilder
         lines.Add($"echo {Q("— You can close this tab. —")}");
         return string.Join("\n", lines);
     }
+
+    /// <summary>
+    /// A PowerShell key-setup script for Windows, where <c>ssh-copy-id</c> does not
+    /// exist. Optionally runs <c>ssh-keygen</c>, then publishes the public key by
+    /// piping it over <c>ssh</c> into the remote <c>~/.ssh/authorized_keys</c> —
+    /// the standard Windows equivalent of ssh-copy-id. Passed to PowerShell via
+    /// <c>-NoProfile -Command</c>.
+    /// </summary>
+    public static string SetupScriptWindows(SshProfile profile, string publicKey, bool generateKey)
+    {
+        var pub = SshCommandBuilder.ExpandPath(publicKey);
+        var host = profile.Host.Trim();
+        var user = profile.Username.Trim();
+        var dest = user.Length == 0 ? host : $"{user}@{host}";
+
+        // PowerShell single-quote escaping: double any embedded single quote.
+        static string Q(string s) => "'" + s.Replace("'", "''") + "'";
+
+        // ssh connection options mirroring ssh-copy-id (port + ProxyJump).
+        var sshArgs = new List<string>();
+        if (int.TryParse(profile.Port.Trim(), out var port) && port != 22)
+            sshArgs.AddRange(new[] { "-p", port.ToString() });
+        var jump = profile.JumpHost.Trim();
+        if (jump.Length > 0)
+            sshArgs.AddRange(new[] { "-o", $"ProxyJump={jump}" });
+        sshArgs.Add(dest);
+        var sshArgList = string.Join(", ", sshArgs.Select(Q));
+
+        // Remote command that appends the key idempotently and fixes permissions.
+        const string remoteCmd =
+            "umask 077; mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && " +
+            "chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys";
+
+        var lines = new List<string>
+        {
+            "$ErrorActionPreference = 'Stop'",
+            $"Write-Host {Q($"Set up passwordless SSH login  ->  {dest}")}",
+        };
+        if (generateKey)
+        {
+            var priv = PrivateKeyPath(pub);
+            lines.Add($"Write-Host {Q($"No SSH key found - generating one: {priv}")}");
+            lines.Add($"$sshDir = Split-Path -Parent {Q(priv)}");
+            lines.Add("if (-not (Test-Path $sshDir)) { New-Item -ItemType Directory -Path $sshDir -Force | Out-Null }");
+            lines.Add($"& ssh-keygen -t ed25519 -f {Q(priv)} -N '\"\"' -q");
+            lines.Add("if ($LASTEXITCODE -ne 0) { Write-Host 'ssh-keygen failed.'; exit 1 }");
+        }
+        lines.Add($"Write-Host {Q($"Publishing public key: {pub}")}");
+        lines.Add($"Write-Host {Q("You may be asked for the account password once.")}");
+        lines.Add("Write-Host ''");
+        lines.Add($"if (-not (Test-Path {Q(pub)})) {{ Write-Host {Q($"Public key not found: {pub}")}; exit 1 }}");
+        lines.Add($"Get-Content -Raw {Q(pub)} | & ssh {sshArgList} {Q(remoteCmd)}");
+        lines.Add("$rc = $LASTEXITCODE");
+        lines.Add("Write-Host ''");
+        lines.Add("if ($rc -eq 0) { Write-Host " +
+                  Q("Done - future connections to this profile can sign in with the key (no password).") +
+                  " } else { Write-Host " +
+                  Q("Publishing the key did not finish. Review the output above, then try again.") + " }");
+        lines.Add($"Write-Host {Q("- You can close this tab. -")}");
+        return string.Join("; ", lines);
+    }
 }

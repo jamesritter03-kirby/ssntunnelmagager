@@ -248,11 +248,21 @@ public sealed class ZeroTierService
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         var candidates = new[]
         {
+            // macOS / Linux service copies.
             Path.Combine(home, "Library", "Application Support", "ZeroTier", "One", "authtoken.secret"),
             "/Library/Application Support/ZeroTier/One/authtoken.secret",
             "/var/lib/zerotier-one/authtoken.secret",
+            // Windows: the tray UI writes a user-readable copy under LocalAppData; prefer
+            // it because the ProgramData copy below is admin-only (Access denied for a
+            // normally-run app).
+            Path.Combine(localData, "ZeroTier", "authtoken.secret"),
+            Path.Combine(localData, "ZeroTier", "One", "authtoken.secret"),
+            Path.Combine(appData, "ZeroTier", "One", "authtoken.secret"),
+            // Windows service-owned copy (admin-only; last resort, e.g. if elevated).
             Path.Combine(commonData, "ZeroTier", "One", "authtoken.secret"),
         };
         foreach (var path in candidates)

@@ -228,6 +228,13 @@ public sealed class ProfileStore
         }
     }
 
+    /// <summary>
+    /// Re-read the workspaces file from disk, replacing the in-memory list. Used after an
+    /// external change to <c>workspaces.json</c> (e.g. a Git pull). Keeps the current list
+    /// on any read/parse error.
+    /// </summary>
+    public void ReloadWorkspaces() => LoadWorkspaces();
+
     private void SaveWorkspaces()
     {
         try

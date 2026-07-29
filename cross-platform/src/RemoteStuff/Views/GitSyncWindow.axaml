@@ -8,7 +8,7 @@
         MinWidth="520" MinHeight="420"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource AppSurfaceBrush}"
-        Title="Sync Profiles with Git">
+        Title="Sync Profiles &amp; Workspaces with Git">
 
     <DockPanel>
 
@@ -19,11 +19,11 @@
             <StackPanel Spacing="2">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <controls:LineIcon Kind="refresh-cw" Width="16" Height="16" VerticalAlignment="Center" />
-                    <TextBlock Text="Sync Profiles with Git" FontWeight="Bold" FontSize="15"
+                    <TextBlock Text="Sync Profiles &amp; Workspaces with Git" FontWeight="Bold" FontSize="15"
                                Foreground="{DynamicResource AppTextBrush}" VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppSecondaryTextBrush}"
-                           Text="Share your profiles.json across machines through a Git repository. Push saves and uploads your current profiles; Pull downloads them and replaces your local profiles." />
+                           Text="Share your profiles and saved workspaces across machines through a Git repository. Push saves and uploads your current profiles and workspaces; Pull downloads them and replaces your local copies." />
             </StackPanel>
         </Border>
 

@@ -27,6 +27,7 @@ public sealed class GitSyncConfig
 public sealed class GitProfileSync
 {
     private const string ProfilesFileName = "profiles.json";
+    private const string WorkspacesFileName = "workspaces.json";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -36,6 +37,7 @@ public sealed class GitProfileSync
     };
 
     private readonly string _profilesPath;
+    private readonly string _workspacesPath;
     private readonly string _repoDir;
     private readonly string _configPath;
 
@@ -48,6 +50,7 @@ public sealed class GitProfileSync
     {
         _profilesPath = profilesPath;
         var appDir = Path.GetDirectoryName(profilesPath) ?? Directory.GetCurrentDirectory();
+        _workspacesPath = Path.Combine(appDir, WorkspacesFileName);
         _repoDir = Path.Combine(appDir, "profiles-repo");
         _configPath = Path.Combine(appDir, "git-sync.json");
         LoadConfig();
@@ -153,21 +156,30 @@ public sealed class GitProfileSync
         }
 
         var repoProfiles = Path.Combine(_repoDir, ProfilesFileName);
-        if (!File.Exists(repoProfiles))
+        var repoWorkspaces = Path.Combine(_repoDir, WorkspacesFileName);
+        if (!File.Exists(repoProfiles) && !File.Exists(repoWorkspaces))
         {
-            log.AppendLine("No profiles.json in the repo yet — nothing to import. Push first.");
+            log.AppendLine("Nothing in the repo yet — nothing to import. Push first.");
             return new GitSyncResult(true, log.ToString());
         }
 
         try
         {
-            File.Copy(repoProfiles, _profilesPath, overwrite: true);
-            log.AppendLine("Imported profiles.json from the repository into the app.");
+            if (File.Exists(repoProfiles))
+            {
+                File.Copy(repoProfiles, _profilesPath, overwrite: true);
+                log.AppendLine("Imported profiles.json from the repository into the app.");
+            }
+            if (File.Exists(repoWorkspaces))
+            {
+                File.Copy(repoWorkspaces, _workspacesPath, overwrite: true);
+                log.AppendLine("Imported workspaces.json from the repository into the app.");
+            }
             return new GitSyncResult(true, log.ToString());
         }
         catch (Exception ex)
         {
-            log.AppendLine("Failed to copy profiles into the app: " + ex.Message);
+            log.AppendLine("Failed to copy files into the app: " + ex.Message);
             return new GitSyncResult(false, log.ToString());
         }
     }
@@ -186,34 +198,37 @@ public sealed class GitProfileSync
             if (!init.Success) return new GitSyncResult(false, log.ToString());
         }
 
-        if (!File.Exists(_profilesPath))
+        if (!File.Exists(_profilesPath) && !File.Exists(_workspacesPath))
         {
-            log.AppendLine("No local profiles.json to push.");
+            log.AppendLine("No local profiles.json or workspaces.json to push.");
             return new GitSyncResult(false, log.ToString());
         }
 
         try
         {
-            File.Copy(_profilesPath, Path.Combine(_repoDir, ProfilesFileName), overwrite: true);
+            if (File.Exists(_profilesPath))
+                File.Copy(_profilesPath, Path.Combine(_repoDir, ProfilesFileName), overwrite: true);
+            if (File.Exists(_workspacesPath))
+                File.Copy(_workspacesPath, Path.Combine(_repoDir, WorkspacesFileName), overwrite: true);
         }
         catch (Exception ex)
         {
-            log.AppendLine("Failed to stage profiles into the repo: " + ex.Message);
+            log.AppendLine("Failed to stage files into the repo: " + ex.Message);
             return new GitSyncResult(false, log.ToString());
         }
 
-        await RunGitAsync(_repoDir, log, "add", ProfilesFileName);
+        await RunGitAsync(_repoDir, log, "add", "-A");
 
         // Nothing staged => no commit needed.
         var (statusCode, status) = await RunGitAsync(_repoDir, log, "status", "--porcelain");
         if (statusCode == 0 && string.IsNullOrWhiteSpace(status))
         {
-            log.AppendLine("Profiles already up to date — nothing to commit.");
+            log.AppendLine("Already up to date — nothing to commit.");
         }
         else
         {
             var msg = string.IsNullOrWhiteSpace(commitMessage)
-                ? $"Update profiles {DateTime.Now:yyyy-MM-dd HH:mm}"
+                ? $"Update profiles & workspaces {DateTime.Now:yyyy-MM-dd HH:mm}"
                 : commitMessage!.Trim();
             var (commitCode, _) = await RunGitAsync(_repoDir, log, "commit", "-m", msg);
             if (commitCode != 0) return new GitSyncResult(false, log.ToString());
@@ -224,7 +239,7 @@ public sealed class GitProfileSync
             await EnsureRemoteAsync(log);
             var (pushCode, _) = await RunGitAsync(_repoDir, log, "push", "-u", "origin", Config.Branch);
             if (pushCode != 0) return new GitSyncResult(false, log.ToString());
-            log.AppendLine("Pushed profiles to the remote.");
+            log.AppendLine("Pushed profiles & workspaces to the remote.");
         }
         else
         {

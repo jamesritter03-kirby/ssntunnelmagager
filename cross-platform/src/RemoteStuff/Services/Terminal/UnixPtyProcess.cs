@@ -9,7 +9,7 @@ namespace RemoteStuff.Services.Terminal;
 /// interactive prompts — SSH password entry, host-key confirmation, 2FA, curses
 /// apps — work exactly as they do in a normal terminal.
 /// </summary>
-public sealed class UnixPtyProcess : IDisposable
+public sealed class UnixPtyProcess : IPtyProcess
 {
     private int _masterFd = -1;
     private int _pid = -1;
