@@ -366,7 +366,18 @@ public sealed class ZeroTierService
         AddAuth(req, token);
         req.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
         using var resp = await Http.SendAsync(req);
-        resp.EnsureSuccessStatusCode();
+        if (!resp.IsSuccessStatusCode)
+        {
+            // Surface the controller's own explanation (bad token, wrong endpoint,
+            // read-only key, member not found…) instead of a bare status code, so the
+            // status bar tells the user *why* an authorize/update was rejected.
+            var detail = string.Empty;
+            try { detail = (await resp.Content.ReadAsStringAsync())?.Trim() ?? string.Empty; } catch { /* ignore */ }
+            var msg = $"server returned {(int)resp.StatusCode} {resp.ReasonPhrase}".TrimEnd();
+            if (detail.Length > 0)
+                msg += ": " + (detail.Length > 300 ? detail[..300] + "…" : detail);
+            throw new HttpRequestException(msg);
+        }
     }
 
     private static void AddAuth(HttpRequestMessage req, string token)

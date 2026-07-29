@@ -197,6 +197,10 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
 
     public bool HasSavedPassword { get; }
 
+    /// <summary>True when at least one saved workspace exists to offer as a launch
+    /// template — drives the “how to create one” tip in the editor.</summary>
+    public bool HasSavedWorkspaces { get; }
+
     public ObservableCollection<ForwardRowViewModel> Forwards { get; } = new();
     public ObservableCollection<SnippetRowViewModel> Snippets { get; } = new();
     public ObservableCollection<EnvVarRowViewModel> EnvVars { get; } = new();
@@ -324,6 +328,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         WorkspaceLaunchChoices.Add(new WorkspaceLaunchChoice("New workspace for this profile", WorkspaceLaunch.NewWorkspace));
         foreach (var wsName in savedWorkspaceNames ?? Array.Empty<string>())
             WorkspaceLaunchChoices.Add(new WorkspaceLaunchChoice($"Recreate saved workspace: {wsName}", WorkspaceLaunch.NewWorkspace, wsName));
+        HasSavedWorkspaces = (savedWorkspaceNames?.Count ?? 0) > 0;
         _selectedLaunchChoice = ResolveInitialLaunchChoice(profile);
 
         foreach (var f in profile.Forwards)

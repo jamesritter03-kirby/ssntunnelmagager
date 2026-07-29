@@ -20,6 +20,7 @@ public partial class MainWindow : Window
         DataContextChanged += OnDataContextChanged;
         AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
         SetupTabDrag();
+        SetupWorkspaceDrag();
     }
 
     private MainWindowViewModel? _vm;
@@ -180,6 +181,67 @@ public partial class MainWindow : Window
         while (v is not null)
         {
             if (v is Control { DataContext: TabViewModel t }) return t;
+            v = v.GetVisualParent();
+        }
+        return null;
+    }
+
+    // ---- Workspace drag-and-drop reorder ----
+
+    private const string WorkspaceDragFormat = "remote-stuff-workspace";
+    private WorkspaceViewModel? _dragWorkspace;
+    private Point _dragWorkspaceStart;
+
+    private void SetupWorkspaceDrag()
+    {
+        if (this.FindControl<ItemsControl>("WorkspaceStrip") is not { } strip) return;
+        strip.AddHandler(PointerPressedEvent, WorkspaceStrip_PointerPressed, RoutingStrategies.Tunnel);
+        strip.AddHandler(PointerMovedEvent, WorkspaceStrip_PointerMoved, RoutingStrategies.Tunnel);
+        DragDrop.SetAllowDrop(strip, true);
+        strip.AddHandler(DragDrop.DragOverEvent, WorkspaceStrip_DragOver);
+        strip.AddHandler(DragDrop.DropEvent, WorkspaceStrip_Drop);
+    }
+
+    private void WorkspaceStrip_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(null).Properties.IsLeftButtonPressed) { _dragWorkspace = null; return; }
+        _dragWorkspace = FindWorkspace(e.Source);
+        _dragWorkspaceStart = e.GetPosition(null);
+    }
+
+    private async void WorkspaceStrip_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_dragWorkspace is null) return;
+        if (!e.GetCurrentPoint(null).Properties.IsLeftButtonPressed) { _dragWorkspace = null; return; }
+        var pos = e.GetPosition(null);
+        if (System.Math.Abs(pos.X - _dragWorkspaceStart.X) < 6 && System.Math.Abs(pos.Y - _dragWorkspaceStart.Y) < 6) return;
+        var ws = _dragWorkspace;
+        _dragWorkspace = null;
+        var data = new DataObject();
+        data.Set(WorkspaceDragFormat, ws);
+        await DragDrop.DoDragDrop(e, data, DragDropEffects.Move);
+    }
+
+    private void WorkspaceStrip_DragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = e.Data.Contains(WorkspaceDragFormat) ? DragDropEffects.Move : DragDropEffects.None;
+    }
+
+    private void WorkspaceStrip_Drop(object? sender, DragEventArgs e)
+    {
+        if (_vm is null || !e.Data.Contains(WorkspaceDragFormat)) return;
+        if (e.Data.Get(WorkspaceDragFormat) is not WorkspaceViewModel moved) return;
+        if (FindWorkspace(e.Source) is { } target)
+            _vm.MoveWorkspace(moved, target);
+    }
+
+    /// <summary>Walk up the visual tree from an event source to the owning workspace.</summary>
+    private static WorkspaceViewModel? FindWorkspace(object? source)
+    {
+        var v = source as Visual;
+        while (v is not null)
+        {
+            if (v is Control { DataContext: WorkspaceViewModel w }) return w;
             v = v.GetVisualParent();
         }
         return null;

@@ -237,6 +237,13 @@
                             <CheckBox Content="Auto-reconnect if dropped" IsChecked="{Binding AutoReconnect}" Margin="0,0,16,0" />
                             <CheckBox Content="Log session to file" IsChecked="{Binding LogSession}" />
                         </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Workspace (applies to both local shells and SSH profiles) -->
+                <Border Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Workspace" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
                         <Grid ColumnDefinitions="200,*">
                             <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
                                 <TextBlock Text="Launch into" Foreground="{DynamicResource AppSecondaryTextBrush}" />
@@ -251,6 +258,9 @@
                                            Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" TextWrapping="Wrap" />
                             </StackPanel>
                         </Grid>
+                        <TextBlock Text="Tip: arrange some tabs, then choose Save Workspace… from the Workspace menu to reuse that layout here as a template."
+                                   IsVisible="{Binding !HasSavedWorkspaces}"
+                                   Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
 

@@ -328,6 +328,10 @@
                                 </ControlTheme>
                             </MenuItem.ItemContainerTheme>
                         </MenuItem>
+                        <Separator />
+                        <MenuItem Header="Import Workspaces…" Command="{Binding ImportWorkspacesCommand}" />
+                        <MenuItem Header="Export Workspaces…" Command="{Binding ExportWorkspacesCommand}"
+                                  IsEnabled="{Binding HasSavedWorkspaces}" />
                     </MenuItem>
                     <MenuItem Header="_Tools">
                         <MenuItem Header="Import profiles…" Command="{Binding ImportProfilesCommand}" />
@@ -628,7 +632,7 @@
                                 ToolTip.Tip="New workspace" />
                         <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
                                       PointerWheelChanged="OnStripPointerWheel">
-                            <ItemsControl ItemsSource="{Binding Workspaces}">
+                            <ItemsControl x:Name="WorkspaceStrip" ItemsSource="{Binding Workspaces}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
                                         <StackPanel Orientation="Horizontal" Spacing="4" />

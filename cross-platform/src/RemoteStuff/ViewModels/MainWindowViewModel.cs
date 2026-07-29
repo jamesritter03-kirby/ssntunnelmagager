@@ -552,9 +552,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     private void OnTabDockRequested(TabViewModel tab, DockSide side)
     {
+        var wasSelected = SelectedTab == tab;
         tab.Dock = side;               // triggers RecomputeDocks via PropertyChanged
         if (side == DockSide.Center)
+        {
             SelectedTab = tab;
+        }
+        else if (wasSelected)
+        {
+            // The tab just left the center area for an edge drawer. If it was the
+            // active tab the center pane would go blank, so advance selection to the
+            // next remaining center tab in the same workspace (or the previous one
+            // if it was the last), falling back to the welcome pane when none remain.
+            var wsTabs = Tabs.Where(t => t.WorkspaceId == tab.WorkspaceId).ToList();
+            var pos = wsTabs.IndexOf(tab);
+            SelectedTab = wsTabs.Skip(pos + 1).FirstOrDefault(t => t.Dock == DockSide.Center)
+                          ?? wsTabs.Take(pos).LastOrDefault(t => t.Dock == DockSide.Center);
+        }
     }
 
     private void OnTabDuplicateRequested(TabViewModel tab) => DuplicateTab(tab);
@@ -1780,6 +1794,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SaveLastSession();
     }
 
+    /// <summary>Reorder <paramref name="moved"/> so it lands at <paramref name="target"/>'s
+    /// position in the workspace bar, then persist the new order so it survives restart.</summary>
+    public void MoveWorkspace(WorkspaceViewModel moved, WorkspaceViewModel target)
+    {
+        if (moved == target) return;
+        var mi = Workspaces.IndexOf(moved);
+        var ti = Workspaces.IndexOf(target);
+        if (mi < 0 || ti < 0) return;
+        Workspaces.Move(mi, ti);
+        SaveLastSession();
+    }
+
     [RelayCommand]
     private void CloseCurrentWorkspace()
     {
@@ -2812,6 +2838,48 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task ImportWorkspaces()
+    {
+        if (ImportFileRequested is null) return;
+        var path = await ImportFileRequested();
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            var json = await File.ReadAllTextAsync(path);
+            var count = _store.ImportWorkspacesJson(json);
+            RefreshSavedWorkspaces();
+            SetStatus($"Imported {count} workspace{(count == 1 ? "" : "s")}.");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Workspace import failed: " + ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private async Task ExportWorkspaces()
+    {
+        if (ExportFileRequested is null) return;
+        if (_store.WorkspaceTemplates.Count == 0)
+        {
+            SetStatus("No saved workspaces to export — use Save Workspace first.");
+            return;
+        }
+        var path = await ExportFileRequested("RemoteStuff-workspaces.json");
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            await File.WriteAllTextAsync(path, _store.ExportWorkspacesJson());
+            var n = _store.WorkspaceTemplates.Count;
+            SetStatus($"Exported {n} workspace{(n == 1 ? "" : "s")}.");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Workspace export failed: " + ex.Message);
+        }
+    }
+
+    [RelayCommand]
     private void ImportSshConfig()
     {
         try
@@ -2882,6 +2950,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             new() { Title = "Import profiles…", Subtitle = "From a JSON file", Run = () => ImportProfilesCommand.Execute(null) },
             new() { Title = "Export profiles…", Subtitle = "To a JSON file", Run = () => ExportProfilesCommand.Execute(null) },
             new() { Title = "Import from ~/.ssh/config", Subtitle = "SSH config hosts", Run = () => ImportSshConfigCommand.Execute(null) },
+            new() { Title = "Import workspaces…", Subtitle = "Saved workspaces from a JSON file", Run = () => ImportWorkspacesCommand.Execute(null) },
+            new() { Title = "Export workspaces…", Subtitle = "Saved workspaces to a JSON file", Run = () => ExportWorkspacesCommand.Execute(null) },
         };
 
         foreach (var tpl in _store.WorkspaceTemplates)

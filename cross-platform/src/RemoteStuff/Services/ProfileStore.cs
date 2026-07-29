@@ -265,6 +265,49 @@ public sealed class ProfileStore
         SaveWorkspaces();
     }
 
+    /// <summary>Serialize every saved workspace template to a JSON document (for Export).</summary>
+    public string ExportWorkspacesJson() => JsonSerializer.Serialize(WorkspaceTemplates, JsonOptions);
+
+    /// <summary>Parse a JSON document (array or single object) of workspace templates and
+    /// add them, giving each a unique name so imports never clobber existing ones.
+    /// Returns the number imported.</summary>
+    public int ImportWorkspacesJson(string json)
+    {
+        List<WorkspaceTemplate>? incoming;
+        var trimmed = json.TrimStart();
+        if (trimmed.StartsWith("["))
+        {
+            incoming = JsonSerializer.Deserialize<List<WorkspaceTemplate>>(json, JsonOptions);
+        }
+        else
+        {
+            var one = JsonSerializer.Deserialize<WorkspaceTemplate>(json, JsonOptions);
+            incoming = one == null ? null : new List<WorkspaceTemplate> { one };
+        }
+        if (incoming == null) return 0;
+        var added = 0;
+        foreach (var t in incoming)
+        {
+            t.Name = UniqueWorkspaceName(t.Name);
+            WorkspaceTemplates.Add(t);
+            added++;
+        }
+        if (added > 0) SaveWorkspaces();
+        return added;
+    }
+
+    /// <summary>A workspace name that doesn't already exist, suffixing " (2)", " (3)"…</summary>
+    public string UniqueWorkspaceName(string proposed)
+    {
+        var trimmed = (proposed ?? string.Empty).Trim();
+        var baseName = trimmed.Length == 0 ? "Imported Workspace" : trimmed;
+        var existing = WorkspaceTemplates.Select(w => w.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!existing.Contains(baseName)) return baseName;
+        var n = 2;
+        while (existing.Contains($"{baseName} ({n})")) n++;
+        return $"{baseName} ({n})";
+    }
+
     // MARK: - Last session (resume at launch)
 
     private string SessionPath => Path.ChangeExtension(_workspacesURL, null) + "-lastsession.json";
