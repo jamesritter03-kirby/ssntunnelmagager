@@ -1620,6 +1620,46 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Clean-reinstall recovery for when an update keeps applying but the app
+    /// still runs the old version (Velopack's swap didn't finalize — usually AV
+    /// interference on an unsigned build). Downloads the current platform's installer,
+    /// launches it, and closes the app so it can replace the files.</summary>
+    [RelayCommand]
+    private async Task RepairInstall()
+    {
+        if (!_updates.IsInstalled)
+        {
+            SetStatus("Repair is only available in the installed app.");
+            return;
+        }
+
+        var confirm = await DialogService.ConfirmAsync(
+            "Repair / Reinstall",
+            "This downloads the latest installer and runs it to repair the installation, " +
+            "which fixes an update that keeps reverting to an older version. " +
+            "Remote Stuff will close to finish. Continue?",
+            "Download & Reinstall", "Cancel");
+        if (!confirm) return;
+
+        SetStatus("Downloading installer…");
+        string? installer;
+        try { installer = await _updates.DownloadInstallerAsync(); }
+        catch (Exception ex) { SetStatus("Repair failed: " + ex.Message); return; }
+        if (installer is null)
+        {
+            SetStatus("Repair isn’t available for this platform.");
+            return;
+        }
+
+        SystemOpen.Open(installer); // runs Setup.exe / opens the .pkg / AppImage
+        SetStatus("Launching installer — the app will now close.");
+
+        // Close so the installer can replace files; the shutdown hook saves the session.
+        if (Avalonia.Application.Current?.ApplicationLifetime
+                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+            desktop.Shutdown();
+    }
+
     /// <summary>Open a duplicate of <paramref name="tab"/> in the same workspace.
     /// Rebuilds from the tab's snapshot (same host/port/user/profile) and copies its
     /// dock position and accent colour. Tabs that can't be snapshotted are ignored.</summary>

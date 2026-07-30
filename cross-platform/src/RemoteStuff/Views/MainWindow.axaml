@@ -364,6 +364,7 @@
                         <Separator />
                         <MenuItem Header="Developer Tools…" Command="{Binding OpenDeveloperToolsCommand}" />
                         <MenuItem Header="Check for Updates…" Command="{Binding CheckForUpdatesCommand}" />
+                        <MenuItem Header="Repair / Reinstall…" Command="{Binding RepairInstallCommand}" />
                         <MenuItem Header="Help…" Command="{Binding OpenHelpCommand}" />
                     </MenuItem>
                 </Menu>
