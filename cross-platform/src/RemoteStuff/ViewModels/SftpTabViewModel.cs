@@ -20,12 +20,13 @@ public sealed class SftpEntryViewModel
     public required string Name { get; init; }
     public required string FullPath { get; init; }
     public bool IsDirectory { get; init; }
+    public bool IsSymbolicLink { get; init; }
     public bool IsParent { get; init; }
     public long Size { get; init; }
     public DateTime Modified { get; init; }
     public string Permissions { get; init; } = "";
 
-    public string Glyph => IsParent ? "corner-up-left" : IsDirectory ? "folder" : "file";
+    public string Glyph => IsParent ? "corner-up-left" : IsSymbolicLink ? "link" : IsDirectory ? "folder" : "file";
     public string SizeText => IsDirectory ? "" : HumanSize(Size);
     public string ModifiedText => IsParent ? "" : Modified.ToString("yyyy-MM-dd HH:mm");
 
@@ -369,6 +370,7 @@ public sealed partial class SftpTabViewModel : TabViewModel
                         Name = f.Name,
                         FullPath = f.FullName,
                         IsDirectory = f.IsDirectory,
+                        IsSymbolicLink = f.IsSymbolicLink,
                         Size = f.Length,
                         Modified = f.LastWriteTime,
                         Permissions = PermissionString(f)
@@ -457,9 +459,27 @@ public sealed partial class SftpTabViewModel : TabViewModel
         entry ??= SelectedEntry;
         if (entry is null) return;
         if (entry.IsDirectory)
+        {
             await LoadDirectory(entry.FullPath);
-        else
-            await Download(entry);
+            return;
+        }
+        // A symlink reports IsDirectory=false (it describes the link, not the target);
+        // follow it to see whether the target is a directory before deciding what to do.
+        if (entry.IsSymbolicLink)
+        {
+            if (!await EnsureConnectedAsync()) return;
+            var targetIsDir = await Task.Run(() =>
+            {
+                try { return _client!.GetAttributes(entry.FullPath).IsDirectory; }
+                catch { return false; }
+            });
+            if (targetIsDir)
+            {
+                await LoadDirectory(entry.FullPath);
+                return;
+            }
+        }
+        await Download(entry);
     }
 
     [RelayCommand]
