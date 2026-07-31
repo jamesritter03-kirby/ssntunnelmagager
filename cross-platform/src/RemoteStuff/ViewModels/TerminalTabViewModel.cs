@@ -143,6 +143,8 @@ public sealed partial class TerminalTabViewModel : TabViewModel
         {
             IsRunning = false;
             Title = EffectiveBaseTitle + (IsPaused ? " — paused" : " — disconnected");
+            if (Profile?.AutoReconnect == true && !IsPaused)
+                ScheduleAutoReconnect();
         });
 
         Terminal.LineEntered += line => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -277,6 +279,20 @@ public sealed partial class TerminalTabViewModel : TabViewModel
         Terminal.Restart();
         IsRunning = true;
         Title = EffectiveBaseTitle;
+    }
+
+    private async void ScheduleAutoReconnect()
+    {
+        await System.Threading.Tasks.Task.Delay(5000);
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!IsRunning && !IsPaused)
+            {
+                Terminal.Restart();
+                IsRunning = true;
+                Title = EffectiveBaseTitle;
+            }
+        });
     }
 
     // ---- Workspace pause / resume ----

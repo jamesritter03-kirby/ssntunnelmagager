@@ -1189,7 +1189,7 @@
                                 HorizontalContentAlignment="Center" ToolTip.Tip="Show top panel">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <controls:LineIcon Kind="chevron-down" Width="14" Height="14" VerticalAlignment="Center" />
-                                <TextBlock Text="Show panel" FontSize="11" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding TopReopenLabel}" FontSize="11" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
                         <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5"
@@ -1218,7 +1218,7 @@
                                     <LayoutTransformControl.LayoutTransform>
                                         <RotateTransform Angle="90" />
                                     </LayoutTransformControl.LayoutTransform>
-                                    <TextBlock Text="Show panel" FontSize="11" />
+                                    <TextBlock Text="{Binding LeftReopenLabel}" FontSize="11" />
                                 </LayoutTransformControl>
                             </StackPanel>
                         </Button>
@@ -1260,7 +1260,7 @@
                                     <LayoutTransformControl.LayoutTransform>
                                         <RotateTransform Angle="90" />
                                     </LayoutTransformControl.LayoutTransform>
-                                    <TextBlock Text="Show panel" FontSize="11" />
+                                    <TextBlock Text="{Binding RightReopenLabel}" FontSize="11" />
                                 </LayoutTransformControl>
                             </StackPanel>
                         </Button>
@@ -1285,7 +1285,7 @@
                                 HorizontalContentAlignment="Center" ToolTip.Tip="Show bottom panel">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <controls:LineIcon Kind="chevron-up" Width="14" Height="14" VerticalAlignment="Center" />
-                                <TextBlock Text="Show panel" FontSize="11" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding BottomReopenLabel}" FontSize="11" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
                     </Grid>

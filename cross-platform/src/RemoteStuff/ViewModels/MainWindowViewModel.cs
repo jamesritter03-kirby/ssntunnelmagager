@@ -301,6 +301,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool ShowTopReopen => HasTopTabs && _topCollapsed;
     public bool ShowBottomReopen => HasBottomTabs && _bottomCollapsed;
 
+    public string TopReopenLabel => "Show " + (TopTabs.FirstOrDefault()?.DisplayTitle ?? "panel");
+    public string BottomReopenLabel => "Show " + (BottomTabs.FirstOrDefault()?.DisplayTitle ?? "panel");
+    public string LeftReopenLabel => "Show " + (LeftTabs.FirstOrDefault()?.DisplayTitle ?? "panel");
+    public string RightReopenLabel => "Show " + (RightTabs.FirstOrDefault()?.DisplayTitle ?? "panel");
+
     // Grid sizes for the drawers (0 collapses the column/row when empty; a thin
     // bar when the drawer is collapsed). Two-way bound so a GridSplitter drag persists.
     public Avalonia.Controls.GridLength LeftDockWidth
@@ -371,6 +376,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowRightReopen));
         OnPropertyChanged(nameof(ShowTopReopen));
         OnPropertyChanged(nameof(ShowBottomReopen));
+        OnPropertyChanged(nameof(TopReopenLabel));
+        OnPropertyChanged(nameof(BottomReopenLabel));
+        OnPropertyChanged(nameof(LeftReopenLabel));
+        OnPropertyChanged(nameof(RightReopenLabel));
         OnPropertyChanged(nameof(LeftDockWidth));
         OnPropertyChanged(nameof(RightDockWidth));
         OnPropertyChanged(nameof(TopDockHeight));
