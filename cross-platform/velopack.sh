@@ -78,12 +78,22 @@ echo "Packaging Remote Stuff $VERSION for: ${RIDS[*]}"
 mkdir -p "$OUT_ROOT"
 rm -rf "$PUB_ROOT"
 
+# vpk builds each delta by reading the prior release out of the output dir. When
+# that dir is the iCloud-synced releases/ folder, materializing its (possibly
+# evicted) .nupkgs taints vpk's temp .app with com.apple.FinderInfo and breaks
+# codesign on macOS. Pack into a clean, non-iCloud clone instead, then copy the
+# new artifacts back. cp -c uses an APFS clone (instant, no extra space).
+PACK_OUT="$(mktemp -d "${TMPDIR:-/tmp}/vpkout.XXXXXX")"
+cp -Rc "$OUT_ROOT/." "$PACK_OUT/" 2>/dev/null || cp -R "$OUT_ROOT/." "$PACK_OUT/"
+xattr -cr "$PACK_OUT" 2>/dev/null || true
+
 for RID in "${RIDS[@]}"; do
   echo
   echo "==> $RID"
 
   # Velopack wants a plain published folder (not single-file).
   PUB_DIR="$PUB_ROOT/$RID"
+  PACK_DIR="$PUB_DIR"
   dotnet publish "$PROJECT" \
     -c "$CONFIG" \
     -r "$RID" \
@@ -99,6 +109,22 @@ for RID in "${RIDS[@]}"; do
   # ("resource fork, Finder information, or similar detritus not allowed").
   if [[ "$RID" == osx-* ]]; then
     xattr -cr "$PUB_DIR" 2>/dev/null || true
+
+    # Sign the native spawn-helper inside-out (before vpk signs the outer .app).
+    # It's the standalone binary UnixPtyProcess execs to give ssh a controlling
+    # terminal; an unsigned nested Mach-O would break a hardened/notarized build.
+    if [[ -n "${SIGN_IDENTITY:-}" && -f "$PUB_DIR/spawn-helper" ]]; then
+      codesign --force --timestamp --options runtime \
+        --sign "$SIGN_IDENTITY" "$PUB_DIR/spawn-helper"
+    fi
+
+    # Stage into a non-iCloud temp dir before packing. iCloud re-attaches
+    # com.apple.FinderInfo to freshly-created bundle files even after xattr -cr,
+    # which lands on vpk's generated .app and makes its codesign fail. Packing
+    # from $TMPDIR (/var/folders, not synced) avoids the race entirely.
+    PACK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vpkstage.$RID.XXXXXX")"
+    cp -R "$PUB_DIR/." "$PACK_DIR/"
+    xattr -cr "$PACK_DIR" 2>/dev/null || true
   fi
 
   case "$RID" in
@@ -125,12 +151,12 @@ for RID in "${RIDS[@]}"; do
   ARGS=(pack
     --packId "$PACK_ID"
     --packVersion "$VERSION"
-    --packDir "$PUB_DIR"
+    --packDir "$PACK_DIR"
     --packTitle "$PACK_TITLE"
     --packAuthors "$PACK_AUTHORS"
     --mainExe "$MAIN_EXE"
     --channel "$CHANNEL"
-    --outputDir "$OUT_ROOT"
+    --outputDir "$PACK_OUT"
   )
 
   # macOS-only extras: bundle id + optional signing/notarization.
@@ -142,12 +168,22 @@ for RID in "${RIDS[@]}"; do
     fi
   fi
 
+  # Clear vpk's reusable work dir. It builds the .app under $TMPDIR/velopack and
+  # copies files into an existing temp.N bundle without stripping that dir's own
+  # xattrs, so a FinderInfo left by a prior failed run persists and keeps failing
+  # codesign. Removing it forces a clean bundle every run.
+  rm -rf "${TMPDIR%/}/velopack" "/tmp/velopack" 2>/dev/null || true
+
   if [[ -n "$DIRECTIVE" ]]; then
     vpk "$DIRECTIVE" "${ARGS[@]}"
   else
     vpk "${ARGS[@]}"
   fi
 done
+
+# Bring the freshly built feeds/packages/installers back into releases/.
+cp -Rc "$PACK_OUT/." "$OUT_ROOT/" 2>/dev/null || cp -R "$PACK_OUT/." "$OUT_ROOT/"
+rm -rf "$PACK_OUT"
 
 echo
 echo "Done. Update feeds + installers are in: $OUT_ROOT/"
@@ -167,8 +203,36 @@ if [[ "$UPLOAD" == "1" ]]; then
       --latest=false
   fi
 
-  # Upload every feed + package + installer, replacing any same-named assets.
-  # Old .nupkgs are kept on the release so Velopack can build delta updates.
-  gh release upload "$RELEASE_TAG" "$OUT_ROOT"/* --repo "$REPO" --clobber
-  echo "Uploaded $(ls -1 "$OUT_ROOT" | wc -l | tr -d ' ') asset(s)."
+  # Only upload what actually changed this run instead of the whole releases/
+  # folder (which keeps every historical .nupkg locally for delta generation and
+  # can be multiple GB). We push: the small feed/manifest files (always), this
+  # version's new full + delta packages, and the freshly-built installers for the
+  # RIDs we just packed. Old .nupkgs already on the release stay put so Velopack
+  # can still build deltas from them.
+  UPLOAD_FILES=()
+  add_glob() { local f; for f in $1; do [[ -e "$f" ]] && UPLOAD_FILES+=("$f"); done; }
+
+  add_glob "$OUT_ROOT/RELEASES-*"          # per-channel feed manifests
+  add_glob "$OUT_ROOT/*.json"              # assets.*.json / releases.*.json feeds
+  add_glob "$OUT_ROOT/*$VERSION*"          # new full + delta .nupkgs for this version
+  for RID in "${RIDS[@]}"; do              # regenerated installers/portables
+    add_glob "$OUT_ROOT/*$RID-Setup.exe"
+    add_glob "$OUT_ROOT/*$RID-Setup.pkg"
+    add_glob "$OUT_ROOT/*$RID-Portable.zip"
+    add_glob "$OUT_ROOT/*$RID.AppImage"
+  done
+
+  # De-duplicate while preserving order.
+  UNIQUE_FILES=()
+  for f in "${UPLOAD_FILES[@]}"; do
+    [[ " ${UNIQUE_FILES[*]} " == *" $f "* ]] || UNIQUE_FILES+=("$f")
+  done
+
+  if [[ "${#UNIQUE_FILES[@]}" -eq 0 ]]; then
+    echo "No matching assets found to upload." >&2
+    exit 1
+  fi
+
+  gh release upload "$RELEASE_TAG" "${UNIQUE_FILES[@]}" --repo "$REPO" --clobber
+  echo "Uploaded ${#UNIQUE_FILES[@]} asset(s)."
 fi

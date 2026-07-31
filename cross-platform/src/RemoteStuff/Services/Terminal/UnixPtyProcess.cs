@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace RemoteStuff.Services.Terminal;
@@ -27,23 +30,48 @@ public sealed class UnixPtyProcess : IPtyProcess
         public ushort ws_ypixel;
     }
 
+    // --- PTY creation. We deliberately avoid forkpty(): see Start(). ---
     [DllImport("libc", SetLastError = true)]
-    private static extern int forkpty(out int amaster, IntPtr name, IntPtr termp, ref WinSize winp);
+    private static extern int posix_openpt(int flags);
 
     [DllImport("libc", SetLastError = true)]
-    private static extern int execv(IntPtr path, IntPtr argv);
+    private static extern int grantpt(int fd);
 
     [DllImport("libc", SetLastError = true)]
-    private static extern int execvp(IntPtr file, IntPtr argv);
+    private static extern int unlockpt(int fd);
 
     [DllImport("libc", SetLastError = true)]
-    private static extern void _exit(int status);
+    private static extern IntPtr ptsname(int fd);
 
     [DllImport("libc", SetLastError = true)]
-    private static extern int setenv(IntPtr name, IntPtr value, int overwrite);
+    private static extern int fcntl(int fd, int cmd, int arg);
 
+    // --- posix_spawn: the kernel/libc performs fork+exec, so none of OUR managed
+    // code (nor non-async-signal-safe libc like setenv/malloc) ever runs on the
+    // child side of a fork in this multi-threaded CLR + AppKit process. Using
+    // forkpty() here crashed the fork child (SIGBUS, "crashed on child side of
+    // fork pre-exec") because the CLR is not fork-safe. ---
     [DllImport("libc", SetLastError = true)]
-    private static extern int chdir(IntPtr path);
+    private static extern int posix_spawnp(out int pid, IntPtr file,
+        IntPtr fileActions, IntPtr attr, IntPtr argv, IntPtr envp);
+
+    [DllImport("libc")]
+    private static extern int posix_spawn_file_actions_init(IntPtr fa);
+    [DllImport("libc")]
+    private static extern int posix_spawn_file_actions_destroy(IntPtr fa);
+    [DllImport("libc")]
+    private static extern int posix_spawn_file_actions_addopen(IntPtr fa, int fd, IntPtr path, int oflag, uint mode);
+    [DllImport("libc")]
+    private static extern int posix_spawn_file_actions_adddup2(IntPtr fa, int fd, int newfd);
+    [DllImport("libc")]
+    private static extern int posix_spawn_file_actions_addchdir_np(IntPtr fa, IntPtr path);
+
+    [DllImport("libc")]
+    private static extern int posix_spawnattr_init(IntPtr attr);
+    [DllImport("libc")]
+    private static extern int posix_spawnattr_destroy(IntPtr attr);
+    [DllImport("libc")]
+    private static extern int posix_spawnattr_setflags(IntPtr attr, short flags);
 
     [DllImport("libc", SetLastError = true)]
     private static extern nint read(int fd, byte[] buf, nint count);
@@ -94,55 +122,169 @@ public sealed class UnixPtyProcess : IPtyProcess
     private const int SIGTERM = 15;
     private const int SIGKILL = 9;
 
+    private const int O_RDWR = 0x0002;
+    // O_NOCTTY differs by platform.
+    private static readonly int O_NOCTTY =
+        RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? 0x20000 : 0x100;
+    private const int F_SETFD = 2;
+    private const int FD_CLOEXEC = 1;
+    // POSIX_SPAWN_SETSID makes the child a session leader so the pty it opens
+    // becomes its controlling terminal. Value differs by platform.
+    private static readonly short POSIX_SPAWN_SETSID =
+        RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? (short)0x0400 : (short)0x80;
+
+    // On macOS, POSIX_SPAWN_SETSID makes the child a session leader but does NOT
+    // give it a controlling terminal (the pty is opened before setsid, so the
+    // open-acquires-ctty rule doesn't apply). Without a controlling terminal,
+    // /dev/tty can't be opened and ssh host-key confirmation fails with "Host key
+    // verification failed". The bundled native spawn-helper issues TIOCSCTTY (the
+    // one call posix_spawn can't) then execs the real program. Linux acquires the
+    // ctty on open (glibc runs setsid before the file actions), so it's macOS-only.
+    private static readonly string? MacSpawnHelper = ResolveMacSpawnHelper();
+
+    private static string? ResolveMacSpawnHelper()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return null;
+        var path = Path.Combine(AppContext.BaseDirectory, "spawn-helper");
+        return File.Exists(path) ? path : null;
+    }
+
     /// <summary>
-    /// Fork a child in a new PTY and exec <paramref name="executable"/>.
-    /// Marshalling is done *before* the fork so the child only makes simple
-    /// pointer-based syscalls (no managed allocation) before <c>execvp</c>.
+    /// Open a new PTY and launch <paramref name="executable"/> in it via
+    /// <c>posix_spawn</c>. We do NOT use <c>forkpty</c>: this is a multi-threaded
+    /// CLR + AppKit process, and running any managed code (or non-async-signal-safe
+    /// libc such as setenv/malloc) on the child side of a fork before exec corrupts
+    /// the child and crashes it (SIGBUS, "crashed on child side of fork pre-exec").
+    /// posix_spawn hands fork+exec to the kernel/libc, which never runs our code.
     /// </summary>
     public void Start(string executable, string[] args, ushort cols, ushort rows,
         (string Name, string Value)[]? extraEnv = null, string? workingDirectory = null)
     {
-        // Pre-marshal everything the child needs into unmanaged memory.
-        var argvList = new IntPtr[args.Length + 2];
-        argvList[0] = Marshal.StringToHGlobalAnsi(executable);
-        for (var i = 0; i < args.Length; i++)
-            argvList[i + 1] = Marshal.StringToHGlobalAnsi(args[i]);
-        argvList[^1] = IntPtr.Zero; // null terminator
+        // Create the master side of a pseudo-terminal and unlock its slave.
+        var master = posix_openpt(O_RDWR | O_NOCTTY);
+        if (master < 0)
+            throw new InvalidOperationException("posix_openpt failed: " + Marshal.GetLastWin32Error());
+        if (grantpt(master) != 0 || unlockpt(master) != 0)
+        {
+            close(master);
+            throw new InvalidOperationException("grantpt/unlockpt failed: " + Marshal.GetLastWin32Error());
+        }
+        // Don't leak the master fd into the spawned child.
+        fcntl(master, F_SETFD, FD_CLOEXEC);
 
+        // Size the pty before the child starts so it never sees a 0x0 / stale window.
+        var initWs = new WinSize { ws_row = rows, ws_col = cols };
+        if (IsMacArm64)
+            ioctl_darwin_arm64(master, TIOCSWINSZ, 0, 0, 0, 0, 0, 0, ref initWs);
+        else
+            ioctl(master, TIOCSWINSZ, ref initWs);
+
+        var slavePathPtr = ptsname(master);
+        if (slavePathPtr == IntPtr.Zero)
+        {
+            close(master);
+            throw new InvalidOperationException("ptsname failed");
+        }
+        var slavePath = Marshal.PtrToStringAnsi(slavePathPtr)!;
+
+        // On macOS, run the real program *through* the spawn-helper so it claims the
+        // pty as its controlling terminal (see MacSpawnHelper). argv becomes
+        // [spawn-helper, executable, args...]; elsewhere it's [executable, args...].
+        var command = new List<string>(args.Length + 2);
+        if (MacSpawnHelper is { } helper)
+            command.Add(helper);
+        command.Add(executable);
+        command.AddRange(args);
+
+        // Marshal argv: [command..., NULL].
+        var argvList = new IntPtr[command.Count + 1];
+        for (var i = 0; i < command.Count; i++)
+            argvList[i] = Marshal.StringToHGlobalAnsi(command[i]);
+        argvList[^1] = IntPtr.Zero;
         var argvBlock = Marshal.AllocHGlobal(IntPtr.Size * argvList.Length);
         Marshal.Copy(argvList, 0, argvBlock, argvList.Length);
-        var filePtr = argvList[0];
 
-        // Pre-marshal env + cwd.
-        var envPtrs = new (IntPtr name, IntPtr val)[extraEnv?.Length ?? 0];
-        if (extraEnv != null)
-            for (var i = 0; i < extraEnv.Length; i++)
-                envPtrs[i] = (Marshal.StringToHGlobalAnsi(extraEnv[i].Name),
-                              Marshal.StringToHGlobalAnsi(extraEnv[i].Value));
-        var cwdPtr = string.IsNullOrEmpty(workingDirectory)
+        // Marshal envp: the full current environment merged with extraEnv overrides.
+        var envList = BuildEnvBlock(extraEnv, out var envStrings);
+        var envBlock = Marshal.AllocHGlobal(IntPtr.Size * envList.Length);
+        Marshal.Copy(envList, 0, envBlock, envList.Length);
+
+        var slaveCstr = Marshal.StringToHGlobalAnsi(slavePath);
+        var cwdCstr = string.IsNullOrEmpty(workingDirectory)
             ? IntPtr.Zero : Marshal.StringToHGlobalAnsi(workingDirectory);
 
-        var ws = new WinSize { ws_row = rows, ws_col = cols };
-
-        var pid = forkpty(out var master, IntPtr.Zero, IntPtr.Zero, ref ws);
-        if (pid < 0)
-            throw new InvalidOperationException("forkpty failed: " + Marshal.GetLastWin32Error());
-
-        if (pid == 0)
+        // posix_spawn opaque structs. One zeroed 1KB buffer each is large enough on
+        // both macOS (a single pointer) and Linux/glibc (an in-place struct).
+        var fa = Marshal.AllocHGlobal(1024);
+        var attr = Marshal.AllocHGlobal(1024);
+        try
         {
-            // ---- Child: only simple pointer syscalls, then exec. ----
-            if (cwdPtr != IntPtr.Zero)
-                chdir(cwdPtr);
-            foreach (var (name, val) in envPtrs)
-                setenv(name, val, 1);
-            execvp(filePtr, argvBlock);
-            _exit(127); // exec failed
-            return;
+            for (var i = 0; i < 1024; i++) { Marshal.WriteByte(fa, i, 0); Marshal.WriteByte(attr, i, 0); }
+
+            posix_spawn_file_actions_init(fa);
+            posix_spawnattr_init(attr);
+            posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSID);
+
+            if (cwdCstr != IntPtr.Zero)
+            {
+                try { posix_spawn_file_actions_addchdir_np(fa, cwdCstr); }
+                catch (EntryPointNotFoundException) { /* old libc: cwd not applied */ }
+            }
+
+            // Put the pty slave on the child's stdin/stdout/stderr. On Linux the
+            // child (now a session leader via SETSID) acquires it as the controlling
+            // terminal on this open; on macOS that doesn't happen here, so the
+            // spawn-helper claims it with TIOCSCTTY before exec (see MacSpawnHelper).
+            posix_spawn_file_actions_addopen(fa, 0, slaveCstr, O_RDWR, 0);
+            posix_spawn_file_actions_adddup2(fa, 0, 1);
+            posix_spawn_file_actions_adddup2(fa, 0, 2);
+
+            var rc = posix_spawnp(out var pid, argvList[0], fa, attr, argvBlock, envBlock);
+            if (rc != 0)
+            {
+                close(master);
+                throw new InvalidOperationException($"posix_spawn failed: {rc}");
+            }
+            _pid = pid;
+            _masterFd = master;
+        }
+        finally
+        {
+            posix_spawn_file_actions_destroy(fa);
+            posix_spawnattr_destroy(attr);
+            Marshal.FreeHGlobal(fa);
+            Marshal.FreeHGlobal(attr);
+            foreach (var p in argvList) if (p != IntPtr.Zero) Marshal.FreeHGlobal(p);
+            Marshal.FreeHGlobal(argvBlock);
+            foreach (var p in envStrings) Marshal.FreeHGlobal(p);
+            Marshal.FreeHGlobal(envBlock);
+            Marshal.FreeHGlobal(slaveCstr);
+            if (cwdCstr != IntPtr.Zero) Marshal.FreeHGlobal(cwdCstr);
         }
 
-        _pid = pid;
-        _masterFd = master;
         DiagSize("Start", cols, rows);
+    }
+
+    /// <summary>Build a NUL-terminated <c>char**</c> environment block: the current
+    /// process environment merged with <paramref name="extraEnv"/> overrides. The
+    /// non-null string pointers are returned via <paramref name="allocated"/> so the
+    /// caller can free them after the spawn.</summary>
+    private static IntPtr[] BuildEnvBlock((string Name, string Value)[]? extraEnv, out IntPtr[] allocated)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
+            map[(string)e.Key] = e.Value?.ToString() ?? string.Empty;
+        if (extraEnv != null)
+            foreach (var (name, value) in extraEnv)
+                map[name] = value;
+
+        var ptrs = new IntPtr[map.Count + 1];
+        var i = 0;
+        foreach (var kv in map)
+            ptrs[i++] = Marshal.StringToHGlobalAnsi($"{kv.Key}={kv.Value}");
+        ptrs[^1] = IntPtr.Zero;
+        allocated = ptrs.Where(p => p != IntPtr.Zero).ToArray();
+        return ptrs;
     }
 
     /// <summary>Read available bytes from the PTY master into <paramref name="buffer"/>.</summary>

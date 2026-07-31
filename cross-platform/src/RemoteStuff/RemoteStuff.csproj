@@ -51,4 +51,45 @@
     <ProjectReference Include="..\RemoteStuff.MacWebHelper\RemoteStuff.MacWebHelper.csproj" />
   </ItemGroup>
 
+  <!--
+    Native "spawn-helper" for the macOS PTY path (Services/Terminal/UnixPtyProcess.cs).
+    posix_spawn on macOS can't make the pty a controlling terminal, so the helper issues
+    TIOCSCTTY then execs the real program (without it, ssh host-key confirmation fails
+    with "Host key verification failed"). Built as a universal (arm64+x86_64) binary with
+    cc, so a single artifact serves both osx-arm64 and osx-x64. Only built/shipped on macOS.
+  -->
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('osx')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX')))">
+    <BuildSpawnHelper>true</BuildSpawnHelper>
+  </PropertyGroup>
+
+  <Target Name="CompileSpawnHelper"
+          Condition="'$(BuildSpawnHelper)' == 'true'"
+          BeforeTargets="Build;Publish"
+          Inputs="native/spawn-helper.c"
+          Outputs="$(IntermediateOutputPath)spawn-helper">
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <Exec Command="cc -arch arm64 -arch x86_64 -O2 -Wall -o &quot;$(IntermediateOutputPath)spawn-helper&quot; &quot;$(MSBuildProjectDirectory)/native/spawn-helper.c&quot;" />
+  </Target>
+
+  <Target Name="CopySpawnHelperToOutput"
+          Condition="'$(BuildSpawnHelper)' == 'true'"
+          AfterTargets="Build"
+          DependsOnTargets="CompileSpawnHelper">
+    <Copy SourceFiles="$(IntermediateOutputPath)spawn-helper"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="IncludeSpawnHelperInPublish"
+          Condition="'$(BuildSpawnHelper)' == 'true'"
+          DependsOnTargets="CompileSpawnHelper"
+          BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(IntermediateOutputPath)spawn-helper">
+        <RelativePath>spawn-helper</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
 </Project>
