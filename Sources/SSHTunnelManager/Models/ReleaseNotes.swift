@@ -45,11 +45,18 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.73", build: 83, date: "Jul 31, 2026",
+            highlights: [
+                "New Connection Health window: right-click a tab or workspace and choose Connection Health… to open a live dashboard that TCP-probes each connection for reachability and round-trip latency, with per-connection sparklines, connect/drop counts, uptime %, and an aggregate average-latency graph.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.72", build: 82, date: "Jul 31, 2026",
             highlights: [
                 "Connection health now tracks every SSH tab, not just ones with forwarded ports: plain remote shells are probed on their SSH host and port too, so the health summary shows up in the sidebar tooltip and the tab / workspace right-click menus.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.71", build: 81, date: "Jul 31, 2026",

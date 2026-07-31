@@ -192,6 +192,23 @@ final class TerminalSessionManager: ObservableObject {
             .healthTooltip
     }
 
+    /// The network endpoint (host, port) a session can be TCP health-probed
+    /// against, or nil for local shells / tabs with no network target. Drives
+    /// the Connection Health window.
+    func probeEndpoint(for session: TerminalSession) -> (host: String, port: Int)? {
+        guard let pid = session.profileID,
+              let p = ProfileStore.shared.profiles.first(where: { $0.id == pid }),
+              !p.isLocal else { return nil }
+        // Forwarded service tabs (web / MQTT / Redis) point at a local port.
+        if [.web, .mqtt, .redis].contains(session.kind),
+           let fwd = p.localForwardEndpoints.first {
+            return fwd
+        }
+        let host = p.host.trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty else { return nil }
+        return (host, Int(p.port.trimmingCharacters(in: .whitespaces)) ?? 22)
+    }
+
     // MARK: - Auto-connect on launch
 
     /// Connect every profile flagged **auto-connect on launch**. Called once at

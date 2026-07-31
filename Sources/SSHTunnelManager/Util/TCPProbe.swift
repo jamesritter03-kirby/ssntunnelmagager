@@ -52,4 +52,39 @@ enum TCPProbe {
         }
         group.notify(queue: .main) { completion(allOK) }
     }
+
+    /// Measure the TCP connect latency to `host:port` in milliseconds, calling
+    /// `completion` on the main queue with the round-trip time, or `-1` if the
+    /// connection failed / timed out.
+    static func latency(host: String, port: Int, timeout: TimeInterval,
+                        completion: @escaping (Double) -> Void) {
+        guard let nwPort = NWEndpoint.Port(rawValue: UInt16(truncatingIfNeeded: port)), port > 0 else {
+            DispatchQueue.main.async { completion(-1) }; return
+        }
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
+        let queue = DispatchQueue(label: "TCPProbe.latency")
+        var finished = false
+        let start = DispatchTime.now()
+        let finish: (Double) -> Void = { ms in
+            queue.async {
+                guard !finished else { return }
+                finished = true
+                connection.cancel()
+                DispatchQueue.main.async { completion(ms) }
+            }
+        }
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                let ns = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
+                finish(Double(ns) / 1_000_000)
+            case .failed, .cancelled:
+                finish(-1)
+            default:
+                break
+            }
+        }
+        connection.start(queue: queue)
+        queue.asyncAfter(deadline: .now() + timeout) { finish(-1) }
+    }
 }

@@ -477,21 +477,14 @@ private struct DockPaneView: View {
             .buttonStyle(.borderless)
             .help("Return this tab to the tab bar")
             Circle().fill(statusColor).frame(width: 7, height: 7)
-            Label {
-                Text(ClosedItem.label(for: session.kind))
-                    .font(.caption2.weight(.semibold))
-            } icon: {
-                Image(systemName: session.symbolName)
-                    .font(.caption2)
-            }
-            .labelStyle(.titleAndIcon)
-            .foregroundStyle(.tint)
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Color.accentColor.opacity(0.14), in: Capsule())
-            .help("Tab type")
+            Image(systemName: session.symbolName)
+                .font(.caption2)
+                .foregroundStyle(.tint)
+                .fixedSize()
+                .padding(.horizontal, 5)
+                .padding(.vertical, 3)
+                .background(Color.accentColor.opacity(0.14), in: Capsule())
+                .help(ClosedItem.label(for: session.kind))
             Text(session.title)
                 .font(.caption)
                 .lineLimit(1)
@@ -617,8 +610,7 @@ private struct WorkspaceBar: View {
                     onQuickSave: { sessions.saveWorkspaceInPlace(ws.id) },
                     onSave: { beginSave(ws) },
                     onSaveAsProfile: { beginSaveAsProfile(ws) },
-                    onSetColor: { sessions.setWorkspaceColor($0, forWorkspace: ws.id) },
-                    healthSessions: sessions.openSessions(inWorkspace: ws.id)
+                    onSetColor: { sessions.setWorkspaceColor($0, forWorkspace: ws.id) }
                 )
                 .onDrag {
                     NSItemProvider(object: ws.id.uuidString as NSString)
@@ -915,8 +907,6 @@ private struct WorkspacePill: View {
     var onSave: () -> Void
     var onSaveAsProfile: () -> Void = {}
     var onSetColor: (TabColor?) -> Void = { _ in }
-    /// The workspace's live tabs, for the menu's connection-health summary.
-    var healthSessions: [TerminalSession] = []
 
     /// The pill's tint: the user's chosen color, or the default accent.
     private var tint: Color { workspace.tabColor?.color ?? .accentColor }
@@ -960,7 +950,13 @@ private struct WorkspacePill: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .contextMenu {
-            ConnectionHealthMenuSection(candidates: healthSessions)
+            Button {
+                ConnectionHealthWindowController.open(
+                    key: "ws-\(workspace.id.uuidString)",
+                    title: workspace.name,
+                    provider: { TerminalSessionManager.shared.openSessions(inWorkspace: workspace.id) })
+            } label: { Label("Connection Health…", systemImage: "waveform.path.ecg") }
+            Divider()
             Button { onRename() } label: { Label("Rename…", systemImage: "pencil") }
             Button { onQuickSave() } label: {
                 Label(isSaved ? "Update Saved Workspace" : "Save Workspace",
@@ -1453,45 +1449,6 @@ private struct DisconnectButton: View {
 /// the tab bar and by the header bar of a tile in the tiled layout, so a tile's
 /// title bar offers the very same actions (Snippets, Links, Disconnect/Stop,
 /// SFTP, VNC, Detach, Close) as right-clicking its tab.
-/// A read-only "Connection Health" section for a right-click menu, showing each
-/// tunnel's reachability plus its connect / drop / uptime counters and last-seen
-/// timestamps. Renders nothing for tabs whose tunnels have never been probed.
-private struct ConnectionHealthMenuSection: View {
-    /// The sessions to summarize: one for a tab menu, all of a workspace's tabs
-    /// for a workspace-pill menu.
-    let candidates: [TerminalSession]
-
-    /// Only ssh tabs with forwarded ports carry probe-based health data.
-    private var tracked: [TerminalSession] {
-        candidates.filter { $0.healthStatsSummary != nil }
-    }
-
-    var body: some View {
-        if !tracked.isEmpty {
-            Section("Connection Health") {
-                if tracked.count == 1, let s = tracked.first {
-                    Text(s.tunnelHealth == .degraded ? "● Unreachable" : "● Reachable")
-                    if let stats = s.healthStatsSummary { Text(stats) }
-                    if let events = s.healthEventSummary { Text(events) }
-                } else {
-                    ForEach(tracked) { s in Text(workspaceLine(s)) }
-                }
-            }
-            Divider()
-        }
-    }
-
-    /// One compact per-connection line for a workspace with several tunnels.
-    private func workspaceLine(_ s: TerminalSession) -> String {
-        let status = s.tunnelHealth == .degraded ? "● unreachable" : "● reachable"
-        var parts = ["\(s.title): \(status)"]
-        if s.healthUptimePercent >= 0 {
-            parts.append("\(Int(s.healthUptimePercent.rounded()))% uptime")
-        }
-        return parts.joined(separator: " · ")
-    }
-}
-
 private struct TerminalTabContextMenu: View {
     @EnvironmentObject var sessions: TerminalSessionManager
     @EnvironmentObject var store: ProfileStore
@@ -1672,8 +1629,16 @@ private struct TerminalTabContextMenu: View {
     }
 
     var body: some View {
-        // Live tunnel health (ssh tabs with forwards) sits at the top.
-        ConnectionHealthMenuSection(candidates: [session])
+        // Live connection health opens in its own window (networked tabs only).
+        if sessions.probeEndpoint(for: session) != nil {
+            Button {
+                ConnectionHealthWindowController.open(
+                    key: "tab-\(session.id.uuidString)",
+                    title: session.title,
+                    provider: { [weak session] in session.map { [$0] } ?? [] })
+            } label: { Label("Connection Health…", systemImage: "waveform.path.ecg") }
+            Divider()
+        }
         // Editor tabs get file-specific actions (Save, Reveal, Copy Path, …)
         // at the top; the generic Dock / Detach / Close items follow below.
         if session.kind == .editor, let editorModel = session.textEditorModel {
