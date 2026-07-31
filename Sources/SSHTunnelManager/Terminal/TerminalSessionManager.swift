@@ -158,8 +158,18 @@ final class TerminalSessionManager: ObservableObject {
         for session in sessions where session.kind == .ssh && session.isRunning {
             guard let pid = session.profileID,
                   let profile = ProfileStore.shared.profiles.first(where: { $0.id == pid }) else { continue }
-            let endpoints = profile.localForwardEndpoints
-            guard !endpoints.isEmpty else { continue }
+            // Prefer the forwarded local ports; fall back to the SSH host:port
+            // itself so plain shells (no `-L` forwards) still get health data.
+            // Skip jump-host configs, where the target host isn't directly
+            // reachable from this Mac and would probe as falsely unreachable.
+            var endpoints = profile.localForwardEndpoints
+            if endpoints.isEmpty {
+                let host = profile.host.trimmingCharacters(in: .whitespaces)
+                let port = Int(profile.port.trimmingCharacters(in: .whitespaces)) ?? 22
+                let hasJump = !profile.jumpHost.trimmingCharacters(in: .whitespaces).isEmpty
+                guard !host.isEmpty, !hasJump else { continue }
+                endpoints = [(host: host, port: port)]
+            }
             TCPProbe.allReachable(endpoints, timeout: 2.0) { [weak self] healthy in
                 session.recordHealthProbe(healthy: healthy)
                 // The session's own `objectWillChange` isn't relayed here, so nudge
