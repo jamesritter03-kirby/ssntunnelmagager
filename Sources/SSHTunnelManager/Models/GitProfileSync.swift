@@ -6,10 +6,12 @@ struct GitSyncResult {
     let log: String
 }
 
-/// Persisted Git-sync configuration (remote URL + branch).
+/// Persisted Git-sync configuration (remote URL + branch + optional working-copy folder).
 struct GitSyncConfig: Codable {
     var remoteUrl: String = ""
     var branch: String = "main"
+    /// User-chosen local working-copy folder; empty means the default next to profiles.json.
+    var localPath: String = ""
 }
 
 /// Syncs the user's `profiles.json` with a Git repository (e.g. a private GitHub
@@ -26,18 +28,24 @@ final class GitProfileSync {
     private static let profilesFileName = "profiles.json"
 
     private let profilesPath: String
-    private let repoDir: String
+    private let defaultRepoDir: String
     private let configPath: String
 
     private(set) var config = GitSyncConfig()
 
-    /// Absolute path of the local Git working copy.
+    /// Absolute path of the local Git working copy — a user-chosen folder if set,
+    /// else a `profiles-repo` folder next to `profiles.json`.
+    private var repoDir: String {
+        let custom = config.localPath.trimmingCharacters(in: .whitespaces)
+        return custom.isEmpty ? defaultRepoDir : custom
+    }
+
     var repoDirectory: String { repoDir }
 
     init(profilesPath: String) {
         self.profilesPath = profilesPath
         let appDir = (profilesPath as NSString).deletingLastPathComponent
-        self.repoDir = (appDir as NSString).appendingPathComponent("profiles-repo")
+        self.defaultRepoDir = (appDir as NSString).appendingPathComponent("profiles-repo")
         self.configPath = (appDir as NSString).appendingPathComponent("git-sync.json")
         loadConfig()
     }
@@ -54,10 +62,11 @@ final class GitProfileSync {
         }
     }
 
-    func saveConfig(remoteUrl: String, branch: String) {
+    func saveConfig(remoteUrl: String, branch: String, localPath: String) {
         config.remoteUrl = remoteUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         let b = branch.trimmingCharacters(in: .whitespacesAndNewlines)
         config.branch = b.isEmpty ? "main" : b
+        config.localPath = localPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let data = try? encoder.encode(config) {
@@ -67,6 +76,19 @@ final class GitProfileSync {
 
     private var repoInitialized: Bool {
         FileManager.default.fileExists(atPath: (repoDir as NSString).appendingPathComponent(".git"))
+    }
+
+    /// True when it's safe to replace `repoDir` with a fresh clone — it doesn't exist,
+    /// is empty, or is already a Git working copy. Protects a user-chosen folder that
+    /// contains unrelated files from being deleted by the clone-and-move below.
+    private func repoDirIsReplaceable() -> Bool {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: repoDir, isDirectory: &isDir) else { return true }
+        guard isDir.boolValue else { return false }
+        if fm.fileExists(atPath: (repoDir as NSString).appendingPathComponent(".git")) { return true }
+        let contents = (try? fm.contentsOfDirectory(atPath: repoDir)) ?? []
+        return contents.allSatisfy { $0 == ".DS_Store" }
     }
 
     // MARK: - Operations
@@ -87,6 +109,12 @@ final class GitProfileSync {
 
         let remote = config.remoteUrl.trimmingCharacters(in: .whitespaces)
         if !remote.isEmpty {
+            guard repoDirIsReplaceable() else {
+                log.line("The chosen local folder isn't empty and isn't a Git repo, so it")
+                log.line("won't be cloned into (to avoid deleting your files):")
+                log.line("  " + repoDir)
+                return GitSyncResult(success: false, log: log.text)
+            }
             // Clone into a temp dir then move it in, since `git clone` needs an empty target.
             let parent = (repoDir as NSString).deletingLastPathComponent
             let tmpClone = (parent as NSString).appendingPathComponent("profiles-repo.clone-" + UUID().uuidString)

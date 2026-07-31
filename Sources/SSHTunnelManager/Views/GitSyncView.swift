@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Presentation state for the **Sync Profiles with Git** sheet — mirrors the other
 /// singleton dialog models in the app (`present()` flips `isPresented`, which a
@@ -24,6 +25,7 @@ struct GitSyncView: View {
 
     @State private var remoteUrl = ""
     @State private var branch = "main"
+    @State private var localPath = ""
     @State private var commitMessage = ""
     @State private var log = ""
     @State private var isBusy = false
@@ -55,6 +57,16 @@ struct GitSyncView: View {
                         .gridColumnAlignment(.trailing)
                     TextField("main", text: $branch)
                         .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Local folder")
+                        .foregroundStyle(.secondary)
+                        .gridColumnAlignment(.trailing)
+                    HStack(spacing: 6) {
+                        TextField(engine.sync.repoDirectory, text: $localPath)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Choose…") { chooseFolder() }
+                    }
                 }
                 GridRow {
                     Text("Commit message")
@@ -123,6 +135,24 @@ struct GitSyncView: View {
         .onAppear {
             remoteUrl = engine.sync.config.remoteUrl
             branch = engine.sync.config.branch
+            localPath = engine.sync.config.localPath
+        }
+    }
+
+    /// Let the user pick where the local working copy lives; persisted immediately.
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Local Working Copy Folder"
+        panel.prompt = "Choose"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        let start = localPath.isEmpty ? engine.sync.repoDirectory : localPath
+        if !start.isEmpty { panel.directoryURL = URL(fileURLWithPath: start) }
+        if panel.runModal() == .OK, let url = panel.url {
+            localPath = url.path
+            engine.sync.saveConfig(remoteUrl: remoteUrl, branch: branch, localPath: localPath)
         }
     }
 
@@ -130,7 +160,7 @@ struct GitSyncView: View {
     private func run(reloadOnSuccess: Bool = false, _ op: @escaping () async -> GitSyncResult) {
         guard !isBusy else { return }
         isBusy = true
-        engine.sync.saveConfig(remoteUrl: remoteUrl, branch: branch)
+        engine.sync.saveConfig(remoteUrl: remoteUrl, branch: branch, localPath: localPath)
         Task {
             let result = await op()
             await MainActor.run {

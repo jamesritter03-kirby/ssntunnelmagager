@@ -18,11 +18,15 @@ public sealed partial class GitSyncViewModel : ObservableObject
 
     [ObservableProperty] private string _remoteUrl = "";
     [ObservableProperty] private string _branch = "main";
+    [ObservableProperty] private string _localPath = "";
     [ObservableProperty] private string _commitMessage = "";
     [ObservableProperty] private string _log = "";
     [ObservableProperty] private bool _isBusy;
 
     public string RepoPath => _sync.RepoDir;
+
+    /// <summary>Set by the view to show a folder picker; returns the chosen path or null.</summary>
+    public Func<Task<string?>>? PickFolderAsync { get; set; }
 
     public GitSyncViewModel(GitProfileSync sync, Action onProfilesReplaced)
     {
@@ -30,11 +34,12 @@ public sealed partial class GitSyncViewModel : ObservableObject
         _onProfilesReplaced = onProfilesReplaced;
         RemoteUrl = sync.Config.RemoteUrl;
         Branch = sync.Config.Branch;
+        LocalPath = sync.Config.LocalPath;
     }
 
     private bool CanRun => !IsBusy;
 
-    private void SaveConfig() => _sync.SaveConfig(RemoteUrl, Branch);
+    private void SaveConfig() => _sync.SaveConfig(RemoteUrl, Branch, LocalPath);
 
     private async Task RunAsync(Func<Task<GitSyncResult>> op, bool reloadOnSuccess = false)
     {
@@ -69,6 +74,19 @@ public sealed partial class GitSyncViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(CanRun))]
     private Task Status() => RunAsync(() => _sync.StatusAsync());
+
+    [RelayCommand]
+    private async Task Browse()
+    {
+        if (PickFolderAsync is null) return;
+        var chosen = await PickFolderAsync();
+        if (!string.IsNullOrWhiteSpace(chosen))
+        {
+            LocalPath = chosen!;
+            SaveConfig();
+            OnPropertyChanged(nameof(RepoPath));
+        }
+    }
 
     partial void OnIsBusyChanged(bool value)
     {

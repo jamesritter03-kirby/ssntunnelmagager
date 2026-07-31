@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -15,6 +16,8 @@ public sealed class GitSyncConfig
 {
     public string RemoteUrl { get; set; } = "";
     public string Branch { get; set; } = "main";
+    /// <summary>User-chosen local working-copy folder; empty means the default next to profiles.json.</summary>
+    public string LocalPath { get; set; } = "";
 }
 
 /// <summary>
@@ -38,10 +41,13 @@ public sealed class GitProfileSync
 
     private readonly string _profilesPath;
     private readonly string _workspacesPath;
-    private readonly string _repoDir;
+    private readonly string _defaultRepoDir;
     private readonly string _configPath;
 
     public GitSyncConfig Config { get; private set; } = new();
+
+    // A user-chosen working-copy folder if set, else `profiles-repo` next to profiles.json.
+    private string _repoDir => string.IsNullOrWhiteSpace(Config.LocalPath) ? _defaultRepoDir : Config.LocalPath.Trim();
 
     /// <summary>Absolute path of the local Git working copy.</summary>
     public string RepoDir => _repoDir;
@@ -51,7 +57,7 @@ public sealed class GitProfileSync
         _profilesPath = profilesPath;
         var appDir = Path.GetDirectoryName(profilesPath) ?? Directory.GetCurrentDirectory();
         _workspacesPath = Path.Combine(appDir, WorkspacesFileName);
-        _repoDir = Path.Combine(appDir, "profiles-repo");
+        _defaultRepoDir = Path.Combine(appDir, "profiles-repo");
         _configPath = Path.Combine(appDir, "git-sync.json");
         LoadConfig();
     }
@@ -71,10 +77,11 @@ public sealed class GitProfileSync
         if (string.IsNullOrWhiteSpace(Config.Branch)) Config.Branch = "main";
     }
 
-    public void SaveConfig(string remoteUrl, string branch)
+    public void SaveConfig(string remoteUrl, string branch, string localPath)
     {
         Config.RemoteUrl = (remoteUrl ?? "").Trim();
         Config.Branch = string.IsNullOrWhiteSpace(branch) ? "main" : branch.Trim();
+        Config.LocalPath = (localPath ?? "").Trim();
         try
         {
             var tmp = _configPath + ".tmp";
@@ -85,6 +92,19 @@ public sealed class GitProfileSync
     }
 
     private bool RepoInitialized => Directory.Exists(Path.Combine(_repoDir, ".git"));
+
+    /// <summary>
+    /// True when it's safe to replace the working copy with a fresh clone — it doesn't exist,
+    /// is empty, or is already a Git working copy. Protects a user-chosen folder that contains
+    /// unrelated files from being deleted by the clone-and-move in <see cref="InitOrCloneAsync"/>.
+    /// </summary>
+    private bool RepoDirIsReplaceable()
+    {
+        if (!Directory.Exists(_repoDir)) return true;
+        if (Directory.Exists(Path.Combine(_repoDir, ".git"))) return true;
+        return !Directory.EnumerateFileSystemEntries(_repoDir)
+            .Any(p => Path.GetFileName(p) != ".DS_Store");
+    }
 
     /// <summary>Clone the configured remote (or <c>git init</c> a fresh local repo).</summary>
     public async Task<GitSyncResult> InitOrCloneAsync()
@@ -104,6 +124,13 @@ public sealed class GitProfileSync
 
         if (!string.IsNullOrWhiteSpace(Config.RemoteUrl))
         {
+            if (!RepoDirIsReplaceable())
+            {
+                log.AppendLine("The chosen local folder isn't empty and isn't a Git repo, so it");
+                log.AppendLine("won't be cloned into (to avoid deleting your files):");
+                log.AppendLine("  " + _repoDir);
+                return new GitSyncResult(false, log.ToString());
+            }
             // Clone into a temp dir then move contents in, since git clone needs an empty target.
             var parent = Path.GetDirectoryName(_repoDir)!;
             var tmpClone = Path.Combine(parent, "profiles-repo.clone-" + Guid.NewGuid().ToString("N"));
