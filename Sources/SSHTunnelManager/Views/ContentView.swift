@@ -90,12 +90,17 @@ struct ContentView: View {
             .frame(minWidth: 680, idealWidth: 720, minHeight: 540)
         }
         .onChange(of: editCoordinator.profileToEdit) { requested in
-            // A profile the app asked us to edit (e.g. one just created by “Save
-            // Workspace as Profile”): open the editor for it, then clear the request.
+            // A profile the app asked us to edit (e.g. from an ssh tab's “Edit
+            // Connection…” or “Save Workspace as Profile”). Clear the trigger first
+            // so it can fire again, then present on the next runloop tick — setting
+            // the sheet item in the same transaction that mutates the observed
+            // coordinator drops the presentation, so ssh edits opened nothing.
             guard let requested else { return }
-            duplicatedFromName = nil
-            editingProfile = requested
             editCoordinator.profileToEdit = nil
+            DispatchQueue.main.async {
+                duplicatedFromName = nil
+                editingProfile = requested
+            }
         }
         .onChange(of: editingProfile) { profile in
             // Presenting or dismissing the editor sheet lets the unified toolbar
