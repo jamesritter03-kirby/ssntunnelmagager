@@ -673,6 +673,16 @@
                                                         <MenuItem Header="Save as Workspace…" Command="{Binding SaveAsCommand}" />
                                                         <MenuItem Header="Save as Profile…" Command="{Binding SaveAsProfileCommand}" />
                                                         <Separator />
+                                                        <MenuItem Header="Pill Color" ItemsSource="{Binding WorkspaceColorMenuItems}">
+                                                            <MenuItem.ItemContainerTheme>
+                                                                <ControlTheme TargetType="MenuItem" x:DataType="vm:TabColorMenuItem"
+                                                                              BasedOn="{StaticResource {x:Type MenuItem}}">
+                                                                    <Setter Property="Header" Value="{Binding Name}" />
+                                                                    <Setter Property="Command" Value="{Binding ApplyCommand}" />
+                                                                </ControlTheme>
+                                                            </MenuItem.ItemContainerTheme>
+                                                        </MenuItem>
+                                                        <Separator />
                                                         <MenuItem Header="Pause Connections" Command="{Binding PauseConnectionsCommand}"
                                                                   IsVisible="{Binding !IsPaused}" />
                                                         <MenuItem Header="Resume Connections" Command="{Binding ResumeConnectionsCommand}"
@@ -1189,6 +1199,7 @@
                                 HorizontalContentAlignment="Center" ToolTip.Tip="Show top panel">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <controls:LineIcon Kind="chevron-down" Width="14" Height="14" VerticalAlignment="Center" />
+                                <controls:LineIcon Kind="{Binding TopReopenGlyph}" Width="13" Height="13" VerticalAlignment="Center" />
                                 <TextBlock Text="{Binding TopReopenLabel}" FontSize="11" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
@@ -1218,7 +1229,10 @@
                                     <LayoutTransformControl.LayoutTransform>
                                         <RotateTransform Angle="90" />
                                     </LayoutTransformControl.LayoutTransform>
-                                    <TextBlock Text="{Binding LeftReopenLabel}" FontSize="11" />
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <controls:LineIcon Kind="{Binding LeftReopenGlyph}" Width="13" Height="13" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding LeftReopenLabel}" FontSize="11" VerticalAlignment="Center" />
+                                    </StackPanel>
                                 </LayoutTransformControl>
                             </StackPanel>
                         </Button>
@@ -1260,7 +1274,10 @@
                                     <LayoutTransformControl.LayoutTransform>
                                         <RotateTransform Angle="90" />
                                     </LayoutTransformControl.LayoutTransform>
-                                    <TextBlock Text="{Binding RightReopenLabel}" FontSize="11" />
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <controls:LineIcon Kind="{Binding RightReopenGlyph}" Width="13" Height="13" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding RightReopenLabel}" FontSize="11" VerticalAlignment="Center" />
+                                    </StackPanel>
                                 </LayoutTransformControl>
                             </StackPanel>
                         </Button>
@@ -1285,6 +1302,7 @@
                                 HorizontalContentAlignment="Center" ToolTip.Tip="Show bottom panel">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <controls:LineIcon Kind="chevron-up" Width="14" Height="14" VerticalAlignment="Center" />
+                                <controls:LineIcon Kind="{Binding BottomReopenGlyph}" Width="13" Height="13" VerticalAlignment="Center" />
                                 <TextBlock Text="{Binding BottomReopenLabel}" FontSize="11" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>

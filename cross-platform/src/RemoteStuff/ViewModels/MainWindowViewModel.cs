@@ -276,7 +276,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     // Per-edge collapsed state: a collapsed drawer shrinks to a thin re-open bar.
     private bool _leftCollapsed, _rightCollapsed, _topCollapsed, _bottomCollapsed;
-    private const double CollapsedSize = 26;
+    private const double CollapsedSize = 32;
 
     public IReadOnlyList<TabViewModel> CenterTabs => WorkspaceTabs.Where(t => t.Dock == DockSide.Center).ToList();
     public IReadOnlyList<TabViewModel> LeftTabs => WorkspaceTabs.Where(t => t.Dock == DockSide.Left).ToList();
@@ -305,6 +305,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public string BottomReopenLabel => "Show " + (BottomTabs.FirstOrDefault()?.DisplayTitle ?? "panel");
     public string LeftReopenLabel => "Show " + (LeftTabs.FirstOrDefault()?.DisplayTitle ?? "panel");
     public string RightReopenLabel => "Show " + (RightTabs.FirstOrDefault()?.DisplayTitle ?? "panel");
+
+    public string TopReopenGlyph => TopTabs.FirstOrDefault()?.Glyph ?? "layout-panel-top";
+    public string BottomReopenGlyph => BottomTabs.FirstOrDefault()?.Glyph ?? "layout-panel-bottom";
+    public string LeftReopenGlyph => LeftTabs.FirstOrDefault()?.Glyph ?? "layout-panel-left";
+    public string RightReopenGlyph => RightTabs.FirstOrDefault()?.Glyph ?? "layout-panel-right";
 
     // Grid sizes for the drawers (0 collapses the column/row when empty; a thin
     // bar when the drawer is collapsed). Two-way bound so a GridSplitter drag persists.
@@ -380,6 +385,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(BottomReopenLabel));
         OnPropertyChanged(nameof(LeftReopenLabel));
         OnPropertyChanged(nameof(RightReopenLabel));
+        OnPropertyChanged(nameof(TopReopenGlyph));
+        OnPropertyChanged(nameof(BottomReopenGlyph));
+        OnPropertyChanged(nameof(LeftReopenGlyph));
+        OnPropertyChanged(nameof(RightReopenGlyph));
         OnPropertyChanged(nameof(LeftDockWidth));
         OnPropertyChanged(nameof(RightDockWidth));
         OnPropertyChanged(nameof(TopDockHeight));

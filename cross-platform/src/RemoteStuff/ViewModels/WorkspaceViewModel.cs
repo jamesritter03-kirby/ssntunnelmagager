@@ -48,6 +48,24 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     partial void OnColorChanged(string value) => OnPropertyChanged(nameof(PillBrush));
 
+    public System.Collections.Generic.IReadOnlyList<TabColorMenuItem> WorkspaceColorMenuItems =>
+        _colorMenuItems ??= BuildColorMenu();
+    private System.Collections.Generic.IReadOnlyList<TabColorMenuItem>? _colorMenuItems;
+
+    private System.Collections.Generic.IReadOnlyList<TabColorMenuItem> BuildColorMenu()
+    {
+        (string Name, string Hex)[] choices =
+        {
+            ("None", ""), ("Red", "#E5484D"), ("Orange", "#F5A623"), ("Yellow", "#F2D600"),
+            ("Green", "#3FB950"), ("Blue", "#4C8BF5"), ("Purple", "#A26BF5"),
+            ("Pink", "#EC6FB0"), ("Gray", "#8A8F98"),
+        };
+        var list = new System.Collections.Generic.List<TabColorMenuItem>();
+        foreach (var (name, hex) in choices)
+            list.Add(new TabColorMenuItem(name, hex, h => Color = h));
+        return list;
+    }
+
     [RelayCommand] private void Select() => _owner.SelectWorkspace(this);
     [RelayCommand] private void Close() => _owner.CloseWorkspace(this);
     [RelayCommand] private void Rename() => _owner.BeginRenameWorkspace(this);
