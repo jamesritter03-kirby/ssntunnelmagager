@@ -45,11 +45,19 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.77", build: 87, date: "Jul 31, 2026",
+            highlights: [
+                "Redis tab: string keys holding a number (or JSON with numeric fields) now have a Graph view — the same live line chart as the MQTT tab, including the per-series chips and Stack toggle. Turn on Live to keep the graph updating.",
+                "Fixed: ad-hoc MQTT and Redis tabs now remember their password across quit and relaunch, so they reconnect on resume instead of coming back disconnected and making you edit the connection and retype the password.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.76", build: 86, date: "Jul 31, 2026",
             highlights: [
                 "MQTT graph: a new Stack toggle gives each numeric series its own stacked chart with its own auto-scaled axis, so series with very different ranges stay readable instead of overlapping on one axis.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.75", build: 85, date: "Jul 31, 2026",

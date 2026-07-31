@@ -2768,21 +2768,31 @@ final class TerminalSessionManager: ObservableObject {
 
     private let openStateKey = "openState.v2"
     private let legacyOpenSessionsKey = "openSessions.v1"
+    /// Keychain credential ids we've stashed **ad-hoc MQTT / Redis** passwords
+    /// under for the resume state, so orphaned ones (their tab was closed or
+    /// re-created under a new id) can be cleaned up on the next save.
+    private let resumeCredentialIDsKey = "resumeServiceCredentialIDs.v1"
+    /// Session ids whose ad-hoc service password we've already written to the
+    /// Keychain this launch, so the frequent resume-state saves don't rewrite it.
+    private var resumePasswordWritten: Set<UUID> = []
     private var persistCancellable: AnyCancellable?
 
     /// Snapshot one workspace's live tabs into codable form (skips dead sessions).
-    private func snapshotTabs(for ws: Workspace) -> [SessionSnapshot] {
+    private func snapshotTabs(for ws: Workspace, storeServicePasswords: Bool = false) -> [SessionSnapshot] {
         ws.tabIDs.compactMap { id -> SessionSnapshot? in
             guard let s = sessions.first(where: { $0.id == id }) else { return nil }
-            return snapshot(of: s)
+            return snapshot(of: s, storeServicePassword: storeServicePasswords)
         }
     }
 
     /// Capture one live session as a codable snapshot — enough to recreate it
     /// later (resume, saved workspace, or the recently-closed history). For an
     /// **ad-hoc** (profile-free) ssh / sftp / vnc tab the target host & username
-    /// are captured so it can reconnect; a password is never stored.
-    private func snapshot(of s: TerminalSession) -> SessionSnapshot {
+    /// are captured so it can reconnect. A password is only captured for the
+    /// **resume** state and only for ad-hoc MQTT / Redis tabs (`storeServicePassword`),
+    /// stashed in the Keychain under the session id so the next launch reconnects
+    /// without re-entering it — otherwise no password is ever stored.
+    private func snapshot(of s: TerminalSession, storeServicePassword: Bool = false) -> SessionSnapshot {
         var host: String? = nil
         var user: String? = nil
         if s.profileID == nil,
@@ -2793,12 +2803,26 @@ final class TerminalSessionManager: ObservableObject {
             let u = s.serviceUsername.trimmingCharacters(in: .whitespaces)
             if !u.isEmpty { user = u }
         }
+        // Persist an ad-hoc MQTT / Redis password for resume: stash it in the
+        // Keychain keyed by the session id (once per launch) and reference it by
+        // credential id so `recreate` reads it back and reconnects automatically.
+        var credentialID: UUID? = nil
+        if storeServicePassword, s.profileID == nil,
+           s.kind == .mqtt || s.kind == .redis,
+           !s.servicePassword.isEmpty {
+            if !resumePasswordWritten.contains(s.id),
+               KeychainStore.shared.setPassword(s.servicePassword, for: s.id) {
+                resumePasswordWritten.insert(s.id)
+            }
+            if resumePasswordWritten.contains(s.id) { credentialID = s.id }
+        }
         return SessionSnapshot(kind: s.kind, profileID: s.profileID,
                                webURL: s.webModel?.currentURLString ?? s.finderModel?.currentPath ?? s.textEditorModel?.fileURL?.path ?? s.spreadsheetModel?.fileURL?.path,
                                title: s.title,
                                servicePort: s.servicePort,
                                serviceHost: host, serviceUsername: user,
                                editorBackupID: s.textEditorModel?.id,
+                               credentialID: credentialID,
                                tabColor: s.tabColor,
                                runOnConnect: s.runOnConnectCommand)
     }
@@ -2873,7 +2897,8 @@ final class TerminalSessionManager: ObservableObject {
             let selIndex = ws.selectedSessionID.flatMap { liveTabIDs.firstIndex(of: $0) }
             return WorkspaceSnapshot(name: ws.name, isTiled: ws.isTiled,
                                      tileLayout: ws.tileLayout,
-                                     selectedIndex: selIndex, tabs: snapshotTabs(for: ws),
+                                     selectedIndex: selIndex,
+                                     tabs: snapshotTabs(for: ws, storeServicePasswords: true),
                                      docks: dockSnapshots(for: ws),
                                      tabColor: ws.tabColor,
                                      sourceProfileID: ws.sourceProfileID)
@@ -2883,10 +2908,26 @@ final class TerminalSessionManager: ObservableObject {
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: openStateKey)
         }
+        pruneOrphanedResumeCredentials(keeping: snaps.flatMap { $0.tabs }.compactMap { $0.credentialID })
         // Drop backups for editor tabs that are no longer open (closed since the
         // last save), so the backup folder stays in sync with the resume state.
         let liveEditorIDs = Set(sessions.compactMap { $0.textEditorModel?.id })
         EditorBackupStore.shared.prune(keeping: liveEditorIDs)
+    }
+
+    /// Delete Keychain passwords stashed for ad-hoc MQTT / Redis resume tabs that
+    /// are no longer referenced by the saved state (their tab was closed, or it
+    /// was re-created under a fresh session id on resume), so stale credentials
+    /// don't accumulate. `keeping` are the credential ids still in use.
+    private func pruneOrphanedResumeCredentials(keeping current: [UUID]) {
+        let keep = Set(current)
+        let defaults = UserDefaults.standard
+        let previous: [UUID] = (defaults.array(forKey: resumeCredentialIDsKey) as? [String] ?? [])
+            .compactMap(UUID.init)
+        for id in previous where !keep.contains(id) {
+            KeychainStore.shared.deletePassword(for: id)
+        }
+        defaults.set(keep.map(\.uuidString), forKey: resumeCredentialIDsKey)
     }
 
     /// The saved open-state, migrating a legacy flat session list if needed.

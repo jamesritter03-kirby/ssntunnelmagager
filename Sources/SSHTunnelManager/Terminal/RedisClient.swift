@@ -26,6 +26,12 @@ final class RedisClient: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var serverVersion: String = ""
 
+    /// Per-key time series of the numeric values pulled from each `string` value
+    /// as it's (re)loaded, so a counter/gauge key can be graphed live. Capped to
+    /// `maxSamplesPerKey` points so memory stays bounded.
+    @Published private(set) var history: [String: [NumericGraphSample]] = [:]
+    private let maxSamplesPerKey = 600
+
     var onRunningChanged: ((Bool) -> Void)?
 
     let host: String
@@ -260,7 +266,11 @@ final class RedisClient: ObservableObject {
     private func fetchValue(key: String, type: String, completion: @escaping (RedisValue) -> Void) {
         switch type {
         case "string":
-            command(["GET", key]) { completion(.string($0.stringValue ?? "")) }
+            command(["GET", key]) { [weak self] reply in
+                let s = reply.stringValue ?? ""
+                self?.recordSample(key: key, string: s)
+                completion(.string(s))
+            }
         case "list":
             command(["LRANGE", key, "0", "-1"]) { completion(.list($0.arrayStrings)) }
         case "set":
@@ -288,6 +298,28 @@ final class RedisClient: ObservableObject {
 
     func delete(key: String, completion: @escaping () -> Void) {
         command(["DEL", key]) { _ in completion() }
+    }
+
+    // MARK: - Graphing history
+
+    /// Record the numeric leaves of a freshly-loaded `string` value (a bare
+    /// number, or numeric fields inside a JSON payload) as a timestamped sample
+    /// so the key can be graphed live. Values that carry nothing numeric are
+    /// ignored. Reuses the MQTT numeric-extraction logic for identical behavior.
+    private func recordSample(key: String, string: String) {
+        guard let data = string.data(using: .utf8),
+              let values = MQTTClient.numericValues(from: data), !values.isEmpty else { return }
+        var series = history[key] ?? []
+        series.append(NumericGraphSample(time: Date(), values: values))
+        if series.count > maxSamplesPerKey {
+            series.removeFirst(series.count - maxSamplesPerKey)
+        }
+        history[key] = series
+    }
+
+    /// Drop the recorded graph history for a key (e.g. when it's deleted).
+    func clearHistory(for key: String) {
+        history[key] = nil
     }
 
     // MARK: - Receive

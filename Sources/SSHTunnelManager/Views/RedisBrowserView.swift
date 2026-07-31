@@ -18,6 +18,13 @@ struct RedisBrowserView: View {
     @State private var detail: RedisKeyDetail?
     @State private var loadingDetail = false
 
+    /// The selected key's detail face: its typed value, or a live graph of the
+    /// numeric readings recorded as it re-polls. Both reset when the key changes.
+    @State private var detailTab: RedisDetailTab = .value
+    @State private var graphSelection: Set<String> = []
+    /// When on, each plotted series gets its own stacked chart.
+    @State private var stackGraphs = false
+
     /// When on, the selected key's value and TTL re-poll on a short timer so live
     /// data (e.g. a frequently-rewritten key) stays current, like the MQTT tab.
     @State private var autoRefresh = true
@@ -151,7 +158,11 @@ struct RedisBrowserView: View {
             }
         }
         .frame(minWidth: 220, idealWidth: 300, maxWidth: 460)
-        .onChange(of: selectedKey) { key in loadDetail(key) }
+        .onChange(of: selectedKey) { key in
+            detailTab = .value
+            graphSelection = []
+            loadDetail(key)
+        }
     }
 
     private var detailPane: some View {
@@ -207,11 +218,37 @@ struct RedisBrowserView: View {
                 .help("Automatically refresh this value and TTL")
             }
             Divider()
-            valueView(detail.value)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            if detail.type == "string" {
+                Picker("View", selection: $detailTab) {
+                    Text("Value").tag(RedisDetailTab.value)
+                    Text("Graph").tag(RedisDetailTab.graph)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            if detail.type == "string" && detailTab == .graph {
+                graphSection(key: detail.key)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                valueView(detail.value)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// A live graph of the numeric readings recorded for a `string` key as it
+    /// re-polls — the same graph the MQTT tab uses.
+    private func graphSection(key: String) -> some View {
+        let samples = client.history[key] ?? []
+        return NumericSeriesGraph(
+            samples: samples,
+            selection: $graphSelection,
+            stack: $stackGraphs,
+            emptyMessage: "This key doesn’t hold a numeric value. A bare number, or numeric fields inside a JSON value, will appear here as live series while the value keeps changing (turn on Live to keep polling)."
+        )
     }
 
     @ViewBuilder
@@ -418,6 +455,7 @@ struct RedisBrowserView: View {
 
     private func deleteKey(_ key: String) {
         client.delete(key: key) {
+            client.clearHistory(for: key)
             keys.removeAll { $0 == key }
             if selectedKey == key { selectedKey = nil; detail = nil }
         }
@@ -468,3 +506,6 @@ struct RedisBrowserView: View {
         return text
     }
 }
+
+/// Which face of the Redis key detail pane is showing.
+private enum RedisDetailTab: Hashable { case value, graph }
