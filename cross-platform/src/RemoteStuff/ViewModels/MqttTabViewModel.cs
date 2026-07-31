@@ -133,8 +133,8 @@ public sealed partial class MqttTabViewModel : TabViewModel
     [ObservableProperty] private string _publishPayload = "";
 
     [ObservableProperty] private string? _graphTopic;
-    [ObservableProperty] private System.Collections.Generic.List<Avalonia.Point> _graphPoints = new();
     [ObservableProperty] private string _graphSummary = "";
+    public System.Collections.ObjectModel.ObservableCollection<double> GraphValues { get; } = new();
 
     public bool HasNumericTopics => NumericTopics.Count > 0;
 
@@ -358,27 +358,22 @@ public sealed partial class MqttTabViewModel : TabViewModel
     {
         if (GraphTopic is null || !_series.TryGetValue(GraphTopic, out var list) || list.Count < 2)
         {
-            GraphPoints = new System.Collections.Generic.List<Avalonia.Point>();
+            GraphValues.Clear();
             GraphSummary = "";
             return;
         }
-        const double w = 320, h = 90, pad = 4;
         var min = list.Min();
         var max = list.Max();
-        var range = max - min;
-        if (range <= 0) range = 1;
-        var n = list.Count;
-        var points = new System.Collections.Generic.List<Avalonia.Point>(n);
-        for (var i = 0; i < n; i++)
+        // Sync in-place so the Sparkline's collection-changed notification fires efficiently.
+        for (var i = 0; i < list.Count; i++)
         {
-            var x = pad + (w - 2 * pad) * i / (n - 1);
-            var y = pad + (h - 2 * pad) * (1 - (list[i] - min) / range);
-            points.Add(new Avalonia.Point(x, y));
+            if (i < GraphValues.Count) GraphValues[i] = list[i];
+            else GraphValues.Add(list[i]);
         }
-        GraphPoints = points;
+        while (GraphValues.Count > list.Count) GraphValues.RemoveAt(GraphValues.Count - 1);
         GraphSummary = $"last {list[^1].ToString("0.##", CultureInfo.InvariantCulture)}  ·  "
             + $"min {min.ToString("0.##", CultureInfo.InvariantCulture)}  ·  "
-            + $"max {max.ToString("0.##", CultureInfo.InvariantCulture)}  ·  {n} samples";
+            + $"max {max.ToString("0.##", CultureInfo.InvariantCulture)}  ·  {list.Count} samples";
     }
 
     public override void Dispose()

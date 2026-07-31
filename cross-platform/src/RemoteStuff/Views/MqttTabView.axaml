@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:controls="using:RemoteStuff.Views.Controls"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="RemoteStuff.Views.MqttTabView"
              x:DataType="vm:MqttTabViewModel">
@@ -49,7 +50,7 @@
 
         <GridSplitter Grid.Column="1" Background="{DynamicResource AppDividerBrush}" ResizeDirection="Columns" />
 
-        <Grid Grid.Column="2" RowDefinitions="Auto,Auto,Auto,4,*,Auto">
+        <Grid Grid.Column="2" RowDefinitions="Auto,Auto,180,4,*,Auto">
 
         <!-- Subscribe -->
         <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
@@ -72,9 +73,9 @@
             </StackPanel>
         </Border>
 
-        <!-- Collapsible detail sections (graph + selected-topic payload). This region
-             is resizable against the message list via the GridSplitter below it. -->
-        <ScrollViewer Grid.Row="2" MaxHeight="360" VerticalScrollBarVisibility="Auto">
+        <!-- Collapsible detail sections (graph + selected-topic payload). Fixed height
+             so the GridSplitter below can properly resize this region vs the message list. -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
             <StackPanel>
 
                 <!-- Numeric graph -->
@@ -87,11 +88,8 @@
                                       SelectedItem="{Binding GraphTopic, Mode=TwoWay}" />
                             <TextBlock Text="{Binding GraphSummary}" Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" FontSize="11" />
                         </StackPanel>
-                        <Border Background="#0E0E0E" CornerRadius="3" Height="98" Width="328" HorizontalAlignment="Left">
-                            <Canvas>
-                                <Polyline Points="{Binding GraphPoints}" Stroke="#7FB0DE" StrokeThickness="1.5" />
-                            </Canvas>
-                        </Border>
+                        <controls:Sparkline Values="{Binding GraphValues}" Height="90"
+                                            Stroke="#7FB0DE" StrokeThickness="1.5" Fill="#1A7FB0DE" />
                     </StackPanel>
                 </Expander>
 

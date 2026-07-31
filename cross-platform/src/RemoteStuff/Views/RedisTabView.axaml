@@ -34,6 +34,8 @@
                         <Button Content="Format JSON" Command="{Binding FormatJsonCommand}" />
                         <Button Content="Save" Command="{Binding SaveValueCommand}" />
                         <Button Content="Delete" Command="{Binding DeleteKeyCommand}" />
+                        <CheckBox Content="Live" IsChecked="{Binding LiveRefresh, Mode=TwoWay}"
+                                  ToolTip.Tip="Auto-refresh this key every 2 seconds" />
                     </StackPanel>
                 </Border>
                 <TextBox Text="{Binding SelectedValue}" AcceptsReturn="True"

@@ -55,6 +55,15 @@ public sealed partial class RedisTabViewModel : TabViewModel
     [ObservableProperty] private string _keyTtl = "";
     [ObservableProperty] private string _commandText = "";
     [ObservableProperty] private string _commandResult = "";
+    [ObservableProperty] private bool _liveRefresh;
+
+    private readonly System.Timers.Timer _liveTimer;
+
+    partial void OnLiveRefreshChanged(bool value)
+    {
+        if (value) _liveTimer.Start();
+        else _liveTimer.Stop();
+    }
 
     public RedisTabViewModel(string host, int port, string? password, string title, Guid? id = null)
     {
@@ -63,6 +72,11 @@ public sealed partial class RedisTabViewModel : TabViewModel
         _port = port;
         _password = password;
         Title = "Redis · " + title;
+        _liveTimer = new System.Timers.Timer(2_000) { AutoReset = true };
+        _liveTimer.Elapsed += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            if (!string.IsNullOrEmpty(SelectedKey)) _ = LoadValue(SelectedKey!);
+        });
         _ = ConnectAsync();
     }
 
@@ -242,6 +256,8 @@ public sealed partial class RedisTabViewModel : TabViewModel
 
     public override void Dispose()
     {
+        _liveTimer.Stop();
+        _liveTimer.Dispose();
         try { _mux?.Dispose(); } catch { /* ignore */ }
         _mux = null;
     }
