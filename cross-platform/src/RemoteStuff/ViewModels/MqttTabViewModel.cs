@@ -102,9 +102,99 @@ public sealed partial class MqttTabViewModel : TabViewModel
         Graph.SetSamples(value?.FullTopic ?? "",
             value is not null && _history.TryGetValue(value.FullTopic, out var series) ? series : null);
         OnPropertyChanged(nameof(HasSelectedTopic));
+        // Drop a graph/payload maximize when its topic goes away, then re-flow the panes.
+        if (!HasSelectedTopic && MaximizedPane is "graph" or "payload") MaximizedPane = "";
+        RaisePaneLayout();
     }
 
     public bool HasSelectedTopic => SelectedTopic is not null;
+
+    // ----- Right-pane section layout (Graph / Payload / History) -----
+    // Each section can be collapsed to just its header, or maximized to fill the
+    // whole right area (the other sections shrink to their headers).
+    private static readonly Avalonia.Controls.GridLength Star = new(1, Avalonia.Controls.GridUnitType.Star);
+
+    [ObservableProperty] private string _maximizedPane = "";
+    [ObservableProperty] private bool _graphCollapsed;
+    [ObservableProperty] private bool _payloadCollapsed;
+    [ObservableProperty] private bool _historyCollapsed;
+
+    public Avalonia.Controls.GridLength GraphRowHeight => RowFor("graph", GraphCollapsed, HasSelectedTopic);
+    public Avalonia.Controls.GridLength PayloadRowHeight => RowFor("payload", PayloadCollapsed, HasSelectedTopic);
+    public Avalonia.Controls.GridLength HistoryRowHeight => RowFor("history", HistoryCollapsed, true);
+
+    private Avalonia.Controls.GridLength RowFor(string pane, bool collapsed, bool visible)
+    {
+        if (!visible) return Avalonia.Controls.GridLength.Auto;      // hidden section takes no space
+        if (MaximizedPane == pane) return Star;
+        if (MaximizedPane.Length > 0) return Avalonia.Controls.GridLength.Auto; // another pane owns the area
+        return collapsed ? Avalonia.Controls.GridLength.Auto : Star;
+    }
+
+    public bool GraphContentVisible => ContentVisible("graph", GraphCollapsed);
+    public bool PayloadContentVisible => ContentVisible("payload", PayloadCollapsed);
+    public bool HistoryContentVisible => ContentVisible("history", HistoryCollapsed);
+
+    private bool ContentVisible(string pane, bool collapsed)
+    {
+        if (MaximizedPane == pane) return true;
+        if (MaximizedPane.Length > 0) return false;
+        return !collapsed;
+    }
+
+    public bool GraphMaximized => MaximizedPane == "graph";
+    public bool PayloadMaximized => MaximizedPane == "payload";
+    public bool HistoryMaximized => MaximizedPane == "history";
+
+    public string GraphCollapseIcon => GraphCollapsed ? "chevron-right" : "chevron-down";
+    public string PayloadCollapseIcon => PayloadCollapsed ? "chevron-right" : "chevron-down";
+    public string HistoryCollapseIcon => HistoryCollapsed ? "chevron-right" : "chevron-down";
+    public string GraphMaxIcon => GraphMaximized ? "minimize-2" : "maximize-2";
+    public string PayloadMaxIcon => PayloadMaximized ? "minimize-2" : "maximize-2";
+    public string HistoryMaxIcon => HistoryMaximized ? "minimize-2" : "maximize-2";
+
+    partial void OnMaximizedPaneChanged(string value) => RaisePaneLayout();
+    partial void OnGraphCollapsedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(GraphRowHeight));
+        OnPropertyChanged(nameof(GraphContentVisible));
+        OnPropertyChanged(nameof(GraphCollapseIcon));
+    }
+    partial void OnPayloadCollapsedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(PayloadRowHeight));
+        OnPropertyChanged(nameof(PayloadContentVisible));
+        OnPropertyChanged(nameof(PayloadCollapseIcon));
+    }
+    partial void OnHistoryCollapsedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(HistoryRowHeight));
+        OnPropertyChanged(nameof(HistoryContentVisible));
+        OnPropertyChanged(nameof(HistoryCollapseIcon));
+    }
+
+    private void RaisePaneLayout()
+    {
+        OnPropertyChanged(nameof(GraphRowHeight));
+        OnPropertyChanged(nameof(PayloadRowHeight));
+        OnPropertyChanged(nameof(HistoryRowHeight));
+        OnPropertyChanged(nameof(GraphContentVisible));
+        OnPropertyChanged(nameof(PayloadContentVisible));
+        OnPropertyChanged(nameof(HistoryContentVisible));
+        OnPropertyChanged(nameof(GraphMaximized));
+        OnPropertyChanged(nameof(PayloadMaximized));
+        OnPropertyChanged(nameof(HistoryMaximized));
+        OnPropertyChanged(nameof(GraphMaxIcon));
+        OnPropertyChanged(nameof(PayloadMaxIcon));
+        OnPropertyChanged(nameof(HistoryMaxIcon));
+    }
+
+    [RelayCommand] private void ToggleGraphCollapsed() => GraphCollapsed = !GraphCollapsed;
+    [RelayCommand] private void TogglePayloadCollapsed() => PayloadCollapsed = !PayloadCollapsed;
+    [RelayCommand] private void ToggleHistoryCollapsed() => HistoryCollapsed = !HistoryCollapsed;
+    [RelayCommand] private void MaximizeGraph() => MaximizedPane = MaximizedPane == "graph" ? "" : "graph";
+    [RelayCommand] private void MaximizePayload() => MaximizedPane = MaximizedPane == "payload" ? "" : "payload";
+    [RelayCommand] private void MaximizeHistory() => MaximizedPane = MaximizedPane == "history" ? "" : "history";
 
     /// <summary>Expand every node in the topic tree.</summary>
     [RelayCommand]
