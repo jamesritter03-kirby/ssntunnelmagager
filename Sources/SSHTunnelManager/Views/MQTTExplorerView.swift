@@ -19,6 +19,9 @@ struct MQTTExplorerView: View {
     /// numeric series ("items") are plotted. Both reset when the topic changes.
     @State private var detailTab: TopicDetailTab = .payload
     @State private var graphSelection: Set<String> = []
+    /// When on, each plotted series gets its own stacked chart instead of sharing
+    /// one overlaid axis.
+    @State private var stackGraphs = false
 
     // The topic tree's selection and expansion live on the (session-owned)
     // `client`, not on view `@State`, so switching tabs/workspaces — which tears
@@ -420,41 +423,94 @@ struct MQTTExplorerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 if fields.count > 1 {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(fields, id: \.self) { field in
-                                Button { toggleField(field, in: fields) } label: {
-                                    fieldChip(field, selected: shown.contains(field))
+                    HStack(spacing: 8) {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(fields, id: \.self) { field in
+                                    Button { toggleField(field, in: fields) } label: {
+                                        fieldChip(field, selected: shown.contains(field))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Show or hide this series")
                                 }
-                                .buttonStyle(.plain)
-                                .help("Show or hide this series")
                             }
+                            .padding(.bottom, 2)
                         }
-                        .padding(.bottom, 2)
+                        Toggle("Stack", isOn: $stackGraphs)
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .fixedSize()
+                            .help("Give each series its own stacked chart")
                     }
                 }
-                Chart {
-                    ForEach(points) { point in
-                        LineMark(x: .value("Time", point.time),
-                                 y: .value("Value", point.value))
-                            .foregroundStyle(by: .value("Series", point.field))
-                            .interpolationMethod(.monotone)
-                        if showSymbols {
-                            PointMark(x: .value("Time", point.time),
-                                      y: .value("Value", point.value))
-                                .symbolSize(26)
-                                .foregroundStyle(by: .value("Series", point.field))
-                        }
-                    }
+                if stackGraphs && shown.count > 1 {
+                    stackedCharts(points: points, fields: shown, showSymbols: showSymbols)
+                } else {
+                    overlaidChart(points: points, shown: shown, showSymbols: showSymbols)
                 }
-                .chartYScale(domain: yDomain(for: points))
-                .chartLegend(shown.count > 1 ? .visible : .hidden)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Text("\(samplePointCount(topic: topic)) sample\(samplePointCount(topic: topic) == 1 ? "" : "s") · \(shown.count) of \(fields.count) item\(fields.count == 1 ? "" : "s") shown")
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// All selected series overlaid on a single shared axis.
+    private func overlaidChart(points: [MQTTChartPoint], shown: [String], showSymbols: Bool) -> some View {
+        Chart {
+            ForEach(points) { point in
+                LineMark(x: .value("Time", point.time),
+                         y: .value("Value", point.value))
+                    .foregroundStyle(by: .value("Series", point.field))
+                    .interpolationMethod(.monotone)
+                if showSymbols {
+                    PointMark(x: .value("Time", point.time),
+                              y: .value("Value", point.value))
+                        .symbolSize(26)
+                        .foregroundStyle(by: .value("Series", point.field))
+                }
+            }
+        }
+        .chartYScale(domain: yDomain(for: points))
+        .chartLegend(shown.count > 1 ? .visible : .hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// One chart per series, stacked vertically, each with its own auto-scaled
+    /// Y-axis so series with very different ranges stay readable.
+    private func stackedCharts(points: [MQTTChartPoint], fields: [String], showSymbols: Bool) -> some View {
+        let byField = Dictionary(grouping: points, by: \.field)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(fields, id: \.self) { field in
+                    let seriesPoints = byField[field] ?? []
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(field)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color.accentColor)
+                        Chart {
+                            ForEach(seriesPoints) { point in
+                                LineMark(x: .value("Time", point.time),
+                                         y: .value("Value", point.value))
+                                    .foregroundStyle(by: .value("Series", point.field))
+                                    .interpolationMethod(.monotone)
+                                if showSymbols {
+                                    PointMark(x: .value("Time", point.time),
+                                              y: .value("Value", point.value))
+                                        .symbolSize(26)
+                                        .foregroundStyle(by: .value("Series", point.field))
+                                }
+                            }
+                        }
+                        .chartYScale(domain: yDomain(for: seriesPoints))
+                        .chartLegend(.hidden)
+                        .frame(height: 140)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Numeric series available to graph for a topic — the sorted union of keys

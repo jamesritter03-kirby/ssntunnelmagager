@@ -45,12 +45,19 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.76", build: 86, date: "Jul 31, 2026",
+            highlights: [
+                "MQTT graph: a new Stack toggle gives each numeric series its own stacked chart with its own auto-scaled axis, so series with very different ranges stay readable instead of overlapping on one axis.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.75", build: 85, date: "Jul 31, 2026",
             highlights: [
                 "Collapsed top/bottom drawers now lay each docked tab's dot, icon and name out inline so they fit the thin toolbar in a single row.",
                 "Collapsed left/right drawer tab names now read bottom-to-top.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.74", build: 84, date: "Jul 31, 2026",
