@@ -1,0 +1,107 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:controls="using:RemoteStuff.Views.Controls"
+             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="260"
+             x:Class="RemoteStuff.Views.Controls.NumericSeriesGraphView"
+             x:DataType="vm:NumericGraphViewModel">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Toolbar: series chips + Stack toggle + Export (not captured in the image) -->
+        <DockPanel Grid.Row="0" Margin="0,0,0,4" IsVisible="{Binding HasData}">
+            <Button DockPanel.Dock="Right" Padding="6,2" VerticalAlignment="Center"
+                    ToolTip.Tip="Export this graph's history or image"
+                    IsEnabled="{Binding CanExport}">
+                <TextBlock Text="Export ▾" FontSize="12" />
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuItem Header="Save Chart Image…" Click="OnSaveImage" />
+                        <MenuItem Header="Copy Chart Image" Click="OnCopyImage" />
+                        <Separator />
+                        <MenuItem Header="Export Data as CSV…" Click="OnExportCsv" />
+                        <MenuItem Header="Export Data as JSON…" Click="OnExportJson" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+
+            <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding Stack, Mode=TwoWay}"
+                          OnContent="Stack" OffContent="Stack" Margin="8,0"
+                          VerticalAlignment="Center"
+                          IsVisible="{Binding HasMultipleFields}"
+                          ToolTip.Tip="Give each series its own stacked chart" />
+
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                          IsVisible="{Binding HasMultipleFields}">
+                <ItemsControl ItemsSource="{Binding Fields}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="4" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:GraphField">
+                            <ToggleButton IsChecked="{Binding Selected, Mode=TwoWay}"
+                                          Padding="6,2" ToolTip.Tip="Show or hide this series">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <Border Width="9" Height="9" CornerRadius="4.5"
+                                            VerticalAlignment="Center"
+                                            Background="{Binding Color}" />
+                                    <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </ToggleButton>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+
+        <!-- Chart surface (this Border is what gets rasterized for image export) -->
+        <Border Grid.Row="1" x:Name="ChartExportRoot" Background="{DynamicResource AppSurfaceBrush}"
+                Padding="4" MinHeight="150">
+            <Grid RowDefinitions="Auto,*,Auto">
+
+                <TextBlock Grid.Row="0" Text="{Binding ExportName}" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{DynamicResource AppSecondaryTextBrush}"
+                           TextTrimming="CharacterEllipsis" Margin="2,0,2,4"
+                           IsVisible="{Binding HasData}" />
+
+                <!-- Empty state -->
+                <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Spacing="6" IsVisible="{Binding !HasData}">
+                    <TextBlock Text="No numeric data to graph yet" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource AppSecondaryTextBrush}" FontWeight="Medium" />
+                    <TextBlock Text="{Binding EmptyMessage}" HorizontalAlignment="Center"
+                               TextAlignment="Center" MaxWidth="340" TextWrapping="Wrap"
+                               Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" />
+                </StackPanel>
+
+                <!-- Overlaid: all selected series on one shared axis -->
+                <controls:MultiLineChart Grid.Row="1" Series="{Binding OverlaySeries}"
+                                         IsVisible="{Binding ShowOverlay}" />
+
+                <!-- Stacked: one auto-scaled chart per series -->
+                <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowStacked}"
+                              VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding StackPanes}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="controls:GraphPane">
+                                <StackPanel Spacing="2" Margin="0,0,0,10">
+                                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium"
+                                               Foreground="{Binding Color}" />
+                                    <controls:MultiLineChart Series="{Binding Series}" Height="130" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <TextBlock Grid.Row="2" Text="{Binding Footer}" Margin="2,4,2,0" FontSize="11"
+                           Foreground="{DynamicResource AppMutedTextBrush}"
+                           IsVisible="{Binding HasData}" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

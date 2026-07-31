@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MQTTnet;
 using MQTTnet.Client;
+using RemoteStuff.Models;
 using RemoteStuff.Util;
 
 namespace RemoteStuff.ViewModels;
@@ -98,6 +99,8 @@ public sealed partial class MqttTabViewModel : TabViewModel
     {
         if (value is not null) PublishTopic = value.FullTopic;
         SelectedPayloadPretty = value is null ? "" : JsonText.Pretty(value.LatestPayload);
+        Graph.SetSamples(value?.FullTopic ?? "",
+            value is not null && _history.TryGetValue(value.FullTopic, out var series) ? series : null);
         OnPropertyChanged(nameof(HasSelectedTopic));
     }
 
@@ -120,25 +123,20 @@ public sealed partial class MqttTabViewModel : TabViewModel
         }
     }
 
-    /// <summary>Topics that have produced at least one numeric payload (graphable).</summary>
-    public ObservableCollection<string> NumericTopics { get; } = new();
+    /// <summary>Live graph of the selected topic's numeric history (shared with Redis).</summary>
+    public NumericGraphViewModel Graph { get; } = new()
+    {
+        EmptyMessage = "Select a topic that carries a number, or JSON with numeric fields, to graph its readings over time."
+    };
 
-    private readonly Dictionary<string, List<double>> _series = new();
-    private const int MaxSamples = 120;
+    private readonly Dictionary<string, List<NumericGraphSample>> _history = new();
+    private const int MaxSamplesPerTopic = 600;
 
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private string _statusText = "Not connected";
     [ObservableProperty] private string _subscribeTopic = "#";
     [ObservableProperty] private string _publishTopic = "";
     [ObservableProperty] private string _publishPayload = "";
-
-    [ObservableProperty] private string? _graphTopic;
-    [ObservableProperty] private string _graphSummary = "";
-    public System.Collections.ObjectModel.ObservableCollection<double> GraphValues { get; } = new();
-
-    public bool HasNumericTopics => NumericTopics.Count > 0;
-
-    partial void OnGraphTopicChanged(string? value) => RebuildGraph();
 
     public MqttTabViewModel(string host, int port, string? user, string? pass, string title, Guid? id = null)
     {
@@ -244,7 +242,9 @@ public sealed partial class MqttTabViewModel : TabViewModel
         Messages.Clear();
         TopicTree.Clear();
         _topicIndex.Clear();
+        _history.Clear();
         SelectedTopic = null;
+        Graph.SetSamples("", null);
     }
 
     [RelayCommand]
@@ -270,24 +270,6 @@ public sealed partial class MqttTabViewModel : TabViewModel
         OnPropertyChanged(nameof(User));
         Dispose();
         await ConnectAsync();
-    }
-
-    /// <summary>Extract a leading numeric value from a payload (e.g. "21.5°C" → 21.5).</summary>
-    private static bool TryParseNumeric(string payload, out double value)
-    {
-        value = 0;
-        var s = payload.Trim();
-        if (s.Length == 0) return false;
-        var i = 0;
-        if (s[0] is '+' or '-') i++;
-        var seenDot = false;
-        while (i < s.Length && (char.IsDigit(s[i]) || (s[i] == '.' && !seenDot)))
-        {
-            if (s[i] == '.') seenDot = true;
-            i++;
-        }
-        var head = s[..i];
-        return double.TryParse(head, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
     /// <summary>Insert or update a topic in the hierarchical tree, splitting on '/'.
@@ -323,57 +305,19 @@ public sealed partial class MqttTabViewModel : TabViewModel
 
     private void RecordNumeric(string topic, string payload)
     {
-        // Prefer numeric fields inside a JSON object (e.g. {"temp":21.5,"hum":40})
-        // so each field graphs as its own series, mirroring the macOS app.
-        var fields = new Dictionary<string, double>();
-        if (JsonText.TryExtractNumericFields(payload, fields))
+        // Build one timestamped sample per message from the payload's numeric leaves
+        // (a bare number, JSON numeric fields, or a number-with-unit), mirroring the
+        // macOS app so each field graphs as its own series.
+        var values = JsonText.NumericValues(payload);
+        if (values.Count == 0) return;
+        if (!_history.TryGetValue(topic, out var series))
         {
-            foreach (var (name, v) in fields)
-                AddSample(topic + " \u00b7 " + name, v);
+            series = new List<NumericGraphSample>();
+            _history[topic] = series;
         }
-        else if (TryParseNumeric(payload, out var value))
-        {
-            AddSample(topic, value);
-        }
-    }
-
-    /// <summary>Append a sample to a named series (topic, or "topic · field"),
-    /// registering it as graphable the first time it is seen.</summary>
-    private void AddSample(string seriesKey, double value)
-    {
-        if (!_series.TryGetValue(seriesKey, out var list))
-        {
-            list = new List<double>();
-            _series[seriesKey] = list;
-            NumericTopics.Add(seriesKey);
-            OnPropertyChanged(nameof(HasNumericTopics));
-            GraphTopic ??= seriesKey;
-        }
-        list.Add(value);
-        while (list.Count > MaxSamples) list.RemoveAt(0);
-        if (seriesKey == GraphTopic) RebuildGraph();
-    }
-
-    private void RebuildGraph()
-    {
-        if (GraphTopic is null || !_series.TryGetValue(GraphTopic, out var list) || list.Count < 2)
-        {
-            GraphValues.Clear();
-            GraphSummary = "";
-            return;
-        }
-        var min = list.Min();
-        var max = list.Max();
-        // Sync in-place so the Sparkline's collection-changed notification fires efficiently.
-        for (var i = 0; i < list.Count; i++)
-        {
-            if (i < GraphValues.Count) GraphValues[i] = list[i];
-            else GraphValues.Add(list[i]);
-        }
-        while (GraphValues.Count > list.Count) GraphValues.RemoveAt(GraphValues.Count - 1);
-        GraphSummary = $"last {list[^1].ToString("0.##", CultureInfo.InvariantCulture)}  ·  "
-            + $"min {min.ToString("0.##", CultureInfo.InvariantCulture)}  ·  "
-            + $"max {max.ToString("0.##", CultureInfo.InvariantCulture)}  ·  {list.Count} samples";
+        series.Add(new NumericGraphSample(DateTime.Now, values));
+        while (series.Count > MaxSamplesPerTopic) series.RemoveAt(0);
+        if (SelectedTopic?.FullTopic == topic) Graph.SetSamples(topic, series);
     }
 
     public override void Dispose()

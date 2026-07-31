@@ -50,7 +50,7 @@
 
         <GridSplitter Grid.Column="1" Background="{DynamicResource AppDividerBrush}" ResizeDirection="Columns" />
 
-        <Grid Grid.Column="2" RowDefinitions="Auto,Auto,180,4,*,Auto">
+        <Grid Grid.Column="2" RowDefinitions="Auto,Auto,320,4,*,Auto">
 
         <!-- Subscribe -->
         <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
@@ -80,17 +80,10 @@
 
                 <!-- Numeric graph -->
                 <Expander Header="Graph" IsExpanded="True" HorizontalAlignment="Stretch"
-                          IsVisible="{Binding HasNumericTopics}"
+                          IsVisible="{Binding HasSelectedTopic}"
                           Background="{DynamicResource AppInsetBrush}">
-                    <StackPanel Spacing="4" Margin="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <ComboBox MinWidth="240" ItemsSource="{Binding NumericTopics}"
-                                      SelectedItem="{Binding GraphTopic, Mode=TwoWay}" />
-                            <TextBlock Text="{Binding GraphSummary}" Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" FontSize="11" />
-                        </StackPanel>
-                        <controls:Sparkline Values="{Binding GraphValues}" Height="90"
-                                            Stroke="#7FB0DE" StrokeThickness="1.5" Fill="#1A7FB0DE" />
-                    </StackPanel>
+                    <controls:NumericSeriesGraphView DataContext="{Binding Graph}"
+                                                     Height="260" Margin="4" />
                 </Expander>
 
                 <!-- Selected topic payload (pretty JSON) -->

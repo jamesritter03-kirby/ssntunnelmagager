@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using RemoteStuff.Models;
 using RemoteStuff.Util;
 using StackExchange.Redis;
 
@@ -45,6 +47,16 @@ public sealed partial class RedisTabViewModel : TabViewModel
     };
 
     public ObservableCollection<string> Keys { get; } = new();
+
+    /// <summary>Live graph of the selected key's numeric history (shared with MQTT).
+    /// Turn on Live to sample a changing key over time.</summary>
+    public NumericGraphViewModel Graph { get; } = new()
+    {
+        EmptyMessage = "Select a string key that holds a number, or JSON with numeric fields, to graph it. Turn on Live to sample it over time."
+    };
+
+    private readonly Dictionary<string, List<NumericGraphSample>> _history = new();
+    private const int MaxSamplesPerKey = 600;
 
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private string _statusText = "Not connected";
@@ -134,6 +146,8 @@ public sealed partial class RedisTabViewModel : TabViewModel
 
     partial void OnSelectedKeyChanged(string? value)
     {
+        Graph.SetSamples(value ?? "",
+            value is not null && _history.TryGetValue(value, out var series) ? series : null);
         if (!string.IsNullOrEmpty(value)) _ = LoadValue(value);
     }
 
@@ -158,8 +172,26 @@ public sealed partial class RedisTabViewModel : TabViewModel
             };
             // Pretty-print JSON string values automatically (mirrors the macOS app).
             SelectedValue = type == RedisType.String ? JsonText.Pretty(text) : text;
+            if (type == RedisType.String) RecordNumeric(key, text);
         }
         catch (Exception ex) { StatusText = "Load failed: " + ex.Message; }
+    }
+
+    /// <summary>Append a timestamped sample from a string value's numeric leaves
+    /// (a bare number, or JSON numeric fields) so the key can be graphed live.
+    /// Turning on Live re-loads periodically, growing the series over time.</summary>
+    private void RecordNumeric(string key, string raw)
+    {
+        var values = JsonText.NumericValues(raw);
+        if (values.Count == 0) return;
+        if (!_history.TryGetValue(key, out var series))
+        {
+            series = new List<NumericGraphSample>();
+            _history[key] = series;
+        }
+        series.Add(new NumericGraphSample(DateTime.Now, values));
+        while (series.Count > MaxSamplesPerKey) series.RemoveAt(0);
+        if (SelectedKey == key) Graph.SetSamples(key, series);
     }
 
     [RelayCommand]
@@ -197,9 +229,11 @@ public sealed partial class RedisTabViewModel : TabViewModel
             await _mux.GetDatabase().KeyDeleteAsync(SelectedKey);
             var removed = SelectedKey;
             Keys.Remove(removed);
+            _history.Remove(removed);
             SelectedKey = null;
             SelectedValue = "";
             KeyTtl = "";
+            Graph.SetSamples("", null);
             StatusText = "Deleted " + removed;
         }
         catch (Exception ex) { StatusText = "Delete failed: " + ex.Message; }
