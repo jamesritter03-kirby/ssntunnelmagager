@@ -158,6 +158,9 @@ public sealed partial class TerminalTabViewModel : TabViewModel
         Terminal.HostKeyChanged += () =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() => HostKeyChangedDetected = true);
 
+        Terminal.BadKeyPermissions += () =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => BadKeyPermissionsDetected = true);
+
         Terminal.StartDeferred(executable, args, env, workingDirectory, runOnConnect);
     }
 
@@ -328,6 +331,9 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     /// <summary>True when ssh reported the remote host key changed for this session.</summary>
     [ObservableProperty] private bool _hostKeyChangedDetected;
 
+    /// <summary>True when ssh refused the key file due to unsafe permissions.</summary>
+    [ObservableProperty] private bool _badKeyPermissionsDetected;
+
     /// <summary>Remove the stale entry from <c>known_hosts</c> (via <c>ssh-keygen -R</c>)
     /// and reconnect. Mirrors the macOS "Remove Key &amp; Reconnect" action.</summary>
     [RelayCommand]
@@ -366,6 +372,39 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     /// <summary>Dismiss the host-key-changed banner without touching known_hosts.</summary>
     [RelayCommand]
     private void DismissHostKeyBanner() => HostKeyChangedDetected = false;
+
+    [RelayCommand]
+    private async System.Threading.Tasks.Task FixKeyPermissions()
+    {
+        var path = RemoteStuff.Services.SshCommandBuilder.ExpandPath(Profile?.IdentityFile?.Trim() ?? "");
+        if (string.IsNullOrEmpty(path)) { BadKeyPermissionsDetected = false; return; }
+        try
+        {
+            System.Diagnostics.ProcessStartInfo psi;
+            if (System.OperatingSystem.IsWindows())
+                psi = new System.Diagnostics.ProcessStartInfo("icacls")
+                {
+                    Arguments = $"\"{ path}\" /inheritance:r /grant:r \"{System.Environment.UserName}:R\"",
+                    UseShellExecute = false, RedirectStandardOutput = true,
+                    RedirectStandardError = true, CreateNoWindow = true
+                };
+            else
+                psi = new System.Diagnostics.ProcessStartInfo("chmod")
+                {
+                    Arguments = $"600 \"{path}\"",
+                    UseShellExecute = false, RedirectStandardOutput = true,
+                    RedirectStandardError = true, CreateNoWindow = true
+                };
+            using var proc = System.Diagnostics.Process.Start(psi)!;
+            await proc.WaitForExitAsync();
+        }
+        catch { /* ignore — user will see the raw SSH error if it persists */ }
+        BadKeyPermissionsDetected = false;
+        Reconnect();
+    }
+
+    [RelayCommand]
+    private void DismissKeyPermissionsBanner() => BadKeyPermissionsDetected = false;
 
     /// <summary>Re-point this terminal at a new connection (new host/port/user args
     /// and/or a new run-on-connect command) and reconnect in place. Backs the tab's

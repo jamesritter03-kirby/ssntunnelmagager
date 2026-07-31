@@ -26,7 +26,8 @@ public static class SshCommandBuilder
     }
 
     /// <summary>Build the argument list passed to <c>ssh</c> for a profile.</summary>
-    public static List<string> Arguments(SshProfile profile, string? controlPath = null)
+    /// <param name="suppressPasswordAuth">When true (key set, no stored password), adds PasswordAuthentication=no so SSH won't fall back to prompting.</param>
+    public static List<string> Arguments(SshProfile profile, string? controlPath = null, bool suppressPasswordAuth = false)
     {
         var args = new List<string>();
 
@@ -73,9 +74,13 @@ public static class SshCommandBuilder
 
         var identity = profile.IdentityFile.Trim();
         if (identity.Length > 0)
+        {
             // Use only this key; without IdentitiesOnly ssh may offer agent keys
             // first, hit MaxAuthTries, and fall back to a password prompt.
             args.AddRange(new[] { "-i", ExpandPath(identity), "-o", "IdentitiesOnly=yes" });
+            if (suppressPasswordAuth)
+                args.AddRange(new[] { "-o", "PasswordAuthentication=no" });
+        }
 
         var jump = profile.JumpHost.Trim();
         if (jump.Length > 0)

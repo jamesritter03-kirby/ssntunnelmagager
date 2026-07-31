@@ -63,6 +63,7 @@ public sealed class TerminalControl : Control
     /// <summary>Raised once when ssh reports the remote host key changed
     /// ("REMOTE HOST IDENTIFICATION HAS CHANGED" / "Host key verification failed").</summary>
     public event Action? HostKeyChanged;
+    public event Action? BadKeyPermissions;
 
     public TerminalControl()
     {
@@ -137,6 +138,8 @@ public sealed class TerminalControl : Control
         _running = false;
         _hostKeyFired = false;
         _hostKeyScanTail = "";
+        _badKeyPermFired = false;
+        _badKeyPermScanTail = "";
         _autoPwSent = 0;
         _lastPromptSeen = "";
         _emu.Feed("\r\n\u001b[2m— reconnecting —\u001b[0m\r\n".AsSpan());
@@ -309,6 +312,7 @@ public sealed class TerminalControl : Control
                     MaybeAutoTypePassword();
                     MaybeFireRunOnConnect();
                     ScanForHostKeyChange(new ReadOnlySpan<char>(chars, 0, count));
+                    ScanForBadKeyPermissions(new ReadOnlySpan<char>(chars, 0, count));
                 }
                 catch { /* keep the reader alive; a dropped frame beats a crash */ }
             }
@@ -335,6 +339,25 @@ public sealed class TerminalControl : Control
         {
             _hostKeyFired = true;
             Dispatcher.UIThread.Post(() => HostKeyChanged?.Invoke());
+        }
+    }
+
+    // ---- Bad key permissions detection ----
+    private string _badKeyPermScanTail = "";
+    private bool _badKeyPermFired;
+
+    private void ScanForBadKeyPermissions(ReadOnlySpan<char> chunk)
+    {
+        if (_badKeyPermFired) return;
+        var combined = _badKeyPermScanTail + new string(chunk);
+        if (combined.Length > 4096) combined = combined.Substring(combined.Length - 4096);
+        _badKeyPermScanTail = combined;
+        if (combined.Contains("UNPROTECTED PRIVATE KEY FILE", StringComparison.Ordinal) ||
+            combined.Contains("bad permissions: ignore key", StringComparison.Ordinal) ||
+            combined.Contains("are too open", StringComparison.Ordinal))
+        {
+            _badKeyPermFired = true;
+            Dispatcher.UIThread.Post(() => BadKeyPermissions?.Invoke());
         }
     }
 

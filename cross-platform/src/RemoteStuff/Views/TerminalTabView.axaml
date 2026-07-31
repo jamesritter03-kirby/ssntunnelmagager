@@ -23,5 +23,14 @@
                 <Button Content="Dismiss" Command="{Binding DismissHostKeyBannerCommand}" Padding="10,2" />
             </StackPanel>
         </Border>
-    </Grid>
+        <!-- SSH key permissions warning -->
+        <Border Grid.Row="1" VerticalAlignment="Bottom" IsVisible="{Binding BadKeyPermissionsDetected}"
+                Background="#1F2A1A" BorderBrush="#3A7A3A" BorderThickness="0,1,0,0" Padding="10,6">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="&#x26A0; SSH key file permissions are too open &#x2014; other users can read your private key."
+                           Foreground="#9FD3A0" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <Button Content="Fix Permissions &amp; Reconnect" Command="{Binding FixKeyPermissionsCommand}" Padding="10,2" />
+                <Button Content="Dismiss" Command="{Binding DismissKeyPermissionsBannerCommand}" Padding="10,2" />
+            </StackPanel>
+        </Border>    </Grid>
 </UserControl>

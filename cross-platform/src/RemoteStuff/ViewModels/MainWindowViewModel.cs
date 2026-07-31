@@ -1078,6 +1078,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         string[] args;
         string? cwd = null;
         string? controlPath = null;
+        var storedPassword = adHocPassword ?? _secrets.Get(profile.Id);
 
         if (profile.IsLocal)
         {
@@ -1115,7 +1116,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 // Windows OpenSSH doesn't support connection multiplexing, so skip it there.
                 controlPath = OperatingSystem.IsWindows() ? null : ControlSocketPath(profile.Id);
                 exe = File.Exists("/usr/bin/ssh") ? "/usr/bin/ssh" : "ssh";
-                args = SshCommandBuilder.Arguments(profile, controlPath).ToArray();
+                // Suppress password fallback when a key is configured but no password is stored.
+                var suppressPw = !string.IsNullOrEmpty(profile.IdentityFile) && string.IsNullOrEmpty(storedPassword);
+                args = SshCommandBuilder.Arguments(profile, controlPath, suppressPasswordAuth: suppressPw).ToArray();
             }
         }
 
@@ -1134,7 +1137,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 ? TerminalTheme.ById(profile.Theme)
                 : TerminalTheme.ById(themeOverride),
             snippets: profile.Snippets,
-            autoPassword: profile.IsLocal ? null : (adHocPassword ?? _secrets.Get(profile.Id)));
+            autoPassword: profile.IsLocal ? null : (storedPassword));
 
         tab.ProfileId = profile.Id;
         tab.Profile = profile;
