@@ -303,6 +303,7 @@ private struct DockColumnView: View {
                             Image(systemName: session.symbolName)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            railTitle(session)
                         }
                     }
                 }
@@ -323,6 +324,25 @@ private struct DockColumnView: View {
         case .right:  return "chevron.left"
         case .top:    return "chevron.down"
         case .bottom: return "chevron.up"
+        }
+    }
+
+    /// The pane's tab name on the collapsed rail: read vertically (rotated) on a
+    /// left/right rail, horizontally on a top/bottom rail.
+    @ViewBuilder private func railTitle(_ session: TerminalSession) -> some View {
+        let text = Text(session.title)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(session.title)
+        if isHorizontal {
+            text.frame(maxWidth: 90)
+        } else {
+            text.frame(width: 96, alignment: .leading)
+                .fixedSize()
+                .rotationEffect(.degrees(-90))
+                .frame(width: 16, height: 96)
         }
     }
 

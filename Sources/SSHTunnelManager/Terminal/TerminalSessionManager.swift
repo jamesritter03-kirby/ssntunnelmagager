@@ -193,20 +193,35 @@ final class TerminalSessionManager: ObservableObject {
     }
 
     /// The network endpoint (host, port) a session can be TCP health-probed
-    /// against, or nil for local shells / tabs with no network target. Drives
-    /// the Connection Health window.
+    /// against, or nil for local shells / tabs with no network target. Works for
+    /// ad-hoc tabs too (they carry their target in `serviceHost` / `servicePort`),
+    /// so health is never tied to a saved profile. Drives the Connection Health
+    /// window.
     func probeEndpoint(for session: TerminalSession) -> (host: String, port: Int)? {
-        guard let pid = session.profileID,
-              let p = ProfileStore.shared.profiles.first(where: { $0.id == pid }),
-              !p.isLocal else { return nil }
-        // Forwarded service tabs (web / MQTT / Redis) point at a local port.
-        if [.web, .mqtt, .redis].contains(session.kind),
-           let fwd = p.localForwardEndpoints.first {
-            return fwd
+        // Profile-backed tabs resolve from the profile. Forwarded service tabs
+        // (web / MQTT / Redis) point at a local forwarded port.
+        if let pid = session.profileID,
+           let p = ProfileStore.shared.profiles.first(where: { $0.id == pid }), !p.isLocal {
+            if [.web, .mqtt, .redis].contains(session.kind),
+               let fwd = p.localForwardEndpoints.first {
+                return fwd
+            }
+            let host = p.host.trimmingCharacters(in: .whitespaces)
+            if !host.isEmpty {
+                return (host, Int(p.port.trimmingCharacters(in: .whitespaces)) ?? 22)
+            }
         }
-        let host = p.host.trimmingCharacters(in: .whitespaces)
-        guard !host.isEmpty else { return nil }
-        return (host, Int(p.port.trimmingCharacters(in: .whitespaces)) ?? 22)
+        // Ad-hoc (profile-free) networked tabs carry their target directly.
+        switch session.kind {
+        case .ssh, .sftp, .vnc, .mqtt, .redis:
+            let host = session.serviceHost.trimmingCharacters(in: .whitespaces)
+            guard !host.isEmpty else { return nil }
+            let port = session.servicePort ?? 22
+            guard port > 0 else { return nil }
+            return (host, port)
+        default:
+            return nil
+        }
     }
 
     // MARK: - Auto-connect on launch

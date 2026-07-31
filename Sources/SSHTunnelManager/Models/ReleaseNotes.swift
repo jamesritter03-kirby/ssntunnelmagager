@@ -45,11 +45,19 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.74", build: 84, date: "Jul 31, 2026",
+            highlights: [
+                "Connection Health now works for ad-hoc connections too, not just saved profiles: any SSH, SFTP, VNC or forwarded-service tab is probed on its own target host and port, so the health window lists every networked tab.",
+                "Collapsed side drawers now show each docked tab's name along the rail (read vertically on left/right drawers), so you can tell panes apart without sliding the drawer back out.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.73", build: 83, date: "Jul 31, 2026",
             highlights: [
                 "New Connection Health window: right-click a tab or workspace and choose Connection Health… to open a live dashboard that TCP-probes each connection for reachability and round-trip latency, with per-connection sparklines, connect/drop counts, uptime %, and an aggregate average-latency graph.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.72", build: 82, date: "Jul 31, 2026",
