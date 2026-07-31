@@ -411,7 +411,8 @@ struct MQTTExplorerView: View {
             samples: samples,
             selection: $graphSelection,
             stack: $stackGraphs,
-            emptyMessage: "This topic hasn’t sent a numeric value. A bare number, or numeric fields inside a JSON payload, will appear here as live series as new messages arrive."
+            emptyMessage: "This topic hasn’t sent a numeric value. A bare number, or numeric fields inside a JSON payload, will appear here as live series as new messages arrive.",
+            exportName: topic
         )
     }
 

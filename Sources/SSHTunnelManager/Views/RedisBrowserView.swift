@@ -247,7 +247,8 @@ struct RedisBrowserView: View {
             samples: samples,
             selection: $graphSelection,
             stack: $stackGraphs,
-            emptyMessage: "This key doesn’t hold a numeric value. A bare number, or numeric fields inside a JSON value, will appear here as live series while the value keeps changing (turn on Live to keep polling)."
+            emptyMessage: "This key doesn’t hold a numeric value. A bare number, or numeric fields inside a JSON value, will appear here as live series while the value keeps changing (turn on Live to keep polling).",
+            exportName: key
         )
     }
 

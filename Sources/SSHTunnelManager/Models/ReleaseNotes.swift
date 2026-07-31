@@ -45,12 +45,19 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.78", build: 88, date: "Jul 31, 2026",
+            highlights: [
+                "MQTT and Redis graphs can now be exported: a new share button offers Save Chart Image… and Copy Chart Image (PNG), plus Export Data as CSV… and Export Data as JSON… of the plotted history — timestamped, one column per series.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.77", build: 87, date: "Jul 31, 2026",
             highlights: [
                 "Redis tab: string keys holding a number (or JSON with numeric fields) now have a Graph view — the same live line chart as the MQTT tab, including the per-series chips and Stack toggle. Turn on Live to keep the graph updating.",
                 "Fixed: ad-hoc MQTT and Redis tabs now remember their password across quit and relaunch, so they reconnect on resume instead of coming back disconnected and making you edit the connection and retype the password.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.76", build: 86, date: "Jul 31, 2026",
