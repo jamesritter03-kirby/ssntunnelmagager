@@ -250,6 +250,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// Set when a PTY start was requested before the view was on screen; the
     /// pending start runs once `startIfPending()` sees the view attached.
     private var pendingStart = false
+    /// How many times we've signalled a still-alive child while trying to (re)spawn,
+    /// so a retry escalates SIGHUP → SIGKILL instead of looping on a wedged process.
+    private var staleChildKills = 0
 
     /// Run-on-connect bookkeeping: the command still to fire, and whether it has
     /// already been scheduled/sent for this connection.
@@ -530,6 +533,25 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             pendingStart = true
             return
         }
+
+        // SwiftTerm reuses a single `LocalProcess` whose `startProcess()` no-ops
+        // while its child is still `running`. Reconnecting before that child is
+        // reaped would leave a phantom "connected" tab with no live process, so
+        // hang up the stale child (escalating to SIGKILL) and retry once it's gone.
+        if terminalView.process?.running == true {
+            if let pid = terminalView.process?.shellPid, pid > 0 {
+                kill(pid, staleChildKills == 0 ? SIGHUP : SIGKILL)
+            }
+            staleChildKills += 1
+            pendingStart = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                guard let self, self.pendingStart, !self.hasStarted else { return }
+                self.pendingStart = false
+                self.start()
+            }
+            return
+        }
+        staleChildKills = 0
 
         hasStarted = true
         isRunning = true
