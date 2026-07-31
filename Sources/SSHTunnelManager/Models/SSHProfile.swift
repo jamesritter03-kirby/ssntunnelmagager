@@ -51,6 +51,16 @@ enum ForwardType: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+extension ForwardType {
+    // Match raw values case-insensitively so PascalCase values from the
+    // cross-platform app's older exports (e.g. "Local") still import; fall back
+    // to `.local` for anything unrecognised rather than failing the whole file.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = Self.allCases.first { $0.rawValue.caseInsensitiveCompare(raw) == .orderedSame } ?? .local
+    }
+}
+
 /// What a (local) port forward exposes, so the app can offer a matching
 /// "Open" action that launches the right kind of tab against the forwarded
 /// local port. Purely a convenience layer over a normal `-L` forward — it does
@@ -105,6 +115,15 @@ enum ForwardCategory: String, Codable, CaseIterable, Identifiable {
         case .redis: return .redis
         default:     return nil
         }
+    }
+}
+
+extension ForwardCategory {
+    // Case-insensitive so PascalCase values from the cross-platform app's older
+    // exports (e.g. "None", "Mqtt") still import; unknown values fall back to `.none`.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = Self.allCases.first { $0.rawValue.caseInsensitiveCompare(raw) == .orderedSame } ?? .none
     }
 }
 
@@ -232,6 +251,15 @@ enum StrictHostKeyChecking: String, Codable, CaseIterable, Identifiable {
         case .yes:       return "yes"
         case .no:        return "no"
         }
+    }
+}
+
+extension StrictHostKeyChecking {
+    // Case-insensitive so PascalCase values from the cross-platform app's older
+    // exports (e.g. "Ask", "AcceptNew") still import; unknown values fall back to `.ask`.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = Self.allCases.first { $0.rawValue.caseInsensitiveCompare(raw) == .orderedSame } ?? .ask
     }
 }
 
@@ -512,7 +540,13 @@ extension SSHProfile {
         workspace = try c.decodeIfPresent(String.self, forKey: .workspace) ?? ""
         opensInOwnWorkspace = try c.decodeIfPresent(Bool.self, forKey: .opensInOwnWorkspace) ?? false
         workspaceTemplateID = try c.decodeIfPresent(UUID.self, forKey: .workspaceTemplateID)
-        workspaceTabColor = try c.decodeIfPresent(TabColor.self, forKey: .workspaceTabColor)
+        // The cross-platform app may store a hex colour or a differently-cased name
+        // here; accept a known colour case-insensitively, otherwise leave it unset.
+        if let rawColor = try c.decodeIfPresent(String.self, forKey: .workspaceTabColor) {
+            workspaceTabColor = TabColor.allCases.first { $0.rawValue.caseInsensitiveCompare(rawColor) == .orderedSame }
+        } else {
+            workspaceTabColor = nil
+        }
         isWorkspaceLauncher = try c.decodeIfPresent(Bool.self, forKey: .isWorkspaceLauncher) ?? false
         // Migrate the pre-1.9.21 free-text “open in workspace”: a profile that only
         // had a name string now launches into its own (custom-named) workspace.
