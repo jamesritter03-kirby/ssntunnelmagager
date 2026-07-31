@@ -45,6 +45,14 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.71", build: 81, date: "Jul 31, 2026",
+            highlights: [
+                "Docked side panels now show the tab type alongside its name in the drawer header, so you can tell an SSH, SFTP, MQTT or Redis pane apart at a glance.",
+                "Connection health: SSH tunnel tabs now track connects, drops, uptime %, and last-seen times. Hover a connected profile's status dot in the sidebar for the full summary, or find it in the tab and workspace right-click menus.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.65", build: 75, date: "Jul 27, 2026",
             highlights: [
                 "Mouse-wheel scrolling of the tab strip now works with any pointing device, including trackpads and modern smooth-scroll mice: hover the tabs and spin the wheel (or two-finger swipe) to move through them when there are more tabs than fit.",

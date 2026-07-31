@@ -407,6 +407,7 @@ struct SidebarView: View {
             profile: profile,
             isConnected: sessions.isConnected(profile: profile),
             health: sessions.tunnelHealth(for: profile),
+            healthDetail: sessions.healthTooltip(for: profile),
             onConnect: { onConnect(profile) },
             onDisconnect: { sessions.disconnect(profile: profile) }
         )
@@ -708,6 +709,8 @@ struct ProfileRow: View {
     let profile: SSHProfile
     var isConnected: Bool = false
     var health: TunnelHealth = .unknown
+    /// Rich multi-line tooltip for the status dot (connect/drop/uptime, last seen).
+    var healthDetail: String? = nil
     var onConnect: () -> Void
     var onDisconnect: () -> Void = {}
 
@@ -729,9 +732,9 @@ struct ProfileRow: View {
                             .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor),
                                                            lineWidth: 1.5))
                             .offset(x: 3, y: 2)
-                            .help(health == .degraded
+                            .help(healthDetail ?? (health == .degraded
                                   ? "Connected — a forwarded port isn't responding"
-                                  : "Connected")
+                                  : "Connected"))
                     }
                 }
             VStack(alignment: .leading, spacing: 2) {

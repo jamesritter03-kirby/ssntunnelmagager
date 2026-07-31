@@ -160,9 +160,11 @@ final class TerminalSessionManager: ObservableObject {
                   let profile = ProfileStore.shared.profiles.first(where: { $0.id == pid }) else { continue }
             let endpoints = profile.localForwardEndpoints
             guard !endpoints.isEmpty else { continue }
-            TCPProbe.allReachable(endpoints, timeout: 2.0) { healthy in
-                let newHealth: TunnelHealth = healthy ? .healthy : .degraded
-                if session.tunnelHealth != newHealth { session.tunnelHealth = newHealth }
+            TCPProbe.allReachable(endpoints, timeout: 2.0) { [weak self] healthy in
+                session.recordHealthProbe(healthy: healthy)
+                // The session's own `objectWillChange` isn't relayed here, so nudge
+                // the manager so the sidebar dot / tooltip pick up the new stats.
+                self?.objectWillChange.send()
             }
         }
     }
@@ -171,6 +173,13 @@ final class TerminalSessionManager: ObservableObject {
     func tunnelHealth(for profile: SSHProfile) -> TunnelHealth {
         sessions.first { $0.profileID == profile.id && $0.kind == .ssh && $0.isRunning }?
             .tunnelHealth ?? .unknown
+    }
+
+    /// The rich health tooltip (reachability + connect/drop/uptime + last-seen)
+    /// for a profile's running ssh tab, or `nil` when it has no live tunnel.
+    func healthTooltip(for profile: SSHProfile) -> String? {
+        sessions.first { $0.profileID == profile.id && $0.kind == .ssh && $0.isRunning }?
+            .healthTooltip
     }
 
     // MARK: - Auto-connect on launch
@@ -258,6 +267,12 @@ final class TerminalSessionManager: ObservableObject {
     func tabCount(in workspaceID: UUID) -> Int {
         guard let ws = workspaces.first(where: { $0.id == workspaceID }) else { return 0 }
         return ws.tabIDs.filter { id in sessions.contains { $0.id == id } }.count
+    }
+
+    /// The live sessions belonging to a workspace, in tab order (for its menu).
+    func openSessions(inWorkspace workspaceID: UUID) -> [TerminalSession] {
+        guard let ws = workspaces.first(where: { $0.id == workspaceID }) else { return [] }
+        return ws.tabIDs.compactMap { id in sessions.first { $0.id == id } }
     }
 
     /// Look up a live session by id.

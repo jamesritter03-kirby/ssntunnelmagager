@@ -45,6 +45,20 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     @Published private(set) var commandHistory: [String] = []
     /// Live reachability of this session's forwarded local ports (sidebar dot).
     @Published var tunnelHealth: TunnelHealth = .unknown
+    /// Times this tunnel recovered (an unreachable → reachable probe transition).
+    @Published private(set) var healthConnectCount = 0
+    /// Times this tunnel dropped (a reachable → unreachable probe transition).
+    @Published private(set) var healthDropCount = 0
+    /// Share of health probes that found every forwarded port reachable (0–100),
+    /// or -1 before the first probe.
+    @Published private(set) var healthUptimePercent: Double = -1
+    private var healthProbeTotal = 0
+    private var healthProbeLive = 0
+    private var healthFirstProbe = true
+    private var healthPreviousLive = false
+    /// When the tunnel was last seen reachable / last seen to drop (nil = never).
+    private(set) var healthLastConnectedAt: Date?
+    private(set) var healthLastDroppedAt: Date?
     /// Set to the offending host when ssh reports its host key has changed
     /// ("REMOTE HOST IDENTIFICATION HAS CHANGED"). Drives an in-app prompt that
     /// offers to remove the stale `known_hosts` entry and reconnect. Cleared once
@@ -1376,5 +1390,72 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             self.exitCode = exitCode
             self.tunnelHealth = .unknown
         }
+    }
+}
+
+// MARK: - Connection health tracking
+
+extension TerminalSession {
+    /// Record one tunnel-health probe result and roll the running connect / drop
+    /// counts, uptime %, and last-seen timestamps. Also updates `tunnelHealth`.
+    func recordHealthProbe(healthy: Bool) {
+        healthProbeTotal += 1
+        if healthy { healthProbeLive += 1 }
+        healthUptimePercent = Double(healthProbeLive) / Double(healthProbeTotal) * 100
+
+        if healthFirstProbe {
+            healthFirstProbe = false
+            if healthy { healthLastConnectedAt = Date() }
+        } else if !healthPreviousLive && healthy {
+            healthConnectCount += 1
+            healthLastConnectedAt = Date()
+        } else if healthPreviousLive && !healthy {
+            healthDropCount += 1
+            healthLastDroppedAt = Date()
+        }
+        healthPreviousLive = healthy
+
+        let newHealth: TunnelHealth = healthy ? .healthy : .degraded
+        if tunnelHealth != newHealth { tunnelHealth = newHealth }
+    }
+
+    /// A one-line connect / drop / uptime summary, or nil before the first probe.
+    var healthStatsSummary: String? {
+        guard healthProbeTotal > 0 else { return nil }
+        var parts = ["↑ \(healthConnectCount) connect\(healthConnectCount == 1 ? "" : "s")",
+                     "↓ \(healthDropCount) drop\(healthDropCount == 1 ? "" : "s")"]
+        if healthUptimePercent >= 0 {
+            parts.append("\(Int(healthUptimePercent.rounded()))% uptime")
+        }
+        return parts.joined(separator: "  ")
+    }
+
+    /// A one-line "last up / last drop" summary, or nil if nothing happened yet.
+    var healthEventSummary: String? {
+        var parts: [String] = []
+        if let c = healthLastConnectedAt { parts.append("last up " + Self.healthAgo(c)) }
+        if let d = healthLastDroppedAt { parts.append("last drop " + Self.healthAgo(d)) }
+        return parts.isEmpty ? nil : parts.joined(separator: "  ·  ")
+    }
+
+    /// The multi-line tooltip for the sidebar health dot: base reachability plus
+    /// the connect / drop / uptime counters and last-seen timestamps.
+    var healthTooltip: String {
+        var lines = [tunnelHealth == .degraded
+                     ? "Connected — a forwarded port isn't responding"
+                     : "Connected"]
+        if let s = healthStatsSummary { lines.append(s) }
+        if let e = healthEventSummary { lines.append(e) }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func healthAgo(_ t: Date) -> String {
+        let span = Date().timeIntervalSince(t)
+        if span < 5 { return "just now" }
+        if span < 60 { return "\(Int(span))s ago" }
+        if span < 3600 { return "\(Int(span / 60))m ago" }
+        let h = Int(span / 3600)
+        let m = Int(span.truncatingRemainder(dividingBy: 3600) / 60)
+        return "\(h)h \(m)m ago"
     }
 }
