@@ -298,7 +298,10 @@ private struct DockColumnView: View {
                     .font(.system(size: 11, weight: .bold))
                 ForEach(panes, id: \.sessionID) { pane in
                     if let session = sessions.session(id: pane.sessionID) {
-                        VStack(spacing: 5) {
+                        let paneLayout = isHorizontal
+                            ? AnyLayout(HStackLayout(spacing: 5))
+                            : AnyLayout(VStackLayout(spacing: 5))
+                        paneLayout {
                             Circle().fill(statusColor(session)).frame(width: 6, height: 6)
                             Image(systemName: session.symbolName)
                                 .font(.caption)
@@ -327,8 +330,9 @@ private struct DockColumnView: View {
         }
     }
 
-    /// The pane's tab name on the collapsed rail: read vertically (rotated) on a
-    /// left/right rail, horizontally on a top/bottom rail.
+    /// The pane's tab name on the collapsed rail: laid out inline on a top/bottom
+    /// rail so it fits the thin toolbar, and rotated to read bottom-to-top on a
+    /// left/right rail.
     @ViewBuilder private func railTitle(_ session: TerminalSession) -> some View {
         let text = Text(session.title)
             .font(.caption2)
@@ -337,11 +341,12 @@ private struct DockColumnView: View {
             .truncationMode(.tail)
             .help(session.title)
         if isHorizontal {
-            text.frame(maxWidth: 90)
+            text.frame(maxWidth: 120)
+                .fixedSize(horizontal: false, vertical: true)
         } else {
             text.frame(width: 96, alignment: .leading)
                 .fixedSize()
-                .rotationEffect(.degrees(-90))
+                .rotationEffect(.degrees(90))
                 .frame(width: 16, height: 96)
         }
     }

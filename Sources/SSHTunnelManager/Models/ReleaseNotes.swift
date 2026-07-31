@@ -45,12 +45,20 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.75", build: 85, date: "Jul 31, 2026",
+            highlights: [
+                "Collapsed top/bottom drawers now lay each docked tab's dot, icon and name out inline so they fit the thin toolbar in a single row.",
+                "Collapsed left/right drawer tab names now read bottom-to-top.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.74", build: 84, date: "Jul 31, 2026",
             highlights: [
                 "Connection Health now works for ad-hoc connections too, not just saved profiles: any SSH, SFTP, VNC or forwarded-service tab is probed on its own target host and port, so the health window lists every networked tab.",
                 "Collapsed side drawers now show each docked tab's name along the rail (read vertically on left/right drawers), so you can tell panes apart without sliding the drawer back out.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.73", build: 83, date: "Jul 31, 2026",
