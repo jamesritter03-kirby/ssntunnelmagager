@@ -176,18 +176,51 @@ public sealed partial class ConnectionStatRow : ObservableObject
     public string Endpoint => $"{Host}:{Port}";
     public ObservableCollection<double> History { get; } = new();
 
+    private bool _firstProbe = true;
+    private bool _previousLive;
+    private int _totalProbes;
+    private int _liveProbes;
+    private DateTime? _lastConnectedAt;
+    private DateTime? _lastDroppedAt;
+
     [ObservableProperty] private string _title;
     [ObservableProperty] private double _latencyMs = -1;
     [ObservableProperty] private bool _isLive;
     [ObservableProperty] private double _minMs = -1;
     [ObservableProperty] private double _maxMs = -1;
     [ObservableProperty] private double _avgMs = -1;
+    [ObservableProperty] private int _connectCount;
+    [ObservableProperty] private int _dropCount;
+    [ObservableProperty] private double _uptimePct = -1;
 
     public string LatencyText => LatencyMs < 0 ? "timeout" : $"{LatencyMs:0} ms";
     public string StatusText => IsLive ? "● reachable" : "● unreachable";
     public IBrush StatusBrush => new SolidColorBrush(Color.Parse(IsLive ? "#3FB950" : "#E5484D"));
     public IBrush LineBrush => new SolidColorBrush(Color.Parse(IsLive ? "#4C8BF5" : "#E5484D"));
     public string RangeText => MinMs < 0 ? "no samples yet" : $"min {MinMs:0} · avg {AvgMs:0} · max {MaxMs:0} ms";
+    public bool HasSessionStats => _totalProbes > 0;
+    public bool HasLastEvent => _lastConnectedAt.HasValue || _lastDroppedAt.HasValue;
+    public string ConnectStatsText =>
+        $"↑ {ConnectCount} connect{(ConnectCount == 1 ? "" : "s")}  ↓ {DropCount} drop{(DropCount == 1 ? "" : "s")}  {(UptimePct >= 0 ? $"{UptimePct:0}% uptime" : "")}";
+    public string LastEventText
+    {
+        get
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            if (_lastConnectedAt is { } c) parts.Add("last up " + FormatAgo(c));
+            if (_lastDroppedAt is { } d) parts.Add("last drop " + FormatAgo(d));
+            return string.Join("  ·  ", parts);
+        }
+    }
+
+    private static string FormatAgo(DateTime t)
+    {
+        var span = DateTime.Now - t;
+        if (span.TotalSeconds < 5) return "just now";
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s ago";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        return $"{(int)span.TotalHours}h {span.Minutes}m ago";
+    }
 
     public ConnectionStatRow(Guid tabId, string title, string glyph, string host, int port)
     {
@@ -201,8 +234,25 @@ public sealed partial class ConnectionStatRow : ObservableObject
     /// <summary>Record a probe result (negative = timeout/unreachable) and roll history.</summary>
     public void Apply(double ms)
     {
+        _totalProbes++;
+        bool nowLive = ms >= 0;
+        if (nowLive) _liveProbes++;
+        UptimePct = (double)_liveProbes / _totalProbes * 100;
+
+        if (!_firstProbe)
+        {
+            if (!_previousLive && nowLive) { ConnectCount++; _lastConnectedAt = DateTime.Now; }
+            else if (_previousLive && !nowLive) { DropCount++; _lastDroppedAt = DateTime.Now; }
+        }
+        else
+        {
+            _firstProbe = false;
+            if (nowLive) _lastConnectedAt = DateTime.Now;
+        }
+        _previousLive = nowLive;
+
         LatencyMs = ms;
-        IsLive = ms >= 0;
+        IsLive = nowLive;
 
         History.Add(ms);
         while (History.Count > HistoryLength) History.RemoveAt(0);
@@ -219,9 +269,16 @@ public sealed partial class ConnectionStatRow : ObservableObject
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusBrush));
         OnPropertyChanged(nameof(LineBrush));
+        OnPropertyChanged(nameof(ConnectStatsText));
+        OnPropertyChanged(nameof(LastEventText));
+        OnPropertyChanged(nameof(HasSessionStats));
+        OnPropertyChanged(nameof(HasLastEvent));
     }
 
     partial void OnMinMsChanged(double value) => OnPropertyChanged(nameof(RangeText));
     partial void OnMaxMsChanged(double value) => OnPropertyChanged(nameof(RangeText));
     partial void OnAvgMsChanged(double value) => OnPropertyChanged(nameof(RangeText));
+    partial void OnConnectCountChanged(int value) => OnPropertyChanged(nameof(ConnectStatsText));
+    partial void OnDropCountChanged(int value) => OnPropertyChanged(nameof(ConnectStatsText));
+    partial void OnUptimePctChanged(double value) => OnPropertyChanged(nameof(ConnectStatsText));
 }

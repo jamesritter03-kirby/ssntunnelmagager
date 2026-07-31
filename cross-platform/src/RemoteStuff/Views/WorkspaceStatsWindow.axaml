@@ -107,6 +107,12 @@
                                                    Stroke="{Binding LineBrush}" StrokeThickness="1.4" />
                                     <TextBlock Text="{Binding RangeText}" FontSize="11"
                                                Foreground="{DynamicResource AppMutedTextBrush}" />
+                                    <TextBlock Text="{Binding ConnectStatsText}" FontSize="11"
+                                               IsVisible="{Binding HasSessionStats}"
+                                               Foreground="{DynamicResource AppMutedTextBrush}" />
+                                    <TextBlock Text="{Binding LastEventText}" FontSize="11"
+                                               IsVisible="{Binding HasLastEvent}"
+                                               Foreground="{DynamicResource AppMutedTextBrush}" />
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
