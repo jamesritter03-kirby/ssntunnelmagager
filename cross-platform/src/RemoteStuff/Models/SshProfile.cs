@@ -191,6 +191,7 @@ public sealed class SshProfile
 
     public bool ForwardAgent { get; set; }
     public bool AddKeysToAgent { get; set; }
+    [JsonPropertyName("requestTTY")]
     public bool RequestTty { get; set; }
 
     /// <summary>Seconds before giving up on establishing the connection. 0 = ssh default.</summary>
@@ -252,7 +253,8 @@ public sealed class SshProfile
     public bool HasRenderableIcon =>
         IconIsEmoji || RemoteStuff.Views.Controls.AppIcons.Resolve(Icon) != null;
 
-    /// <summary>Optional tab accent colour (hex like <c>#4C8BF5</c>, empty = default).</summary>
+    /// <summary>Optional tab accent colour. Hex (#4C8BF5) or Swift named colour ("red", "blue", …).</summary>
+    [JsonPropertyName("workspaceTabColor")]
     public string TabColor { get; set; } = "";
 
     /// <summary>Use mosh (mobile shell) instead of plain ssh for the interactive shell.</summary>

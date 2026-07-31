@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using RemoteStuff.Models;
 
 namespace RemoteStuff.Services;
@@ -21,7 +22,9 @@ public sealed class ProfileStore
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        // Serialize enums as camelCase strings to match the macOS Swift app's raw values.
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
     public List<SshProfile> Profiles { get; private set; } = new();
@@ -46,6 +49,7 @@ public sealed class ProfileStore
 
     private void Load()
     {
+        bool needsMigration = false;
         try
         {
             if (File.Exists(_fileURL))
@@ -53,7 +57,12 @@ public sealed class ProfileStore
                 var data = File.ReadAllText(_fileURL);
                 var decoded = JsonSerializer.Deserialize<List<SshProfile>>(data, JsonOptions);
                 if (decoded != null)
+                {
                     Profiles = decoded;
+                    // Re-save if the on-disk format doesn't match what we'd write now
+                    // (e.g. old files with PascalCase enum values like "Local" vs "local").
+                    needsMigration = data != JsonSerializer.Serialize(Profiles, JsonOptions);
+                }
             }
         }
         catch
@@ -67,6 +76,10 @@ public sealed class ProfileStore
         {
             Profiles = ExampleProfiles.All();
             try { File.WriteAllText(_seededFlagPath, DateTime.UtcNow.ToString("o")); } catch { /* ignore */ }
+            Save();
+        }
+        else if (needsMigration)
+        {
             Save();
         }
     }

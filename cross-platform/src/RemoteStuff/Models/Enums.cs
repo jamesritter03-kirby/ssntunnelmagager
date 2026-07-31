@@ -13,7 +13,6 @@ public enum DockSide
 }
 
 /// <summary>How a profile launches relative to workspaces.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<WorkspaceLaunch>))]
 public enum WorkspaceLaunch
 {
     /// <summary>Open tabs in the current workspace / tab area.</summary>
@@ -49,7 +48,6 @@ public enum VncPhase
 }
 
 /// <summary>The kind of SSH port forwarding.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ForwardType>))]
 public enum ForwardType
 {
     Local,
@@ -92,7 +90,6 @@ public static class ForwardTypeExtensions
 /// What a (local) port forward exposes, so the app can offer a matching "Open" action.
 /// Purely a convenience layer over a normal <c>-L</c> forward.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ForwardCategory>))]
 public enum ForwardCategory
 {
     None,
@@ -124,7 +121,6 @@ public static class ForwardCategoryExtensions
 }
 
 /// <summary>How <c>ssh</c> verifies the server's host key when connecting.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<StrictHostKeyChecking>))]
 public enum StrictHostKeyChecking
 {
     /// <summary>ssh's own default: prompt to confirm a new host, refuse a changed one.</summary>

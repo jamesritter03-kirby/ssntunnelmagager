@@ -25,6 +25,9 @@ public sealed class TerminalControl : Control
     private IPtyProcess? _pty;
     private Thread? _reader;
     private volatile bool _running;
+    // Incremented each time a new session starts; lets a late-exiting reader thread
+    // from a disposed session detect it is stale and skip mutating shared state.
+    private volatile int _sessionId;
 
     private readonly Typeface _typeface = new(new FontFamily("Menlo, DejaVu Sans Mono, Cascadia Mono, Consolas, monospace"));
     private double _fontSize = 13;
@@ -128,11 +131,14 @@ public sealed class TerminalControl : Control
     public void Restart()
     {
         if (_lastSpec is not { } s) return;
+        _reapTimer?.Stop();
         _pty?.Dispose();
         _pty = null;
         _running = false;
         _hostKeyFired = false;
         _hostKeyScanTail = "";
+        _autoPwSent = 0;
+        _lastPromptSeen = "";
         _emu.Feed("\r\n\u001b[2m— reconnecting —\u001b[0m\r\n".AsSpan());
         _pending = s;
         _runOnConnect = _pendingRunOnConnect;
@@ -251,7 +257,8 @@ public sealed class TerminalControl : Control
         }
 
         _running = true;
-        _reader = new Thread(ReadLoop) { IsBackground = true, Name = "pty-read" };
+        var sessionId = ++_sessionId;
+        _reader = new Thread(() => ReadLoop(sessionId)) { IsBackground = true, Name = "pty-read" };
         _reader.Start();
 
         _reapTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
@@ -261,8 +268,11 @@ public sealed class TerminalControl : Control
             if (code is { } c)
             {
                 _reapTimer?.Stop();
-                _running = false;
-                Exited?.Invoke(c);
+                if (_sessionId == sessionId)
+                {
+                    _running = false;
+                    Exited?.Invoke(c);
+                }
             }
         };
         _reapTimer.Start();
@@ -275,7 +285,7 @@ public sealed class TerminalControl : Control
         return list.ToArray();
     }
 
-    private void ReadLoop()
+    private void ReadLoop(int sessionId)
     {
         var buf = new byte[8192];
         var decoder = Encoding.UTF8.GetDecoder();
@@ -303,7 +313,8 @@ public sealed class TerminalControl : Control
                 catch { /* keep the reader alive; a dropped frame beats a crash */ }
             }
         }
-        _running = false;
+        // Skip if a newer session has already started; stale reader must not clear the new session's flag.
+        if (_sessionId == sessionId) _running = false;
     }
 
     // ---- Host-key-changed detection ----
