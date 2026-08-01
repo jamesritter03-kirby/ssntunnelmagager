@@ -71,6 +71,12 @@
                               ToolTip.Tip="Show whitespace" />
                 <ToggleButton Content="{controls:Icon ruler}" Classes="tool" IsChecked="{Binding ShowColumnRuler, Mode=TwoWay}"
                               ToolTip.Tip="Column ruler (80)" />
+                <ToggleButton Content="{controls:Icon indent-increase}" Classes="tool" IsChecked="{Binding ShowIndentGuides, Mode=TwoWay}"
+                              ToolTip.Tip="Indentation guides" />
+                <ToggleButton Content="{controls:Icon fold-vertical}" Classes="tool" IsChecked="{Binding ShowFolding, Mode=TwoWay}"
+                              ToolTip.Tip="Code folding" />
+                <ToggleButton Content="{controls:Icon history}" Classes="tool" IsChecked="{Binding ShowChangeHistory, Mode=TwoWay}"
+                              ToolTip.Tip="Change-history strip" />
 
                 <Rectangle Classes="sep" />
 
@@ -78,6 +84,8 @@
                         ToolTip.Tip="Decrease font size" />
                 <Button Content="{controls:Icon a-arrow-up}" Classes="tool" Command="{Binding IncreaseFontCommand}"
                         ToolTip.Tip="Increase font size" />
+                <Button Content="{controls:Icon type}" Classes="tool" Command="{Binding ResetFontCommand}"
+                        ToolTip.Tip="Reset font size (Ctrl+0)" />
 
                 <Rectangle Classes="sep" />
 
@@ -95,12 +103,24 @@
                             <Separator />
                             <MenuItem Header="Toggle Comment" Command="{Binding ToggleCommentCommand}"
                                       InputGesture="Ctrl+OemQuestion" />
+                            <MenuItem Header="Complete Word" Command="{Binding CompleteWordCommand}"
+                                      InputGesture="Ctrl+Space" />
+                            <Separator />
+                            <MenuItem Header="Toggle Bookmark" Command="{Binding ToggleBookmarkCommand}"
+                                      InputGesture="Ctrl+Shift+F2" />
+                            <MenuItem Header="Next Bookmark" Command="{Binding NextBookmarkCommand}"
+                                      InputGesture="F2" />
+                            <MenuItem Header="Previous Bookmark" Command="{Binding PreviousBookmarkCommand}"
+                                      InputGesture="Shift+F2" />
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
 
                 <Rectangle Classes="sep" />
 
+                <TextBlock Text="Theme" VerticalAlignment="Center" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                <ComboBox ItemsSource="{Binding EditorThemes}" SelectedItem="{Binding EditorTheme, Mode=TwoWay}"
+                          Width="150" ToolTip.Tip="Editor colour theme" />
                 <TextBlock Text="Language" VerticalAlignment="Center" Foreground="{DynamicResource AppSecondaryTextBrush}" />
                 <ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding Language, Mode=TwoWay}"
                           Width="130" />
@@ -143,10 +163,26 @@
         </Border>
 
         <Border Grid.Row="2" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="10,4">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="{Binding FilePath}" Foreground="#9FD3A0" FontFamily="Menlo, Consolas, monospace" />
-                <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppSecondaryTextBrush}" />
-            </StackPanel>
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{Binding FilePath}" Foreground="#9FD3A0" FontFamily="Menlo, Consolas, monospace" />
+                    <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
+                    <TextBlock Foreground="{DynamicResource AppSecondaryTextBrush}">
+                        <Run Text="Ln" /><Run Text=" " /><Run Text="{Binding CaretLine}" /><Run Text=", Col " /><Run Text="{Binding CaretColumn}" />
+                    </TextBlock>
+                    <TextBlock IsVisible="{Binding HasSelection}" Foreground="{DynamicResource AppSecondaryTextBrush}">
+                        <Run Text="Sel " /><Run Text="{Binding SelectionLength}" />
+                    </TextBlock>
+                    <TextBlock Foreground="{DynamicResource AppSecondaryTextBrush}">
+                        <Run Text="{Binding LineCount}" /><Run Text=" lines" />
+                    </TextBlock>
+                    <TextBlock Foreground="{DynamicResource AppSecondaryTextBrush}">
+                        <Run Text="{Binding CharCount}" /><Run Text=" chars" />
+                    </TextBlock>
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </UserControl>

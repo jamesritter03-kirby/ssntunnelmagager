@@ -50,8 +50,42 @@ public sealed partial class EditorTabViewModel : TabViewModel
     /// <summary>Draw a vertical ruler at column 80.</summary>
     [ObservableProperty] private bool _showColumnRuler;
 
+    /// <summary>Draw faint vertical guides at each indentation level.</summary>
+    [ObservableProperty] private bool _showIndentGuides;
+
+    /// <summary>Show the fold margin (collapse/expand code blocks).</summary>
+    [ObservableProperty] private bool _showFolding = true;
+
+    /// <summary>Show a git-style change-history strip in the gutter.</summary>
+    [ObservableProperty] private bool _showChangeHistory;
+
+    /// <summary>Editor colour theme name (see <see cref="EditorThemes"/>). "Auto" follows the app.</summary>
+    [ObservableProperty] private string _editorTheme = "Auto (match app)";
+
     /// <summary>Editor font size (points).</summary>
     [ObservableProperty] private double _fontSize = 13;
+
+    // --- Status-bar readouts (pushed from the view as the caret/selection move) ---
+
+    /// <summary>1-based caret line.</summary>
+    [ObservableProperty] private int _caretLine = 1;
+
+    /// <summary>1-based caret column.</summary>
+    [ObservableProperty] private int _caretColumn = 1;
+
+    /// <summary>Number of characters currently selected (0 when there is no selection).</summary>
+    [ObservableProperty] private int _selectionLength;
+
+    /// <summary>Whether any text is selected (drives the status-bar "Sel N" readout).</summary>
+    public bool HasSelection => SelectionLength > 0;
+
+    partial void OnSelectionLengthChanged(int value) => OnPropertyChanged(nameof(HasSelection));
+
+    /// <summary>Total line count of the document.</summary>
+    [ObservableProperty] private int _lineCount = 1;
+
+    /// <summary>Total character count of the document.</summary>
+    [ObservableProperty] private int _charCount;
 
     /// <summary>Raised for smart-editing commands the view applies to the editor.</summary>
     public event Action<EditorAction>? ActionRequested;
@@ -77,7 +111,15 @@ public sealed partial class EditorTabViewModel : TabViewModel
     };
 
     /// <summary>Newline options for the picker.</summary>
-    public IReadOnlyList<string> LineEndings { get; } = new[] { "LF", "CRLF" };
+    public IReadOnlyList<string> LineEndings { get; } = new[] { "LF", "CRLF", "CR" };
+
+    /// <summary>Editor colour themes the user can pick from (map to TextMate themes in the view).</summary>
+    public IReadOnlyList<string> EditorThemes { get; } = new[]
+    {
+        "Auto (match app)", "Dark+", "Light+", "Monokai", "Monokai Dimmed",
+        "Solarized Dark", "Solarized Light", "Kimbie Dark", "Quiet Light",
+        "Abyss", "Red", "Tomorrow Night Blue", "High Contrast Dark", "High Contrast Light"
+    };
 
     /// <summary>Text-encoding options for the picker.</summary>
     public IReadOnlyList<string> Encodings { get; } = new[]
@@ -111,8 +153,10 @@ public sealed partial class EditorTabViewModel : TabViewModel
         _text = initialText;
         _filePath = filePath;
         _remoteSaver = remoteSaver;
-        _lineEnding = initialText.Contains("\r\n") ? "CRLF" : "LF";
+        _lineEnding = DetectLineEnding(initialText);
         _language = LanguageForPath(filePath);
+        _charCount = initialText.Length;
+        _lineCount = CountLines(initialText);
         BackupId = backupId ?? Guid.NewGuid().ToString("N");
         if (filePath != null) StartWatching(filePath);
     }
@@ -137,6 +181,8 @@ public sealed partial class EditorTabViewModel : TabViewModel
     {
         IsDirty = true;
         Title = _baseTitle + " •";
+        CharCount = value.Length;
+        LineCount = CountLines(value);
         if (!_restoring) ScheduleBackup();
     }
 
@@ -243,7 +289,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
             var (content, enc) = ReadWithEncoding(bytes);
             _restoring = true;
             Encoding = enc;
-            LineEnding = content.Contains("\r\n") ? "CRLF" : "LF";
+            LineEnding = DetectLineEnding(content);
             Text = content;
             _restoring = false;
             _diskBaseline = File.GetLastWriteTimeUtc(FilePath);
@@ -287,7 +333,37 @@ public sealed partial class EditorTabViewModel : TabViewModel
     private string NormalizedText()
     {
         var lf = Text.Replace("\r\n", "\n").Replace("\r", "\n");
-        return LineEnding == "CRLF" ? lf.Replace("\n", "\r\n") : lf;
+        return LineEnding switch
+        {
+            "CRLF" => lf.Replace("\n", "\r\n"),
+            "CR" => lf.Replace("\n", "\r"),
+            _ => lf
+        };
+    }
+
+    /// <summary>Detect the dominant newline convention in a buffer.</summary>
+    private static string DetectLineEnding(string text)
+    {
+        if (text.Contains("\r\n")) return "CRLF";
+        if (text.Contains('\r')) return "CR";
+        return "LF";
+    }
+
+    /// <summary>Count logical lines (1 + newline runs, ignoring a trailing newline).</summary>
+    private static int CountLines(string text)
+    {
+        if (text.Length == 0) return 1;
+        int lines = 1;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c == '\n') lines++;
+            else if (c == '\r') { lines++; if (i + 1 < text.Length && text[i + 1] == '\n') i++; }
+        }
+        // A single trailing newline shouldn't inflate the count.
+        char last = text[^1];
+        if (last == '\n' || last == '\r') lines--;
+        return Math.Max(1, lines);
     }
 
     /// <summary>Write a <c>.bak</c> copy of an existing file before overwriting it.</summary>
@@ -414,7 +490,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
             var bytes = await File.ReadAllBytesAsync(path);
             var (content, enc) = ReadWithEncoding(bytes);
             Encoding = enc;
-            LineEnding = content.Contains("\r\n") ? "CRLF" : "LF";
+            LineEnding = DetectLineEnding(content);
             Text = content;
             FilePath = path;
             Language = LanguageForPath(path);
@@ -444,6 +520,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
 
     [RelayCommand] private void IncreaseFont() => FontSize = Math.Min(40, FontSize + 1);
     [RelayCommand] private void DecreaseFont() => FontSize = Math.Max(8, FontSize - 1);
+    [RelayCommand] private void ResetFont() => FontSize = 13;
 
     [RelayCommand] private void GoToLine() => GoToLineRequested?.Invoke();
 
@@ -452,6 +529,10 @@ public sealed partial class EditorTabViewModel : TabViewModel
     [RelayCommand] private void DuplicateLine() => ActionRequested?.Invoke(EditorAction.DuplicateLine);
     [RelayCommand] private void DeleteLine() => ActionRequested?.Invoke(EditorAction.DeleteLine);
     [RelayCommand] private void ToggleComment() => ActionRequested?.Invoke(EditorAction.ToggleComment);
+    [RelayCommand] private void ToggleBookmark() => ActionRequested?.Invoke(EditorAction.ToggleBookmark);
+    [RelayCommand] private void NextBookmark() => ActionRequested?.Invoke(EditorAction.NextBookmark);
+    [RelayCommand] private void PreviousBookmark() => ActionRequested?.Invoke(EditorAction.PreviousBookmark);
+    [RelayCommand] private void CompleteWord() => ActionRequested?.Invoke(EditorAction.CompleteWord);
 }
 
 /// <summary>Smart-editing actions the editor view performs on the document.</summary>
@@ -461,7 +542,11 @@ public enum EditorAction
     MoveLineDown,
     DuplicateLine,
     DeleteLine,
-    ToggleComment
+    ToggleComment,
+    ToggleBookmark,
+    NextBookmark,
+    PreviousBookmark,
+    CompleteWord
 }
 
 /// <summary>One entry in an editor's "Compare ▾" flyout: another open editor and
