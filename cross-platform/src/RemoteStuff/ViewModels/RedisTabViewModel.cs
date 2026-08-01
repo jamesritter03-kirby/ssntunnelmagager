@@ -89,8 +89,87 @@ public sealed partial class RedisTabViewModel : TabViewModel
         {
             if (!string.IsNullOrEmpty(SelectedKey)) _ = LoadValue(SelectedKey!);
         });
+        Graph.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(NumericGraphViewModel.HasData)) RaiseGraphLayout();
+        };
         _ = ConnectAsync();
     }
+
+    // ----- Value/Graph section layout (mirrors the MQTT tab) -----
+    // Each section can be collapsed to just its header, or maximized to fill the
+    // whole value area (the other section shrinks to its header).
+    private static readonly Avalonia.Controls.GridLength Star = new(1, Avalonia.Controls.GridUnitType.Star);
+
+    [ObservableProperty] private string _maximizedPane = "";
+    [ObservableProperty] private bool _valueCollapsed;
+    [ObservableProperty] private bool _graphCollapsed;
+
+    public Avalonia.Controls.GridLength ValueRowHeight => RowFor("value", ValueCollapsed, true);
+    public Avalonia.Controls.GridLength GraphRowHeight => RowFor("graph", GraphCollapsed, Graph.HasData);
+
+    private Avalonia.Controls.GridLength RowFor(string pane, bool collapsed, bool visible)
+    {
+        if (!visible) return Avalonia.Controls.GridLength.Auto;      // hidden section takes no space
+        if (MaximizedPane == pane) return Star;
+        if (MaximizedPane.Length > 0) return Avalonia.Controls.GridLength.Auto; // another pane owns the area
+        return collapsed ? Avalonia.Controls.GridLength.Auto : Star;
+    }
+
+    public bool ValueContentVisible => ContentVisible("value", ValueCollapsed);
+    public bool GraphContentVisible => ContentVisible("graph", GraphCollapsed);
+
+    private bool ContentVisible(string pane, bool collapsed)
+    {
+        if (MaximizedPane == pane) return true;
+        if (MaximizedPane.Length > 0) return false;
+        return !collapsed;
+    }
+
+    public bool ValueMaximized => MaximizedPane == "value";
+    public bool GraphMaximized => MaximizedPane == "graph";
+
+    public string ValueCollapseIcon => ValueCollapsed ? "chevron-right" : "chevron-down";
+    public string GraphCollapseIcon => GraphCollapsed ? "chevron-right" : "chevron-down";
+    public string ValueMaxIcon => ValueMaximized ? "minimize-2" : "maximize-2";
+    public string GraphMaxIcon => GraphMaximized ? "minimize-2" : "maximize-2";
+
+    partial void OnMaximizedPaneChanged(string value) => RaisePaneLayout();
+    partial void OnValueCollapsedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ValueRowHeight));
+        OnPropertyChanged(nameof(ValueContentVisible));
+        OnPropertyChanged(nameof(ValueCollapseIcon));
+    }
+    partial void OnGraphCollapsedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(GraphRowHeight));
+        OnPropertyChanged(nameof(GraphContentVisible));
+        OnPropertyChanged(nameof(GraphCollapseIcon));
+    }
+
+    private void RaiseGraphLayout()
+    {
+        OnPropertyChanged(nameof(GraphRowHeight));
+        OnPropertyChanged(nameof(GraphContentVisible));
+    }
+
+    private void RaisePaneLayout()
+    {
+        OnPropertyChanged(nameof(ValueRowHeight));
+        OnPropertyChanged(nameof(GraphRowHeight));
+        OnPropertyChanged(nameof(ValueContentVisible));
+        OnPropertyChanged(nameof(GraphContentVisible));
+        OnPropertyChanged(nameof(ValueMaximized));
+        OnPropertyChanged(nameof(GraphMaximized));
+        OnPropertyChanged(nameof(ValueMaxIcon));
+        OnPropertyChanged(nameof(GraphMaxIcon));
+    }
+
+    [RelayCommand] private void ToggleValueCollapsed() => ValueCollapsed = !ValueCollapsed;
+    [RelayCommand] private void ToggleGraphCollapsed() => GraphCollapsed = !GraphCollapsed;
+    [RelayCommand] private void MaximizeValue() => MaximizedPane = MaximizedPane == "value" ? "" : "value";
+    [RelayCommand] private void MaximizeGraph() => MaximizedPane = MaximizedPane == "graph" ? "" : "graph";
 
     private async Task ConnectAsync()
     {

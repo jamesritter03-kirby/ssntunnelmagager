@@ -8,6 +8,25 @@
              x:Class="RemoteStuff.Views.RedisTabView"
              x:DataType="vm:RedisTabViewModel">
 
+    <UserControl.Styles>
+        <!-- Section header: title button (toggles collapse) + maximize button. -->
+        <Style Selector="Button.paneHdr">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="2,1" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSecondaryTextBrush}" />
+        </Style>
+        <Style Selector="Button.paneHdr:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.paneIcon">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="Foreground" Value="{DynamicResource AppMutedTextBrush}" />
+        </Style>
+    </UserControl.Styles>
+
     <Grid RowDefinitions="Auto,*,Auto,Auto">
 
         <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
@@ -39,18 +58,68 @@
                                   ToolTip.Tip="Auto-refresh this key every 2 seconds" />
                     </StackPanel>
                 </Border>
-                <Expander DockPanel.Dock="Bottom" Header="Graph" IsExpanded="True"
-                          HorizontalAlignment="Stretch"
-                          IsVisible="{Binding Graph.HasData}"
-                          Background="{DynamicResource AppInsetBrush}">
-                    <controls:NumericSeriesGraphView DataContext="{Binding Graph}"
-                                                     Height="260" Margin="4" />
-                </Expander>
-                <TextBox Text="{Binding SelectedValue}" AcceptsReturn="True"
-                         FontFamily="Menlo, Consolas, monospace"
-                         TextWrapping="NoWrap"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+
+                <!-- Stacked sections: each can be collapsed to its header or maximized to fill
+                     the whole value area (the maximize button toggles; the title toggles collapse). -->
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="{Binding ValueRowHeight}" />
+                        <RowDefinition Height="{Binding GraphRowHeight}" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Value editor -->
+                    <Border Grid.Row="0" Background="{DynamicResource AppInsetBrush}"
+                            BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}"
+                                    BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="4,2">
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Classes="paneIcon" Command="{Binding MaximizeValueCommand}"
+                                            ToolTip.Tip="Expand this section / restore">
+                                        <controls:LineIcon Kind="{Binding ValueMaxIcon}" Width="14" Height="14" />
+                                    </Button>
+                                    <Button Classes="paneHdr" Command="{Binding ToggleValueCollapsedCommand}" HorizontalAlignment="Left">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <controls:LineIcon Kind="{Binding ValueCollapseIcon}" Width="14" Height="14" />
+                                            <TextBlock Text="Value" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                </DockPanel>
+                            </Border>
+                            <TextBox IsVisible="{Binding ValueContentVisible}"
+                                     Text="{Binding SelectedValue}" AcceptsReturn="True"
+                                     FontFamily="Menlo, Consolas, monospace"
+                                     TextWrapping="NoWrap"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Graph -->
+                    <Border Grid.Row="1" Background="{DynamicResource AppInsetBrush}"
+                            IsVisible="{Binding Graph.HasData}">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}"
+                                    BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="4,2">
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Classes="paneIcon" Command="{Binding MaximizeGraphCommand}"
+                                            ToolTip.Tip="Expand this section / restore">
+                                        <controls:LineIcon Kind="{Binding GraphMaxIcon}" Width="14" Height="14" />
+                                    </Button>
+                                    <Button Classes="paneHdr" Command="{Binding ToggleGraphCollapsedCommand}" HorizontalAlignment="Left">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <controls:LineIcon Kind="{Binding GraphCollapseIcon}" Width="14" Height="14" />
+                                            <TextBlock Text="Graph" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                </DockPanel>
+                            </Border>
+                            <Border IsVisible="{Binding GraphContentVisible}">
+                                <controls:NumericSeriesGraphView DataContext="{Binding Graph}" Margin="4" />
+                            </Border>
+                        </DockPanel>
+                    </Border>
+                </Grid>
             </DockPanel>
         </Grid>
 
