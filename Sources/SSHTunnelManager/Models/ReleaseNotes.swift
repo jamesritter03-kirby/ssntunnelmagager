@@ -45,11 +45,18 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.81", build: 91, date: "Jul 31, 2026",
+            highlights: [
+                "The command history menu on a terminal tab now has a Save as Snippet option — turn any command you’ve run into a reusable snippet on that connection’s profile, ready to insert or run from the Snippets menu.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.80", build: 90, date: "Jul 31, 2026",
             highlights: [
                 "Sync Profiles with Git now also syncs your saved workspaces, and importing (Pull) immediately refreshes the app’s profiles and workspaces — no restart needed.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.79", build: 89, date: "Jul 31, 2026",

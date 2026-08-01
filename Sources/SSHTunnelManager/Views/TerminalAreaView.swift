@@ -1352,6 +1352,18 @@ private struct LinksMenuButton: View {
 /// A drop-down of the selected tab's previous commands; click one to run it again.
 private struct HistoryMenuButton: View {
     @ObservedObject var session: TerminalSession
+    @EnvironmentObject var store: ProfileStore
+    @EnvironmentObject var sessions: TerminalSessionManager
+
+    /// The profile a saved snippet is written to: this tab's own profile if it has
+    /// one, otherwise the profile that launched its workspace.
+    private var profile: SSHProfile? {
+        if let pid = session.profileID,
+           let p = store.profiles.first(where: { $0.id == pid }) {
+            return p
+        }
+        return sessions.owningProfile(forSession: session.id)
+    }
 
     var body: some View {
         Menu {
@@ -1366,6 +1378,17 @@ private struct HistoryMenuButton: View {
                 }
             }
             Divider()
+            if profile != nil, !session.commandHistory.isEmpty {
+                Menu {
+                    ForEach(Array(session.commandHistory.reversed().prefix(40).enumerated()), id: \.offset) { entry in
+                        Button(displayTitle(entry.element)) {
+                            saveSnippet(entry.element)
+                        }
+                    }
+                } label: {
+                    Label("Save as Snippet", systemImage: "text.badge.plus")
+                }
+            }
             // Import is always available (even with no history yet) so a tab can
             // be seeded from an exported file or a shell's own history.
             Button("Import History…") {
@@ -1389,6 +1412,17 @@ private struct HistoryMenuButton: View {
 
     private func displayTitle(_ command: String) -> String {
         command.count > 60 ? String(command.prefix(59)) + "…" : command
+    }
+
+    /// Save a history command to the tab's profile as a reusable snippet (deduped by
+    /// command); the store auto-persists and the ❏ Snippets menu picks it up.
+    private func saveSnippet(_ command: String) {
+        let cmd = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cmd.isEmpty, var profile else { return }
+        guard !profile.snippets.contains(where: { $0.command == cmd }) else { return }
+        let label = cmd.count > 40 ? String(cmd.prefix(40)) + "…" : cmd
+        profile.snippets.append(CommandSnippet(label: label, command: cmd))
+        store.update(profile)
     }
     /// Write the tab's command history to a user-chosen text file.
     private func saveHistory() {
