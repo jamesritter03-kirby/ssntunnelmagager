@@ -151,8 +151,11 @@ jobs:
 
           if [[ "$IS_MAC" == "true" ]]; then
             ARGS+=(--bundleId "$BUNDLE_ID")
+            ARGS+=(--icon "src/RemoteStuff/Assets/AppIcon.icns")
             # Signing/notarization can be added later via
             #   --signAppIdentity "$SIGN_IDENTITY" --notaryProfile "$NOTARY_PROFILE"
+          elif [[ "$RID" == "win-x64" ]]; then
+            ARGS+=(--icon "src/RemoteStuff/Assets/AppIcon.ico")
           fi
 
           echo "==> Packaging $RID"

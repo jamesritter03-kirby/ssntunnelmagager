@@ -162,10 +162,13 @@ for RID in "${RIDS[@]}"; do
   # macOS-only extras: bundle id + optional signing/notarization.
   if [[ "$RID" == osx-* ]]; then
     ARGS+=(--bundleId "$BUNDLE_ID")
+    [[ -f "src/RemoteStuff/Assets/AppIcon.icns" ]] && ARGS+=(--icon "src/RemoteStuff/Assets/AppIcon.icns")
     if [[ -n "${SIGN_IDENTITY:-}" ]]; then
       ARGS+=(--signAppIdentity "$SIGN_IDENTITY")
       [[ -n "${NOTARY_PROFILE:-}" ]] && ARGS+=(--notaryProfile "$NOTARY_PROFILE")
     fi
+  elif [[ "$RID" == win-* ]]; then
+    [[ -f "src/RemoteStuff/Assets/AppIcon.ico" ]] && ARGS+=(--icon "src/RemoteStuff/Assets/AppIcon.ico")
   fi
 
   # Clear vpk's reusable work dir. It builds the .app under $TMPDIR/velopack and
