@@ -1279,9 +1279,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SetStatus($"Disconnected {live.Count} session{(live.Count == 1 ? "" : "s")}.");
     }
 
-    /// <summary>Pause every live terminal session that belongs to one workspace
-    /// (the workspace pill's “Pause Connections” action). Paused sessions are marked
-    /// so the workspace can resume them and the tabs show a paused indicator.</summary>
+    /// <summary>Suspend every live terminal session that belongs to one workspace
+    /// (the workspace pill's “Suspend Connections” action). Suspended sessions are marked
+    /// so the workspace can resume them and the tabs show a suspended indicator.</summary>
     public void PauseWorkspaceConnections(WorkspaceViewModel ws)
     {
         var live = Tabs.OfType<TerminalTabViewModel>()
@@ -1290,10 +1290,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             t.PauseSession();
         ws.IsPaused = true;
         RecomputeConnections();
-        SetStatus($"Paused {live.Count} connection{(live.Count == 1 ? "" : "s")} in “{ws.Name}”.");
+        SetStatus($"Suspended {live.Count} connection{(live.Count == 1 ? "" : "s")} in “{ws.Name}”.");
     }
 
-    /// <summary>Resume every paused terminal session in a workspace
+    /// <summary>Resume every suspended terminal session in a workspace
     /// (the workspace pill's “Resume Connections” action).</summary>
     public void ResumeWorkspaceConnections(WorkspaceViewModel ws)
     {

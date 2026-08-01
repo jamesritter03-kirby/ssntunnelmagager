@@ -49,9 +49,9 @@
                                 <TextBlock Text="⏺" VerticalAlignment="Center" FontSize="10" Foreground="#E0533D"
                                            x:CompileBindings="False" IsVisible="{Binding ShowStopLog}"
                                            ToolTip.Tip="Session logging is on" />
-                                <TextBlock Text="⏸" VerticalAlignment="Center" FontSize="10" Foreground="#E0B84D"
-                                           x:CompileBindings="False" IsVisible="{Binding IsPaused}"
-                                           ToolTip.Tip="Connection paused" />
+                                <controls:LineIcon Kind="moon" Width="13" Height="13" VerticalAlignment="Center" Foreground="#E0B84D"
+                                           x:CompileBindings="False" IsVisible="{Binding IsSuspended}"
+                                           ToolTip.Tip="Session suspended — resumes with the workspace" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
                                         VerticalAlignment="Center" IsVisible="{Binding !IsBrowserTab}">
@@ -686,7 +686,7 @@
                                                             </MenuItem.ItemContainerTheme>
                                                         </MenuItem>
                                                         <Separator />
-                                                        <MenuItem Header="Pause Connections" Command="{Binding PauseConnectionsCommand}"
+                                                        <MenuItem Header="Suspend Connections" Command="{Binding PauseConnectionsCommand}"
                                                                   IsVisible="{Binding !IsPaused}" />
                                                         <MenuItem Header="Resume Connections" Command="{Binding ResumeConnectionsCommand}"
                                                                   IsVisible="{Binding IsPaused}" />
@@ -898,9 +898,9 @@
                                         <TextBlock Text="⏺" VerticalAlignment="Center" FontSize="10" Foreground="#E0533D"
                                                    x:CompileBindings="False" IsVisible="{Binding ShowStopLog}"
                                                    ToolTip.Tip="Session logging is on" />
-                                        <TextBlock Text="⏸" VerticalAlignment="Center" FontSize="10" Foreground="#E0B84D"
-                                                   x:CompileBindings="False" IsVisible="{Binding IsPaused}"
-                                                   ToolTip.Tip="Connection paused" />
+                                        <controls:LineIcon Kind="moon" Width="13" Height="13" VerticalAlignment="Center" Foreground="#E0B84D"
+                                                   x:CompileBindings="False" IsVisible="{Binding IsSuspended}"
+                                                   ToolTip.Tip="Session suspended — resumes with the workspace" />
                                         <TextBlock Text="{Binding DisplayTitle}" VerticalAlignment="Center" />
                                         <Button Content="{controls:Icon x}" Padding="4,0"
                                                 Command="{Binding CloseCommand}" />

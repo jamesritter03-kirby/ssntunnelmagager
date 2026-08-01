@@ -142,7 +142,7 @@ public sealed partial class TerminalTabViewModel : TabViewModel
         Terminal.Exited += _ => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             IsRunning = false;
-            Title = EffectiveBaseTitle + (IsPaused ? " — paused" : " — disconnected");
+            Title = EffectiveBaseTitle + (IsPaused ? " — suspended" : " — disconnected");
             if (Profile?.AutoReconnect == true && !IsPaused)
                 ScheduleAutoReconnect();
         });
@@ -305,6 +305,9 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     /// the tab can show a paused indicator.</summary>
     [ObservableProperty] private bool _isPaused;
 
+    public override bool IsSuspended => IsPaused;
+    partial void OnIsPausedChanged(bool value) => OnPropertyChanged(nameof(IsSuspended));
+
     /// <summary>Pause a live session: drop the connection but remember it should come
     /// back when the workspace is resumed. No-op if not currently running.</summary>
     public void PauseSession()
@@ -313,7 +316,7 @@ public sealed partial class TerminalTabViewModel : TabViewModel
         IsPaused = true;
         Terminal.Terminate();
         IsRunning = false;
-        Title = EffectiveBaseTitle + " — paused";
+        Title = EffectiveBaseTitle + " — suspended";
     }
 
     /// <summary>Resume a paused session by reconnecting it.</summary>

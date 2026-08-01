@@ -167,6 +167,11 @@ public abstract partial class TabViewModel : ViewModelBase
     /// <summary>Show the "Stop Logging Output" action (terminal currently logging).</summary>
     public virtual bool ShowStopLog => false;
 
+    /// <summary>Whether this tab's session is suspended (a workspace pause). Only terminal
+    /// tabs can be suspended; the base returns false so the tab badge never shows on other
+    /// tab types.</summary>
+    public virtual bool IsSuspended => false;
+
     /// <summary>Whether a transcript file exists for this tab (enables Open / Reveal).</summary>
     public virtual bool HasSessionLog => false;
 
