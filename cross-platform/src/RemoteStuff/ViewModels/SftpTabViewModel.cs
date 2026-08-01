@@ -534,11 +534,17 @@ public sealed partial class SftpTabViewModel : TabViewModel
                 if (!await EnsureConnectedAsync())
                     throw new InvalidOperationException(
                         "SFTP disconnected. Reopen the SFTP tab's connection and save again.");
-                await Task.Run(() =>
+                var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+                try
                 {
-                    var bytes = System.Text.Encoding.UTF8.GetBytes(content);
-                    SaveRemoteFile(path, bytes);
-                });
+                    await Task.Run(() => SaveRemoteFile(path, bytes));
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    // No write access — offer to save it as root over sudo instead.
+                    if (!await TrySaveWithSudoAsync(path, bytes, ex.Message))
+                        throw;
+                }
                 // Reflect the new size/mtime in the listing after a remote save.
                 await LoadDirectory(CurrentPath);
             });
@@ -588,6 +594,75 @@ public sealed partial class SftpTabViewModel : TabViewModel
                 throw new UnauthorizedAccessException(
                     "Permission denied. You don't have write access to this file on the server.");
             }
+        }
+    }
+
+    /// <summary>After a plain SFTP write was denied, offer to save the file with
+    /// elevated (sudo) privileges: confirm, prompt for the sudo password, then write
+    /// as root. Returns true on success, false if the user declined; throws with a
+    /// clear message when sudo itself fails (e.g. wrong password).</summary>
+    private async Task<bool> TrySaveWithSudoAsync(string path, byte[] bytes, string reason)
+    {
+        if (_profile.IsLocal) return false;
+
+        var proceed = await DialogService.ConfirmAsync(
+            "Permission denied",
+            reason + "\n\nTry saving it with administrator (sudo) privileges on the server?",
+            "Use sudo…");
+        if (!proceed) return false;
+
+        var password = await DialogService.PromptPasswordAsync(
+            "Administrator password",
+            $"Enter the sudo password for {_profile.Username}@{_profile.Host} to save this file as root.");
+        if (string.IsNullOrEmpty(password)) return false;
+
+        await Task.Run(() => SaveRemoteFileViaSudo(path, bytes, password));
+        StatusText = "Saved " + path.Split('/').Last() + " (sudo)";
+        return true;
+    }
+
+    /// <summary>Stage the new content in a user-writable temp file, then copy it over
+    /// the target as root via <c>sudo cp</c> (which preserves the target's owner and
+    /// permissions), removing the temp afterwards.</summary>
+    private void SaveRemoteFileViaSudo(string path, byte[] bytes, string password)
+    {
+        var home = _client!.WorkingDirectory;
+        var baseDir = string.IsNullOrEmpty(home) ? "/tmp" : home.TrimEnd('/');
+        var temp = $"{baseDir}/.rsedit-{Guid.NewGuid():N}.tmp";
+
+        using (var ms = new MemoryStream(bytes))
+            _client!.UploadFile(ms, temp, true);
+
+        static string Q(string s) => "'" + s.Replace("'", "'\\''") + "'";
+        var script =
+            $"printf '%s\\n' {Q(password)} | sudo -S -p '' cp -f -- {Q(temp)} {Q(path)}; " +
+            $"rc=$?; rm -f {Q(temp)}; exit $rc";
+
+        try
+        {
+            var info = RemoteConnection.BuildConnectionInfo(_profile, _password);
+            using var ssh = new SshClient(info);
+            ssh.Connect();
+            using var cmd = ssh.CreateCommand(script);
+            cmd.CommandTimeout = TimeSpan.FromSeconds(30);
+            cmd.Execute();
+            ssh.Disconnect();
+
+            if (cmd.ExitStatus != 0)
+            {
+                var err = (cmd.Error ?? "").Trim();
+                var msg = err.Contains("try again", StringComparison.OrdinalIgnoreCase)
+                          || err.Contains("incorrect password", StringComparison.OrdinalIgnoreCase)
+                    ? "Incorrect sudo password."
+                    : err.Length > 0 ? err : "sudo could not write the file.";
+                throw new UnauthorizedAccessException(msg);
+            }
+        }
+        catch (UnauthorizedAccessException) { throw; }
+        catch (Exception ex)
+        {
+            try { _client!.DeleteFile(temp); } catch { /* best effort cleanup */ }
+            throw new InvalidOperationException("Sudo save failed: " + ex.Message);
         }
     }
 

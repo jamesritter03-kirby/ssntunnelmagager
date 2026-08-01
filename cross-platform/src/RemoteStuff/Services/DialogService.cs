@@ -135,6 +135,54 @@ public static class DialogService
         return await dlg.ShowDialog<string?>(owner);
     }
 
+    /// <summary>Show a modal prompt for a secret (masked). Returns the entered text, or
+    /// null if cancelled.</summary>
+    public static async Task<string?> PromptPasswordAsync(string title, string prompt)
+    {
+        if (Top is not Window owner) return null;
+
+        var box = new TextBox
+        {
+            MinWidth = 340,
+            AcceptsReturn = false,
+            PasswordChar = '\u2022'
+        };
+
+        var ok = new Button { Content = "OK", IsDefault = true, MinWidth = 72 };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 72 };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+
+        var panel = new StackPanel { Margin = new Thickness(16), Spacing = 8 };
+        panel.Children.Add(new TextBlock { Text = prompt, MaxWidth = 360, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        panel.Children.Add(box);
+        panel.Children.Add(buttons);
+
+        var dlg = new Window
+        {
+            Title = title,
+            Content = panel,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false
+        };
+
+        ok.Click += (_, _) => dlg.Close(box.Text ?? "");
+        cancel.Click += (_, _) => dlg.Close(null);
+
+        box.Focus();
+        return await dlg.ShowDialog<string?>(owner);
+    }
+
     /// <summary>Prompt for a custom command's name + command text. Returns the entered
     /// pair, or null if cancelled.</summary>
     public static async Task<(string Name, string Command)?> PromptCustomCommandAsync(

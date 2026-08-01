@@ -714,6 +714,7 @@ public sealed class TerminalControl : Control
     protected override void OnTextInput(TextInputEventArgs e)
     {
         if (!_running || string.IsNullOrEmpty(e.Text)) { base.OnTextInput(e); return; }
+        if (_inputLine.Length == 0) MarkInputStart();
         _inputLine.Append(e.Text);
         var bytes = Encoding.UTF8.GetBytes(e.Text);
         Send(bytes);
@@ -722,6 +723,17 @@ public sealed class TerminalControl : Control
     }
 
     private readonly StringBuilder _inputLine = new();
+
+    // Screen column/row where the current command begins (just after the prompt).
+    // At Enter we read the command as actually rendered from here, so tab-completion
+    // and Up/Down history recall are recorded, not just our raw keystrokes. -1 = unset.
+    private int _inputStartCol = -1;
+    private int _inputStartRow = -1;
+
+    private void MarkInputStart()
+    {
+        if (_inputStartCol < 0) { _inputStartCol = _emu.CursorX; _inputStartRow = _emu.CursorY; }
+    }
 
     /// <summary>Raised with each command line the user types and submits (Enter).</summary>
     public event Action<string>? LineEntered;
@@ -781,6 +793,7 @@ public sealed class TerminalControl : Control
         {
             if (e.Key == Key.Enter) CommitInputLine();
             else if (e.Key == Key.Back && _inputLine.Length > 0) _inputLine.Remove(_inputLine.Length - 1, 1);
+            else if (e.Key is Key.Up or Key.Down or Key.Tab) MarkInputStart();
             var bytes = Encoding.UTF8.GetBytes(seq);
             Send(bytes);
             UserInput?.Invoke(this, bytes);
@@ -791,7 +804,7 @@ public sealed class TerminalControl : Control
         // Ctrl+A..Z -> control codes 0x01..0x1A
         if (ctrl && e.Key >= Key.A && e.Key <= Key.Z)
         {
-            if (e.Key == Key.C || e.Key == Key.U) _inputLine.Clear();
+            if (e.Key == Key.C || e.Key == Key.U) { _inputLine.Clear(); _inputStartCol = -1; _inputStartRow = -1; }
             var code = (byte)(e.Key - Key.A + 1);
             Send(new[] { code });
             UserInput?.Invoke(this, new[] { code });
@@ -809,8 +822,27 @@ public sealed class TerminalControl : Control
 
     private void CommitInputLine()
     {
-        var line = _inputLine.ToString().Trim();
+        var typed = _inputLine.ToString().Trim();
         _inputLine.Clear();
+        var startCol = _inputStartCol;
+        var startRow = _inputStartRow;
+        _inputStartCol = -1;
+        _inputStartRow = -1;
+
+        // Prefer the command as rendered on screen (captures tab-completion, Up/Down
+        // history recall and mid-line edits). Fall back to our keystroke buffer when
+        // the input wrapped onto another row, where the on-screen read is unreliable.
+        var line = typed;
+        if (startCol >= 0 && startRow == _emu.CursorY)
+        {
+            var rendered = _emu.CurrentLineText();
+            if (startCol <= rendered.Length)
+            {
+                var onScreen = rendered[startCol..].TrimEnd();
+                if (onScreen.Length > 0) line = onScreen;
+            }
+        }
+
         if (line.Length == 0) return;
         // Never record what looks like a password/passphrase entry.
         var prompt = _emu.CurrentLineText().ToLowerInvariant();
