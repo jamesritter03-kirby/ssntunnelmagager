@@ -1147,6 +1147,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         tab.TabColor = profile.TabColor;
         tab.CloseRequested += CloseTab;
         tab.ControlSocketPath = controlPath;
+        // Persist snippets saved from the history menu when they belong to a saved profile.
+        tab.SnippetsPersistRequested = () =>
+        {
+            if (tab.Profile is { } pr && Profiles.Any(x => x.Id == pr.Id)) _store.Update(pr);
+        };
 
         if (profile.LogSession)
         {

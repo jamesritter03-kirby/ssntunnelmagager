@@ -122,12 +122,21 @@
                                                 <ItemsControl ItemsSource="{Binding History}" MaxWidth="420">
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate x:DataType="x:String">
-                                                            <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                                    Background="Transparent" BorderThickness="0" Padding="8,4"
-                                                                    Content="{Binding}" FontFamily="Menlo, Consolas, monospace"
-                                                                    x:CompileBindings="False"
-                                                                    Command="{Binding $parent[ItemsControl].DataContext.RunHistoryCommand}"
-                                                                    CommandParameter="{Binding}" />
+                                                            <Grid ColumnDefinitions="*,Auto">
+                                                                <Button Grid.Column="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                                        Background="Transparent" BorderThickness="0" Padding="8,4"
+                                                                        Content="{Binding}" FontFamily="Menlo, Consolas, monospace"
+                                                                        x:CompileBindings="False"
+                                                                        Command="{Binding $parent[ItemsControl].DataContext.RunHistoryCommand}"
+                                                                        CommandParameter="{Binding}" />
+                                                                <Button Grid.Column="1" Content="{controls:Icon plus}" Padding="6,4"
+                                                                        Background="Transparent" BorderThickness="0"
+                                                                        Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                                                        x:CompileBindings="False"
+                                                                        ToolTip.Tip="Save as snippet"
+                                                                        Command="{Binding $parent[ItemsControl].DataContext.AddHistoryToSnippetsCommand}"
+                                                                        CommandParameter="{Binding}" />
+                                                            </Grid>
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>

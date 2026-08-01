@@ -180,6 +180,27 @@ public sealed partial class TerminalTabViewModel : TabViewModel
         Terminal.Focus();
     }
 
+    /// <summary>Raised when the tab's snippets change (e.g. a history line is saved as a
+    /// snippet) so the owner can persist the backing profile to disk.</summary>
+    public System.Action? SnippetsPersistRequested;
+
+    /// <summary>Save a history command as a reusable snippet: add it to this tab's live
+    /// snippet list (and its backing profile, when any) so it shows in the ❏ menu.</summary>
+    [RelayCommand]
+    private void AddHistoryToSnippets(string? command)
+    {
+        var cmd = command?.Trim();
+        if (string.IsNullOrEmpty(cmd)) return;
+        if (System.Linq.Enumerable.Any(Snippets,
+                s => string.Equals(s.Command, cmd, System.StringComparison.Ordinal)))
+            return;
+        var label = cmd.Length > 40 ? cmd[..40].TrimEnd() + "…" : cmd;
+        Snippets.Add(new CommandSnippet { Label = label, Command = cmd });
+        Profile?.Snippets.Add(new CommandSnippet { Label = label, Command = cmd });
+        OnPropertyChanged(nameof(HasSnippets));
+        SnippetsPersistRequested?.Invoke();
+    }
+
     // Self-contained scrollback actions so they also work from the docked ⋮ menu
     // (a MenuFlyout popup can't reach the MainWindowViewModel).
     [RelayCommand]
