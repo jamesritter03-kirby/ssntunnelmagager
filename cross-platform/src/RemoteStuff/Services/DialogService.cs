@@ -134,4 +134,54 @@ public static class DialogService
         box.SelectAll();
         return await dlg.ShowDialog<string?>(owner);
     }
+
+    /// <summary>Prompt for a custom command's name + command text. Returns the entered
+    /// pair, or null if cancelled.</summary>
+    public static async Task<(string Name, string Command)?> PromptCustomCommandAsync(
+        string title, string name = "", string command = "")
+    {
+        if (Top is not Window owner) return null;
+
+        var nameBox = new TextBox { Text = name, MinWidth = 360, Watermark = "Name (optional)" };
+        var commandBox = new TextBox { Text = command, MinWidth = 360, Watermark = "Command to run", AcceptsReturn = false };
+
+        var ok = new Button { Content = "Save", IsDefault = true, MinWidth = 72 };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 72 };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+
+        var panel = new StackPanel { Margin = new Thickness(16), Spacing = 6 };
+        panel.Children.Add(new TextBlock { Text = "Name" });
+        panel.Children.Add(nameBox);
+        panel.Children.Add(new TextBlock { Text = "Command", Margin = new Thickness(0, 6, 0, 0) });
+        panel.Children.Add(commandBox);
+        panel.Children.Add(buttons);
+
+        var dlg = new Window
+        {
+            Title = title,
+            Content = panel,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false
+        };
+
+        ok.Click += (_, _) => dlg.Close(true);
+        cancel.Click += (_, _) => dlg.Close(false);
+
+        commandBox.Focus();
+        commandBox.SelectAll();
+        var confirmed = await dlg.ShowDialog<bool>(owner);
+        if (!confirmed) return null;
+        return (nameBox.Text ?? "", commandBox.Text ?? "");
+    }
 }

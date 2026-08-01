@@ -491,7 +491,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private bool _isPaletteOpen;
     [ObservableProperty] private string _paletteQuery = "";
     [ObservableProperty] private PaletteItem? _selectedPaletteItem;
+    [ObservableProperty] private string _paletteCategory = "All";
     public ObservableCollection<PaletteItem> PaletteResults { get; } = new();
+    public string[] PaletteCategories { get; } =
+        { "All", "Custom Commands", "Quick Actions", "Profiles", "Snippets", "History" };
 
     private void SetStatus(string message)
     {
@@ -3009,6 +3012,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void ClosePalette() => IsPaletteOpen = false;
 
     partial void OnPaletteQueryChanged(string value) => RebuildPalette();
+    partial void OnPaletteCategoryChanged(string value) => RebuildPalette();
 
     private void RebuildPalette()
     {
@@ -3047,10 +3051,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             new() { Title = "Export workspaces…", Subtitle = "Saved workspaces to a JSON file", Run = () => ExportWorkspacesCommand.Execute(null) },
         };
 
+        var profiles = new List<PaletteItem>();
+
         foreach (var tpl in _store.WorkspaceTemplates)
         {
             var t = tpl;
-            actions.Add(new PaletteItem
+            profiles.Add(new PaletteItem
             {
                 Title = "Open saved workspace: " + t.Name,
                 Subtitle = $"{t.ProfileIds.Count} tab(s)",
@@ -3064,7 +3070,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var g = group;
-            actions.Add(new PaletteItem
+            profiles.Add(new PaletteItem
             {
                 Title = "Open workspace: " + g,
                 Subtitle = "Connect all profiles in this group",
@@ -3075,21 +3081,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         foreach (var p in Profiles)
         {
             var profile = p;
-            actions.Add(new PaletteItem
+            profiles.Add(new PaletteItem
             {
                 Title = "Connect: " + profile.Name,
                 Subtitle = profile.Subtitle,
                 Run = () => OpenSession(profile)
             });
             if (!profile.IsLocal)
-                actions.Add(new PaletteItem
+                profiles.Add(new PaletteItem
                 {
                     Title = "SFTP: " + profile.Name,
                     Subtitle = profile.Subtitle,
                     Run = () => OpenSftpTab(profile)
                 });
             if (!profile.IsLocal)
-                actions.Add(new PaletteItem
+                profiles.Add(new PaletteItem
                 {
                     Title = "VNC: " + profile.Name,
                     Subtitle = profile.Subtitle,
@@ -3098,6 +3104,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
 
         // Snippets from open terminals + saved profiles: insert into the active terminal.
+        var snippets = new List<PaletteItem>();
         var seenSnippets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var snippet in Tabs.OfType<TerminalTabViewModel>().SelectMany(t => t.Snippets)
                      .Concat(_store.Profiles.SelectMany(p => p.Snippets)))
@@ -3106,46 +3113,129 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             var key = (snippet.Label ?? "") + "\u0000" + snippet.Command;
             if (!seenSnippets.Add(key)) continue;
             var s = snippet;
-            actions.Add(new PaletteItem
+            snippets.Add(new PaletteItem
             {
-                Title = "Snippet: " + (string.IsNullOrWhiteSpace(s.Label) ? s.Command : s.Label),
+                Title = string.IsNullOrWhiteSpace(s.Label) ? s.Command : s.Label,
                 Subtitle = s.Command,
                 Run = () => RunSnippetInActive(s)
             });
         }
 
         // Cross-terminal command history: re-run any past command in the active terminal.
+        var history = new List<PaletteItem>();
         var seenHistory = new HashSet<string>(StringComparer.Ordinal);
         foreach (var line in Tabs.OfType<TerminalTabViewModel>().SelectMany(t => t.History))
         {
             if (string.IsNullOrWhiteSpace(line) || !seenHistory.Add(line)) continue;
             var cmd = line;
-            actions.Add(new PaletteItem
+            history.Add(new PaletteItem
             {
-                Title = "History: " + cmd,
+                Title = cmd,
                 Subtitle = "Re-run in the active terminal",
                 Run = () => RunHistoryInActive(cmd)
             });
         }
 
-        IEnumerable<PaletteItem> filtered = actions;
-        if (q.Length > 0)
-            filtered = actions.Where(a =>
-                a.Title.Contains(q, StringComparison.OrdinalIgnoreCase) ||
-                a.Subtitle.Contains(q, StringComparison.OrdinalIgnoreCase));
+        // User-defined reusable commands, each editable / removable inline.
+        var custom = new List<PaletteItem>();
+        foreach (var command in RemoteStuff.Services.CustomCommandStore.Shared.Commands)
+        {
+            var cc = command;
+            custom.Add(new PaletteItem
+            {
+                Title = string.IsNullOrWhiteSpace(cc.Name) ? cc.Command : cc.Name,
+                Subtitle = cc.Command,
+                Run = () => RunCustomCommand(cc),
+                Edit = () => EditCustomCommand(cc),
+                Delete = () => DeleteCustomCommand(cc)
+            });
+        }
+        custom.Add(new PaletteItem
+        {
+            Title = "New Command…",
+            Subtitle = string.IsNullOrWhiteSpace(q) ? "Save a reusable command" : $"Save “{q}” as a command",
+            Icon = "plus",
+            Run = () => NewCustomCommand(q)
+        });
 
-        foreach (var a in filtered)
-            PaletteResults.Add(a);
+        var sections = new (string Name, string Icon, List<PaletteItem> Items)[]
+        {
+            ("Custom Commands", "command", custom),
+            ("Quick Actions", "zap", actions),
+            ("Profiles", "server", profiles),
+            ("Snippets", "square-terminal", snippets),
+            ("History", "history", history),
+        };
 
-        SelectedPaletteItem = PaletteResults.Count > 0 ? PaletteResults[0] : null;
+        bool Match(PaletteItem a) => q.Length == 0
+            || a.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
+            || a.Subtitle.Contains(q, StringComparison.OrdinalIgnoreCase);
+
+        foreach (var (name, icon, items) in sections)
+        {
+            if (!string.Equals(PaletteCategory, "All", StringComparison.Ordinal)
+                && !string.Equals(PaletteCategory, name, StringComparison.Ordinal)) continue;
+
+            var matched = items.Where(Match).ToList();
+            if (matched.Count == 0) continue;
+
+            PaletteResults.Add(new PaletteItem { Title = name, Icon = icon, Section = name, IsHeader = true });
+            foreach (var it in matched)
+            {
+                it.Section = name;
+                if (string.IsNullOrEmpty(it.Icon)) it.Icon = icon;
+                PaletteResults.Add(it);
+            }
+        }
+
+        SelectedPaletteItem = PaletteResults.FirstOrDefault(r => r.IsAction);
     }
 
     [RelayCommand]
     private void RunPaletteItem(PaletteItem? item)
     {
         item ??= SelectedPaletteItem;
+        if (item is null || item.IsHeader) return;
         IsPaletteOpen = false;
-        item?.Run();
+        item.Run();
+    }
+
+    [RelayCommand]
+    private void EditPaletteItem(PaletteItem? item) => item?.Edit?.Invoke();
+
+    [RelayCommand]
+    private void DeletePaletteItem(PaletteItem? item) => item?.Delete?.Invoke();
+
+    private void RunCustomCommand(RemoteStuff.Models.CustomCommand command) => RunHistoryInActive(command.Command);
+
+    private async void NewCustomCommand(string seed)
+    {
+        var result = await RemoteStuff.Services.DialogService.PromptCustomCommandAsync("New Command", "", seed ?? "");
+        if (result is not { } r || string.IsNullOrWhiteSpace(r.Command)) return;
+        RemoteStuff.Services.CustomCommandStore.Shared.Add(new RemoteStuff.Models.CustomCommand
+        {
+            Name = string.IsNullOrWhiteSpace(r.Name) ? r.Command.Trim() : r.Name.Trim(),
+            Command = r.Command.Trim()
+        });
+        RebuildPalette();
+    }
+
+    private async void EditCustomCommand(RemoteStuff.Models.CustomCommand command)
+    {
+        var result = await RemoteStuff.Services.DialogService.PromptCustomCommandAsync("Edit Command", command.Name, command.Command);
+        if (result is not { } r || string.IsNullOrWhiteSpace(r.Command)) return;
+        command.Name = string.IsNullOrWhiteSpace(r.Name) ? r.Command.Trim() : r.Name.Trim();
+        command.Command = r.Command.Trim();
+        RemoteStuff.Services.CustomCommandStore.Shared.Save();
+        RebuildPalette();
+    }
+
+    private async void DeleteCustomCommand(RemoteStuff.Models.CustomCommand command)
+    {
+        var label = string.IsNullOrWhiteSpace(command.Name) ? command.Command : command.Name;
+        if (!await RemoteStuff.Services.DialogService.ConfirmAsync("Delete Command", $"Delete “{label}”?", "Delete")) return;
+        RemoteStuff.Services.CustomCommandStore.Shared.Remove(command);
+        RebuildPalette();
     }
 }
 

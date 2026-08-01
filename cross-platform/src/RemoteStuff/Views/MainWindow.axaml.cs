@@ -301,10 +301,25 @@ public partial class MainWindow : Window
 
     private void MovePaletteSelection(int delta)
     {
-        if (_vm is null || _vm.PaletteResults.Count == 0) return;
-        var idx = _vm.SelectedPaletteItem is null ? -1 : _vm.PaletteResults.IndexOf(_vm.SelectedPaletteItem);
-        idx = System.Math.Clamp(idx + delta, 0, _vm.PaletteResults.Count - 1);
-        _vm.SelectedPaletteItem = _vm.PaletteResults[idx];
+        if (_vm is null) return;
+        var results = _vm.PaletteResults;
+        var actionIndices = new List<int>();
+        for (var i = 0; i < results.Count; i++)
+            if (results[i].IsAction) actionIndices.Add(i);
+        if (actionIndices.Count == 0) return;
+
+        var current = _vm.SelectedPaletteItem is null ? -1 : results.IndexOf(_vm.SelectedPaletteItem);
+        var pos = actionIndices.IndexOf(current);
+        if (pos < 0) pos = delta > 0 ? -1 : actionIndices.Count;
+        pos = System.Math.Clamp(pos + delta, 0, actionIndices.Count - 1);
+        _vm.SelectedPaletteItem = results[actionIndices[pos]];
+    }
+
+    // Double-clicking a palette row runs it (single Enter also works).
+    private void OnPaletteItemActivated(object? sender, TappedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is PaletteItem item && _vm is not null)
+            _vm.RunPaletteItemCommand.Execute(item);
     }
 
     /// <summary>Double-clicking a sidebar row connects to it (matches the Mac app).</summary>

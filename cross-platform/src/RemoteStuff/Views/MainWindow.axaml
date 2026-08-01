@@ -9,6 +9,7 @@
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
         x:Class="RemoteStuff.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/Icon.png"
         Width="1100" Height="720"
         MinWidth="760" MinHeight="480"
         Title="Remote Stuff CP">
@@ -311,6 +312,8 @@
                         <MenuItem Header="Export profiles…" Command="{Binding ExportProfilesCommand}" />
                     </MenuItem>
                     <MenuItem Header="_Commands">
+                        <MenuItem Header="Command Palette…" Command="{Binding OpenPaletteCommand}" InputGesture="Ctrl+K" />
+                        <Separator />
                         <MenuItem Header="Disconnect All Tunnels" Command="{Binding DisconnectAllCommand}" />
                         <Separator />
                         <MenuItem Header="Broadcast Input to All Terminals"
@@ -1320,23 +1323,65 @@
         <!-- Command palette overlay -->
         <Border Grid.Row="0" Grid.RowSpan="3" Background="#B0000000"
                 IsVisible="{Binding IsPaletteOpen}">
-            <Border Width="560" MaxHeight="440" VerticalAlignment="Top" Margin="0,80,0,0"
+            <Border Width="600" MaxHeight="460" VerticalAlignment="Top" Margin="0,80,0,0"
                     Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" CornerRadius="8">
                 <DockPanel Margin="10">
-                    <TextBox DockPanel.Dock="Top" Name="PaletteBox"
-                             Text="{Binding PaletteQuery, Mode=TwoWay}"
-                             Watermark="Type a command or profile…  (Esc to close)"
-                             FontSize="15" Padding="8" />
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto">
+                        <TextBox Grid.Column="0" Name="PaletteBox"
+                                 Text="{Binding PaletteQuery, Mode=TwoWay}"
+                                 Watermark="Type a command or profile…  (Esc to close)"
+                                 FontSize="15" Padding="8" />
+                        <ComboBox Grid.Column="1" Margin="8,0,0,0" MinWidth="130" VerticalAlignment="Stretch"
+                                  ItemsSource="{Binding PaletteCategories}"
+                                  SelectedItem="{Binding PaletteCategory, Mode=TwoWay}" />
+                    </Grid>
                     <ListBox Margin="0,8,0,0"
                              ItemsSource="{Binding PaletteResults}"
                              SelectedItem="{Binding SelectedPaletteItem, Mode=TwoWay}"
                              Background="Transparent" BorderThickness="0">
+                        <ListBox.Styles>
+                            <Style Selector="ListBoxItem" x:DataType="vm:PaletteItem">
+                                <Setter Property="IsHitTestVisible" Value="{Binding IsAction}" />
+                                <Setter Property="Padding" Value="4,1" />
+                            </Style>
+                            <Style Selector="Button.paletteRowBtn">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="Padding" Value="4" />
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                            </Style>
+                        </ListBox.Styles>
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:PaletteItem">
-                                <StackPanel Margin="2,4">
-                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="#999" />
-                                </StackPanel>
+                                <Panel>
+                                    <TextBlock Text="{Binding Title}" IsVisible="{Binding IsHeader}"
+                                               FontSize="11" FontWeight="Bold" Foreground="#888"
+                                               Margin="2,10,2,3" />
+                                    <Grid IsVisible="{Binding IsAction}" ColumnDefinitions="Auto,*,Auto"
+                                          Background="Transparent" DoubleTapped="OnPaletteItemActivated">
+                                        <controls:LineIcon Grid.Column="0" Kind="{Binding Icon}"
+                                                           IsVisible="{Binding HasIcon}"
+                                                           Width="15" Height="15" Margin="2,0,8,0"
+                                                           VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="#999"
+                                                       IsVisible="{Binding HasSubtitle}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                            <Button Classes="paletteRowBtn" IsVisible="{Binding CanEdit}" ToolTip.Tip="Edit"
+                                                    Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).EditPaletteItemCommand}"
+                                                    CommandParameter="{Binding}">
+                                                <controls:LineIcon Kind="square-pen" Width="13" Height="13" />
+                                            </Button>
+                                            <Button Classes="paletteRowBtn" IsVisible="{Binding CanDelete}" ToolTip.Tip="Delete"
+                                                    Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).DeletePaletteItemCommand}"
+                                                    CommandParameter="{Binding}">
+                                                <controls:LineIcon Kind="trash-2" Width="13" Height="13" />
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+                                </Panel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
