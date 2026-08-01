@@ -137,6 +137,16 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
     /// password (Touch ID gated) instead of popping the manual-entry dialog.
     private let autofillSourceProfileID: UUID?
     private let autofillSourceRequireAuth: Bool
+    /// ControlMaster socket for the underlying ssh connection, so a sibling `ssh`
+    /// can reuse this authenticated session to write a file with sudo. nil = none.
+    private let controlPath: String?
+
+    /// The `user@host` destination the sftp session connected to (its last arg),
+    /// reused when running an elevated `ssh` over the shared control socket.
+    private var destination: String? {
+        guard let last = args.last, !last.hasPrefix("-") else { return nil }
+        return last
+    }
 
     private var process: LocalProcess!
     private var rawBuffer = ""
@@ -157,7 +167,8 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
     init(executable: String, args: [String], profileID: UUID?,
          autofillPassword: Bool, requireAuthForPassword: Bool,
          presetPassword: String? = nil,
-         autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true) {
+         autofillSourceProfileID: UUID? = nil, autofillSourceRequireAuth: Bool = true,
+         controlPath: String? = nil) {
         self.executable = executable
         self.args = args
         self.profileID = profileID
@@ -166,6 +177,7 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         self.presetPassword = presetPassword
         self.autofillSourceProfileID = autofillSourceProfileID
         self.autofillSourceRequireAuth = autofillSourceRequireAuth
+        self.controlPath = controlPath
         super.init()
         process = LocalProcess(delegate: self, dispatchQueue: .main)
     }
@@ -499,17 +511,118 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         guard isConnected else { completion(false); return }
         let localQ = SFTPCommandBuilder.quotePath(localURL.path)
         let remoteQ = SFTPCommandBuilder.quotePath(remotePath)
-        var failed = false
+        var problem: String?
         runCommand("put \(localQ) \(remoteQ)",
-                   status: "Saving \(localURL.lastPathComponent) to the server…") { [weak self] out in
-            if let problem = SFTPClient.operationError(out) { self?.report(problem); failed = true }
+                   status: "Saving \(localURL.lastPathComponent) to the server…") { out in
+            problem = SFTPClient.operationError(out)
         }
         // A trailing no‑op fires once the put above is done, then reports back.
         runCommand("pwd") { [weak self] _ in
-            self?.statusMessage = self?.defaultStatus() ?? ""
-            completion(!failed)
+            guard let self else { completion(false); return }
+            if let problem, problem.localizedCaseInsensitiveContains("Permission denied") {
+                // No write access — offer to save it as root over sudo.
+                self.elevateUpload(localURL: localURL, remotePath: remotePath, completion: completion)
+                return
+            }
+            if let problem { self.report(problem) }
+            self.statusMessage = self.defaultStatus()
+            self.refresh()
+            completion(problem == nil)
         }
-        refresh()
+    }
+
+    /// After a plain `put` was denied, save the file with elevated privileges:
+    /// prompt for the sudo password, stage the content in a world-writable temp
+    /// over the existing sftp session, then `sudo cp` it over the target via an
+    /// `ssh` that reuses this session's authenticated ControlMaster socket.
+    private func elevateUpload(localURL: URL, remotePath: String,
+                               completion: @escaping (Bool) -> Void) {
+        let denied = "Permission denied. You don't have write access to this file on the server."
+        guard let controlPath, let dest = destination else {
+            report(denied); completion(false); return
+        }
+        guard let password = promptSudoPassword(for: remotePath) else {
+            report(denied); completion(false); return   // user cancelled
+        }
+        let temp = "/tmp/.rsedit-\(UUID().uuidString).tmp"
+        statusMessage = "Saving with sudo…"
+        var stageFailed = false
+        runCommand("put \(SFTPCommandBuilder.quotePath(localURL.path)) \(SFTPCommandBuilder.quotePath(temp))") { out in
+            if SFTPClient.operationError(out) != nil { stageFailed = true }
+        }
+        runCommand("pwd") { [weak self] _ in
+            guard let self else { completion(false); return }
+            if stageFailed {
+                self.report("Couldn't stage the file for a sudo save.")
+                completion(false)
+                return
+            }
+            self.runSudoCopy(controlPath: controlPath, destination: dest,
+                             temp: temp, target: remotePath, password: password) { ok, message in
+                // Best-effort cleanup of the temp we staged.
+                self.runCommand("rm \(SFTPCommandBuilder.quotePath(temp))") { _ in }
+                if ok { self.statusMessage = "Saved with sudo" }
+                else { self.report(message ?? "Sudo save failed.") }
+                self.refresh()
+                completion(ok)
+            }
+        }
+    }
+
+    /// Ask for the sudo password in a modal secure prompt. Returns nil if cancelled.
+    private func promptSudoPassword(for path: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = "Permission denied"
+        alert.informativeText = "You don't have permission to save \(path).\n\n" +
+            "Enter your sudo password to save it as root on the server."
+        alert.addButton(withTitle: "Save with sudo")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+    }
+
+    /// Run `sudo cp <temp> <target>` on the server over an `ssh` that reuses the
+    /// sftp session's ControlMaster socket (so no re-authentication is needed).
+    /// The sudo password is fed on stdin (`sudo -S`) rather than the argv.
+    private func runSudoCopy(controlPath: String, destination: String,
+                             temp: String, target: String, password: String,
+                             completion: @escaping (Bool, String?) -> Void) {
+        func shq(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let remoteCmd = "sudo -S -p '' cp -f -- \(shq(temp)) \(shq(target))"
+        let args = ["-o", "ControlPath=\(controlPath)", "-o", "BatchMode=yes",
+                    destination, remoteCmd]
+        DispatchQueue.global(qos: .userInitiated).async {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: SSHCommandBuilder.sshPath)
+            proc.arguments = args
+            let stdin = Pipe()
+            let stderr = Pipe()
+            proc.standardInput = stdin
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = stderr
+            do { try proc.run() }
+            catch {
+                DispatchQueue.main.async { completion(false, "Couldn't start ssh: \(error.localizedDescription)") }
+                return
+            }
+            stdin.fileHandleForWriting.write(Data((password + "\n").utf8))
+            try? stdin.fileHandleForWriting.close()
+            let errData = stderr.fileHandleForReading.readDataToEndOfFile()
+            proc.waitUntilExit()
+            let ok = proc.terminationStatus == 0
+            let errText = String(decoding: errData, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async {
+                if ok { completion(true, nil); return }
+                let lower = errText.lowercased()
+                let msg = (lower.contains("try again") || lower.contains("incorrect password"))
+                    ? "Incorrect sudo password."
+                    : (errText.isEmpty ? "Sudo save failed." : errText)
+                completion(false, msg)
+            }
+        }
     }
 
     func makeDirectory(_ name: String) {

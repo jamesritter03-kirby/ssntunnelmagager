@@ -45,11 +45,19 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.82", build: 92, date: "Jul 31, 2026",
+            highlights: [
+                "Terminal command history now captures the full command line — including tab-completions, commands recalled with the Up/Down arrows, and lines you edited before pressing Enter.",
+                "Editing a remote file you don’t have write access to now offers to save it with sudo: enter your sudo password and the change is written as root over your existing connection.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.81", build: 91, date: "Jul 31, 2026",
             highlights: [
                 "The command history menu on a terminal tab now has a Save as Snippet option — turn any command you’ve run into a reusable snippet on that connection’s profile, ready to insert or run from the Snippets menu.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.80", build: 90, date: "Jul 31, 2026",

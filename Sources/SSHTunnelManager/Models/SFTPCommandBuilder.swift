@@ -10,7 +10,10 @@ enum SFTPCommandBuilder {
 
     /// Build the argument list passed to `/usr/bin/sftp` for a profile. Only the
     /// connection-related options apply (port forwards are an `ssh`-only concept).
-    static func arguments(for profile: SSHProfile) -> [String] {
+    /// When `controlPath` is supplied, connection multiplexing is enabled so a
+    /// sibling `ssh` can reuse this authenticated session (used to write a file
+    /// back with `sudo` when a plain `put` is denied).
+    static func arguments(for profile: SSHProfile, controlPath: String? = nil) -> [String] {
         var args: [String] = []
 
         if profile.compression { args.append("-C") }
@@ -30,6 +33,11 @@ enum SFTPCommandBuilder {
         }
         if profile.keepAlive {
             args += ["-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3"]
+        }
+        if let controlPath, !controlPath.isEmpty {
+            args += ["-o", "ControlMaster=auto",
+                     "-o", "ControlPath=\(controlPath)",
+                     "-o", "ControlPersist=no"]
         }
 
         // Extra raw options, naive whitespace split (matches SSHCommandBuilder).

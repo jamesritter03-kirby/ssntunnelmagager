@@ -247,6 +247,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     // Command-line reconstruction state (see handleInput).
     private var lineBuffer: [UInt8] = []
     private var escapeState: LineEscapeState = .normal
+    /// Screen column/row where the current command begins (just after the prompt),
+    /// so at Enter we can read the command as rendered — capturing tab-completion
+    /// and Up/Down history recall the keystroke buffer alone would miss. nil = unset.
+    private var inputStartCol: Int?
+    private var inputStartRow: Int?
     private var isInjecting = false
     private var secretPromptActive = false
     private var recentOutputTail = ""
@@ -313,7 +318,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
                                          requireAuthForPassword: requireAuthForPassword,
                                          presetPassword: presetPassword,
                                          autofillSourceProfileID: autofillSourceProfileID,
-                                         autofillSourceRequireAuth: autofillSourceRequireAuth)
+                                         autofillSourceRequireAuth: autofillSourceRequireAuth,
+                                         controlPath: controlSocketPath)
             // A profile-backed tab mounts via its profile. Any ad-hoc tab with a
             // captured host is mountable too: it uses that host / port / username,
             // with its typed password (in memory) or one persisted under
@@ -756,6 +762,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
         switch byte {
         case 0x1b:              // ESC — start of an escape sequence
+            if lineBuffer.isEmpty { markInputStart() }   // e.g. Up/Down history recall
             escapeState = .esc
         case 0x0d, 0x0a:        // CR / LF — line submitted
             commitLine()
@@ -763,20 +770,50 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             if !lineBuffer.isEmpty { lineBuffer.removeLast() }
         case 0x03, 0x15:        // Ctrl-C / Ctrl-U — line abandoned / cleared
             lineBuffer.removeAll()
-        case 0x00...0x1f:       // other control characters (Tab, etc.) — ignore
+            inputStartCol = nil
+            inputStartRow = nil
+        case 0x09:              // Tab — completion; mark where input began
+            if lineBuffer.isEmpty { markInputStart() }
+        case 0x00...0x1f:       // other control characters — ignore
             break
         default:
+            if lineBuffer.isEmpty { markInputStart() }
             lineBuffer.append(byte)
         }
+    }
+
+    /// Record the cursor position at the start of a command line, read live from
+    /// the terminal buffer (before this keystroke echoes).
+    private func markInputStart() {
+        guard inputStartCol == nil, let term = terminalView.terminal else { return }
+        let loc = term.getCursorLocation()
+        inputStartCol = loc.x
+        inputStartRow = loc.y
     }
 
     private func commitLine() {
         let bytes = lineBuffer
         lineBuffer.removeAll()
+        let startCol = inputStartCol
+        let startRow = inputStartRow
+        inputStartCol = nil
+        inputStartRow = nil
         // Never record what was typed at a password / passphrase prompt.
         guard !secretPromptActive else { return }
-        guard let text = String(bytes: bytes, encoding: .utf8) else { return }
-        let command = text.trimmingCharacters(in: .whitespaces)
+
+        var command = (String(bytes: bytes, encoding: .utf8) ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        // Prefer the line as rendered on screen (captures tab-completion, Up/Down
+        // history recall and mid-line edits); fall back to the keystroke buffer
+        // when the input wrapped onto another row.
+        if let startCol, let startRow, let term = terminalView.terminal,
+           term.getCursorLocation().y == startRow,
+           let line = term.getLine(row: startRow) {
+            let onScreen = line.translateToString(trimRight: true, startCol: startCol)
+                .trimmingCharacters(in: .whitespaces)
+            if !onScreen.isEmpty { command = onScreen }
+        }
+
         guard !command.isEmpty else { return }
         addToHistory(command)
     }

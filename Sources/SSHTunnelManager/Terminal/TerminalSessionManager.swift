@@ -860,7 +860,10 @@ final class TerminalSessionManager: ObservableObject {
 
     /// Build (but don't start) an interactive `sftp` session tab for a profile.
     private func makeSFTPSession(for profile: SSHProfile) -> TerminalSession {
-        let args = SFTPCommandBuilder.arguments(for: profile)
+        // A per-tab ControlMaster socket lets a sibling `ssh` reuse this
+        // authenticated session to save a file with sudo when a put is denied.
+        let controlPath = "/tmp/sshtm-sftp-\(UUID().uuidString.prefix(8)).sock"
+        let args = SFTPCommandBuilder.arguments(for: profile, controlPath: controlPath)
         return TerminalSession(
             kind: .sftp,
             title: "\(profile.name) — SFTP",
@@ -871,7 +874,8 @@ final class TerminalSessionManager: ObservableObject {
             theme: TerminalTheme.theme(id: profile.theme),
             fontSize: profile.fontSize,
             autofillPassword: KeychainStore.shared.hasPassword(for: profile.id),
-            requireAuthForPassword: profile.requireAuthForSavedPassword
+            requireAuthForPassword: profile.requireAuthForSavedPassword,
+            controlSocketPath: controlPath
         )
     }
 
