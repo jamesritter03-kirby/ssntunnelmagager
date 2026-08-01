@@ -2669,6 +2669,24 @@ final class TerminalSessionManager: ObservableObject {
         savedWorkspaces = saved
     }
 
+    /// Write the saved-workspace launch templates to a JSON file so Git sync can
+    /// share them across machines (called before a Push).
+    func exportSavedWorkspaces(toPath path: String) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(savedWorkspaces) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: [.atomic])
+    }
+
+    /// Replace the saved-workspace launch templates from a JSON file (after a Git
+    /// Pull), persisting them and republishing so the Workspaces menu refreshes live.
+    func importSavedWorkspaces(fromPath path: String) {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let loaded = try? JSONDecoder().decode([SavedWorkspace].self, from: data) else { return }
+        savedWorkspaces = loaded
+        persistSavedWorkspaces()
+    }
+
     // MARK: - Recently-closed history
 
     private let recentlyClosedKey = "closedHistory.v1"

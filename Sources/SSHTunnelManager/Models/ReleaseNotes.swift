@@ -45,11 +45,18 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.80", build: 90, date: "Jul 31, 2026",
+            highlights: [
+                "Sync Profiles with Git now also syncs your saved workspaces, and importing (Pull) immediately refreshes the app’s profiles and workspaces — no restart needed.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.79", build: 89, date: "Jul 31, 2026",
             highlights: [
                 "Fixed: right‑clicking an SSH tab and choosing Edit Connection… did nothing — the profile editor now opens as it does for MQTT, Redis and SFTP tabs.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.78", build: 88, date: "Jul 31, 2026",

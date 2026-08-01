@@ -26,12 +26,18 @@ struct GitSyncConfig: Codable {
 /// is ever committed.
 final class GitProfileSync {
     private static let profilesFileName = "profiles.json"
+    private static let workspacesFileName = "workspaces.json"
 
     private let profilesPath: String
+    private let workspacesPath: String
     private let defaultRepoDir: String
     private let configPath: String
 
     private(set) var config = GitSyncConfig()
+
+    /// Where the app stages its saved workspaces for syncing (next to profiles.json).
+    /// The UI exports its workspaces here before Push and re-imports them after Pull.
+    var workspacesFilePath: String { workspacesPath }
 
     /// Absolute path of the local Git working copy — a user-chosen folder if set,
     /// else a `profiles-repo` folder next to `profiles.json`.
@@ -45,6 +51,7 @@ final class GitProfileSync {
     init(profilesPath: String) {
         self.profilesPath = profilesPath
         let appDir = (profilesPath as NSString).deletingLastPathComponent
+        self.workspacesPath = (appDir as NSString).appendingPathComponent(Self.workspacesFileName)
         self.defaultRepoDir = (appDir as NSString).appendingPathComponent("profiles-repo")
         self.configPath = (appDir as NSString).appendingPathComponent("git-sync.json")
         loadConfig()
@@ -160,18 +167,28 @@ final class GitProfileSync {
         }
 
         let repoProfiles = (repoDir as NSString).appendingPathComponent(Self.profilesFileName)
-        guard FileManager.default.fileExists(atPath: repoProfiles) else {
-            log.line("No profiles.json in the repo yet — nothing to import. Push first.")
+        let repoWorkspaces = (repoDir as NSString).appendingPathComponent(Self.workspacesFileName)
+        let hasProfiles = FileManager.default.fileExists(atPath: repoProfiles)
+        let hasWorkspaces = FileManager.default.fileExists(atPath: repoWorkspaces)
+        guard hasProfiles || hasWorkspaces else {
+            log.line("No profiles.json or workspaces.json in the repo yet — nothing to import. Push first.")
             return GitSyncResult(success: true, log: log.text)
         }
 
         do {
-            let data = try Data(contentsOf: URL(fileURLWithPath: repoProfiles))
-            try data.write(to: URL(fileURLWithPath: profilesPath), options: [.atomic])
-            log.line("Imported profiles.json from the repository into the app.")
+            if hasProfiles {
+                let data = try Data(contentsOf: URL(fileURLWithPath: repoProfiles))
+                try data.write(to: URL(fileURLWithPath: profilesPath), options: [.atomic])
+                log.line("Imported profiles.json from the repository into the app.")
+            }
+            if hasWorkspaces {
+                let data = try Data(contentsOf: URL(fileURLWithPath: repoWorkspaces))
+                try data.write(to: URL(fileURLWithPath: workspacesPath), options: [.atomic])
+                log.line("Imported workspaces.json from the repository into the app.")
+            }
             return GitSyncResult(success: true, log: log.text)
         } catch {
-            log.line("Failed to copy profiles into the app: \(error.localizedDescription)")
+            log.line("Failed to copy files into the app: \(error.localizedDescription)")
             return GitSyncResult(success: false, log: log.text)
         }
     }
@@ -187,29 +204,39 @@ final class GitProfileSync {
             if !initResult.success { return GitSyncResult(success: false, log: log.text) }
         }
 
-        guard FileManager.default.fileExists(atPath: profilesPath) else {
-            log.line("No local profiles.json to push.")
+        let hasProfiles = FileManager.default.fileExists(atPath: profilesPath)
+        let hasWorkspaces = FileManager.default.fileExists(atPath: workspacesPath)
+        guard hasProfiles || hasWorkspaces else {
+            log.line("No local profiles.json or workspaces.json to push.")
             return GitSyncResult(success: false, log: log.text)
         }
 
-        let repoProfiles = (repoDir as NSString).appendingPathComponent(Self.profilesFileName)
         do {
-            let data = try Data(contentsOf: URL(fileURLWithPath: profilesPath))
-            try data.write(to: URL(fileURLWithPath: repoProfiles), options: [.atomic])
+            if hasProfiles {
+                let data = try Data(contentsOf: URL(fileURLWithPath: profilesPath))
+                let dest = (repoDir as NSString).appendingPathComponent(Self.profilesFileName)
+                try data.write(to: URL(fileURLWithPath: dest), options: [.atomic])
+            }
+            if hasWorkspaces {
+                let data = try Data(contentsOf: URL(fileURLWithPath: workspacesPath))
+                let dest = (repoDir as NSString).appendingPathComponent(Self.workspacesFileName)
+                try data.write(to: URL(fileURLWithPath: dest), options: [.atomic])
+            }
         } catch {
-            log.line("Failed to stage profiles into the repo: \(error.localizedDescription)")
+            log.line("Failed to stage files into the repo: \(error.localizedDescription)")
             return GitSyncResult(success: false, log: log.text)
         }
 
-        _ = await runGit(in: repoDir, log: log, "add", Self.profilesFileName)
+        if hasProfiles { _ = await runGit(in: repoDir, log: log, "add", Self.profilesFileName) }
+        if hasWorkspaces { _ = await runGit(in: repoDir, log: log, "add", Self.workspacesFileName) }
 
         // Nothing staged => no commit needed.
         let (statusCode, status) = await runGit(in: repoDir, log: log, "status", "--porcelain")
         if statusCode == 0 && status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            log.line("Profiles already up to date — nothing to commit.")
+            log.line("Profiles & workspaces already up to date — nothing to commit.")
         } else {
             let trimmed = (commitMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let msg = trimmed.isEmpty ? "Update profiles \(Self.timestamp())" : trimmed
+            let msg = trimmed.isEmpty ? "Update profiles & workspaces \(Self.timestamp())" : trimmed
             let (commitCode, _) = await runGit(in: repoDir, log: log, "commit", "-m", msg)
             if commitCode != 0 { return GitSyncResult(success: false, log: log.text) }
         }
@@ -218,7 +245,7 @@ final class GitProfileSync {
             await ensureRemote(log)
             let (pushCode, _) = await runGit(in: repoDir, log: log, "push", "-u", "origin", config.branch)
             if pushCode != 0 { return GitSyncResult(success: false, log: log.text) }
-            log.line("Pushed profiles to the remote.")
+            log.line("Pushed profiles & workspaces to the remote.")
         } else {
             log.line("Committed locally (no remote configured to push to).")
         }

@@ -38,7 +38,7 @@ struct GitSyncView: View {
                 subtitle: "Share profiles across machines through a Git repository."
             )
 
-            Text("Push saves and uploads your current profiles; Pull downloads them and replaces your local profiles. Passwords are never included — they stay in your Keychain.")
+            Text("Push saves and uploads your current profiles and saved workspaces; Pull downloads them and replaces your local copies. Passwords are never included — they stay in your Keychain.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -84,7 +84,9 @@ struct GitSyncView: View {
                     Label("Pull (import)", systemImage: "arrow.down.circle")
                 }
                 Button {
-                    run { await engine.sync.push(commitMessage: commitMessage) }
+                    run { await engine.sync.push(commitMessage: commitMessage) } prepare: {
+                        TerminalSessionManager.shared.exportSavedWorkspaces(toPath: engine.sync.workspacesFilePath)
+                    }
                 } label: {
                     Label("Push (share)", systemImage: "arrow.up.circle")
                 }
@@ -157,16 +159,22 @@ struct GitSyncView: View {
     }
 
     /// Persist config, run the operation off the main actor, then show its log.
-    private func run(reloadOnSuccess: Bool = false, _ op: @escaping () async -> GitSyncResult) {
+    /// `prepare` runs synchronously before the operation (e.g. to stage workspaces
+    /// for a Push); on a successful Pull the profiles and workspaces are reloaded.
+    private func run(reloadOnSuccess: Bool = false,
+                     _ op: @escaping () async -> GitSyncResult,
+                     prepare: (() -> Void)? = nil) {
         guard !isBusy else { return }
         isBusy = true
         engine.sync.saveConfig(remoteUrl: remoteUrl, branch: branch, localPath: localPath)
+        prepare?()
         Task {
             let result = await op()
             await MainActor.run {
                 log = result.log
                 if result.success && reloadOnSuccess {
                     store.reloadFromDisk()
+                    TerminalSessionManager.shared.importSavedWorkspaces(fromPath: engine.sync.workspacesFilePath)
                 }
                 isBusy = false
             }
