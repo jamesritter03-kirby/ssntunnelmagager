@@ -113,6 +113,10 @@ public sealed partial class MikroTikTabViewModel : TabViewModel
 
     [ObservableProperty] private string _configText = "";
 
+    [ObservableProperty] private bool _includeSensitive;
+
+    [ObservableProperty] private string _routerFileName = "config";
+
     [ObservableProperty] private bool _isDiscovering;
     public bool HasSavedRouters => SavedRouters.Count > 0;
     public bool HasDiscovered => Discovered.Count > 0;
@@ -528,8 +532,54 @@ public sealed partial class MikroTikTabViewModel : TabViewModel
     {
         if (_api is null) return;
         IsBusy = true;
-        StatusText = "Exporting configuration…";
-        try { ConfigText = await _api.ExportConfigAsync(); StatusText = "Configuration exported"; }
+        StatusText = IncludeSensitive ? "Exporting configuration (with secrets)…" : "Exporting configuration…";
+        try
+        {
+            ConfigText = await _api.ExportConfigAsync(IncludeSensitive);
+            StatusText = IncludeSensitive ? "Configuration exported (includes credentials)" : "Configuration exported";
+        }
+        catch (Exception ex) { StatusText = ex.Message; }
+        finally { IsBusy = false; }
+    }
+
+    /// <summary>Raised when the user clicks "Save file…" — the view shows a save
+    /// dialog and returns the chosen path, or null if cancelled.</summary>
+    public event Func<string, Task<string?>>? SaveFileRequested;
+
+    [RelayCommand]
+    private async Task SaveConfigFile()
+    {
+        if (SaveFileRequested is null || string.IsNullOrWhiteSpace(ConfigText))
+        {
+            if (string.IsNullOrWhiteSpace(ConfigText)) StatusText = "Nothing to save — export first.";
+            return;
+        }
+        var suggested = (SelectedRouter?.Name is { Length: > 0 } n
+            ? new string(n.Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray())
+            : "mikrotik") + ".rsc";
+        try
+        {
+            var path = await SaveFileRequested.Invoke(suggested);
+            if (path is null) return;
+            await System.IO.File.WriteAllTextAsync(path, ConfigText);
+            StatusText = "Saved " + System.IO.Path.GetFileName(path);
+        }
+        catch (Exception ex) { StatusText = "Save failed: " + ex.Message; }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanUseRouter))]
+    private async Task SaveConfigToRouter()
+    {
+        if (_api is null) return;
+        var name = string.IsNullOrWhiteSpace(RouterFileName) ? "config" : RouterFileName.Trim();
+        if (name.EndsWith(".rsc", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
+        IsBusy = true;
+        StatusText = $"Exporting {name}.rsc on the router…";
+        try
+        {
+            await _api.ExportToRouterAsync(name, IncludeSensitive);
+            StatusText = $"Saved {name}.rsc on the router" + (IncludeSensitive ? " (with credentials)" : "");
+        }
         catch (Exception ex) { StatusText = ex.Message; }
         finally { IsBusy = false; }
     }

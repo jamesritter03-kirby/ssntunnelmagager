@@ -34,6 +34,8 @@
                 <TextBox Text="{Binding KeyFilter}" Width="220" Watermark="key pattern (*)" />
                 <Button Content="Scan" Command="{Binding RefreshKeysCommand}" />
                 <Button Content="Reconnect" Command="{Binding ReconnectCommand}" />
+                <Button Content="Clear" Command="{Binding ClearHistoryCommand}"
+                        ToolTip.Tip="Clear the value history" />
             </StackPanel>
         </Border>
 
@@ -59,16 +61,43 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Stacked sections: each can be collapsed to its header or maximized to fill
-                     the whole value area (the maximize button toggles; the title toggles collapse). -->
+                <!-- Stacked sections (order mirrors the MQTT tab: Graph, Value, History).
+                     Each can be collapsed to its header or maximized to fill the area. -->
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="{Binding ValueRowHeight}" />
                         <RowDefinition Height="{Binding GraphRowHeight}" />
+                        <RowDefinition Height="{Binding ValueRowHeight}" />
+                        <RowDefinition Height="{Binding HistoryRowHeight}" />
                     </Grid.RowDefinitions>
 
-                    <!-- Value editor -->
+                    <!-- Graph -->
                     <Border Grid.Row="0" Background="{DynamicResource AppInsetBrush}"
+                            BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1"
+                            IsVisible="{Binding Graph.HasData}">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}"
+                                    BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="4,2">
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Classes="paneIcon" Command="{Binding MaximizeGraphCommand}"
+                                            ToolTip.Tip="Expand this section / restore">
+                                        <controls:LineIcon Kind="{Binding GraphMaxIcon}" Width="14" Height="14" />
+                                    </Button>
+                                    <Button Classes="paneHdr" Command="{Binding ToggleGraphCollapsedCommand}" HorizontalAlignment="Left">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <controls:LineIcon Kind="{Binding GraphCollapseIcon}" Width="14" Height="14" />
+                                            <TextBlock Text="Graph" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                </DockPanel>
+                            </Border>
+                            <Border IsVisible="{Binding GraphContentVisible}">
+                                <controls:NumericSeriesGraphView DataContext="{Binding Graph}" Margin="4" />
+                            </Border>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Value editor -->
+                    <Border Grid.Row="1" Background="{DynamicResource AppInsetBrush}"
                             BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
                         <DockPanel>
                             <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}"
@@ -95,28 +124,36 @@
                         </DockPanel>
                     </Border>
 
-                    <!-- Graph -->
-                    <Border Grid.Row="1" Background="{DynamicResource AppInsetBrush}"
-                            IsVisible="{Binding Graph.HasData}">
+                    <!-- History -->
+                    <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}">
                         <DockPanel>
                             <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}"
                                     BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="4,2">
                                 <DockPanel>
-                                    <Button DockPanel.Dock="Right" Classes="paneIcon" Command="{Binding MaximizeGraphCommand}"
+                                    <Button DockPanel.Dock="Right" Classes="paneIcon" Command="{Binding MaximizeHistoryCommand}"
                                             ToolTip.Tip="Expand this section / restore">
-                                        <controls:LineIcon Kind="{Binding GraphMaxIcon}" Width="14" Height="14" />
+                                        <controls:LineIcon Kind="{Binding HistoryMaxIcon}" Width="14" Height="14" />
                                     </Button>
-                                    <Button Classes="paneHdr" Command="{Binding ToggleGraphCollapsedCommand}" HorizontalAlignment="Left">
+                                    <Button Classes="paneHdr" Command="{Binding ToggleHistoryCollapsedCommand}" HorizontalAlignment="Left">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <controls:LineIcon Kind="{Binding GraphCollapseIcon}" Width="14" Height="14" />
-                                            <TextBlock Text="Graph" VerticalAlignment="Center" />
+                                            <controls:LineIcon Kind="{Binding HistoryCollapseIcon}" Width="14" Height="14" />
+                                            <TextBlock Text="History" VerticalAlignment="Center" />
                                         </StackPanel>
                                     </Button>
                                 </DockPanel>
                             </Border>
-                            <Border IsVisible="{Binding GraphContentVisible}">
-                                <controls:NumericSeriesGraphView DataContext="{Binding Graph}" Margin="4" />
-                            </Border>
+                            <ListBox IsVisible="{Binding HistoryContentVisible}" ItemsSource="{Binding History}"
+                                     Background="{DynamicResource AppSurfaceBrush}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:RedisValueSample">
+                                        <Grid ColumnDefinitions="70,200,*">
+                                            <TextBlock Grid.Column="0" Text="{Binding TimeText}" Foreground="{DynamicResource AppMutedTextBrush}" FontFamily="Menlo, Consolas, monospace" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Key}" Foreground="#7FB0DE" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="2" Text="{Binding Value}" Foreground="{DynamicResource AppTextBrush}" TextTrimming="CharacterEllipsis" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
                         </DockPanel>
                     </Border>
                 </Grid>

@@ -273,7 +273,8 @@
                         <MenuItem Header="SFTP Connection…" Command="{Binding NewSftpConnectionCommand}" />
                         <MenuItem Header="MQTT Connection…" Command="{Binding NewMqttConnectionCommand}" />
                         <MenuItem Header="Redis Connection…" Command="{Binding NewRedisConnectionCommand}" />
-                        <Separator />
+                    </MenuItem>
+                    <MenuItem Header="Net_work">
                         <MenuItem Header="Network" Command="{Binding NewNetworkCommand}" />
                         <MenuItem Header="MikroTik" Command="{Binding NewMikroTikCommand}" />
                     </MenuItem>

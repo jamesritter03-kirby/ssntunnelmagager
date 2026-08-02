@@ -165,9 +165,11 @@ public sealed class MikroTikApi : IDisposable
 
     public Task RebootAsync() => PostAsync("/system/reboot", new Dictionary<string, object>());
 
-    public async Task<string> ExportConfigAsync()
+    public async Task<string> ExportConfigAsync(bool showSensitive = false)
     {
-        var data = await RequestStringAsync("/export", HttpMethod.Post, new Dictionary<string, object>());
+        var args = new Dictionary<string, object>();
+        if (showSensitive) args["show-sensitive"] = "yes";
+        var data = await RequestStringAsync("/export", HttpMethod.Post, args);
         using var doc = JsonDocument.Parse(data);
         var root = doc.RootElement;
         if (root.ValueKind == JsonValueKind.Object)
@@ -187,6 +189,15 @@ public sealed class MikroTikApi : IDisposable
         }
         if (root.ValueKind == JsonValueKind.String) return root.GetString() ?? "";
         return data;
+    }
+
+    /// <summary>Run <c>/export file=&lt;name&gt;</c> on the router, writing
+    /// <c>&lt;name&gt;.rsc</c> to the router's file storage (Files list).</summary>
+    public async Task ExportToRouterAsync(string fileName, bool showSensitive = false)
+    {
+        var args = new Dictionary<string, object> { ["file"] = fileName };
+        if (showSensitive) args["show-sensitive"] = "yes";
+        await RequestStringAsync("/export", HttpMethod.Post, args);
     }
 
     public async Task ApplyConfigAsync(string source)

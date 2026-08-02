@@ -12,6 +12,16 @@ using StackExchange.Redis;
 
 namespace RemoteStuff.ViewModels;
 
+/// <summary>One timestamped value observation shown in the Redis History list
+/// (mirrors the MQTT message history).</summary>
+public sealed class RedisValueSample
+{
+    public required string Key { get; init; }
+    public required string Value { get; init; }
+    public DateTime Time { get; init; } = DateTime.Now;
+    public string TimeText => Time.ToString("HH:mm:ss");
+}
+
 /// <summary>A Redis key browser tab backed by StackExchange.Redis.</summary>
 public sealed partial class RedisTabViewModel : TabViewModel
 {
@@ -47,6 +57,11 @@ public sealed partial class RedisTabViewModel : TabViewModel
     };
 
     public ObservableCollection<string> Keys { get; } = new();
+
+    /// <summary>Rolling log of value observations over time (mirrors MQTT history).
+    /// A new entry is added whenever a selected key's value changes.</summary>
+    public ObservableCollection<RedisValueSample> History { get; } = new();
+    private readonly Dictionary<string, string> _lastValue = new();
 
     /// <summary>Live graph of the selected key's numeric history (shared with MQTT).
     /// Turn on Live to sample a changing key over time.</summary>
@@ -104,9 +119,11 @@ public sealed partial class RedisTabViewModel : TabViewModel
     [ObservableProperty] private string _maximizedPane = "";
     [ObservableProperty] private bool _valueCollapsed;
     [ObservableProperty] private bool _graphCollapsed;
+    [ObservableProperty] private bool _historyCollapsed;
 
     public Avalonia.Controls.GridLength ValueRowHeight => RowFor("value", ValueCollapsed, true);
     public Avalonia.Controls.GridLength GraphRowHeight => RowFor("graph", GraphCollapsed, Graph.HasData);
+    public Avalonia.Controls.GridLength HistoryRowHeight => RowFor("history", HistoryCollapsed, true);
 
     private Avalonia.Controls.GridLength RowFor(string pane, bool collapsed, bool visible)
     {
@@ -118,6 +135,7 @@ public sealed partial class RedisTabViewModel : TabViewModel
 
     public bool ValueContentVisible => ContentVisible("value", ValueCollapsed);
     public bool GraphContentVisible => ContentVisible("graph", GraphCollapsed);
+    public bool HistoryContentVisible => ContentVisible("history", HistoryCollapsed);
 
     private bool ContentVisible(string pane, bool collapsed)
     {
@@ -128,11 +146,14 @@ public sealed partial class RedisTabViewModel : TabViewModel
 
     public bool ValueMaximized => MaximizedPane == "value";
     public bool GraphMaximized => MaximizedPane == "graph";
+    public bool HistoryMaximized => MaximizedPane == "history";
 
     public string ValueCollapseIcon => ValueCollapsed ? "chevron-right" : "chevron-down";
     public string GraphCollapseIcon => GraphCollapsed ? "chevron-right" : "chevron-down";
+    public string HistoryCollapseIcon => HistoryCollapsed ? "chevron-right" : "chevron-down";
     public string ValueMaxIcon => ValueMaximized ? "minimize-2" : "maximize-2";
     public string GraphMaxIcon => GraphMaximized ? "minimize-2" : "maximize-2";
+    public string HistoryMaxIcon => HistoryMaximized ? "minimize-2" : "maximize-2";
 
     partial void OnMaximizedPaneChanged(string value) => RaisePaneLayout();
     partial void OnValueCollapsedChanged(bool value)
@@ -147,6 +168,12 @@ public sealed partial class RedisTabViewModel : TabViewModel
         OnPropertyChanged(nameof(GraphContentVisible));
         OnPropertyChanged(nameof(GraphCollapseIcon));
     }
+    partial void OnHistoryCollapsedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(HistoryRowHeight));
+        OnPropertyChanged(nameof(HistoryContentVisible));
+        OnPropertyChanged(nameof(HistoryCollapseIcon));
+    }
 
     private void RaiseGraphLayout()
     {
@@ -158,18 +185,31 @@ public sealed partial class RedisTabViewModel : TabViewModel
     {
         OnPropertyChanged(nameof(ValueRowHeight));
         OnPropertyChanged(nameof(GraphRowHeight));
+        OnPropertyChanged(nameof(HistoryRowHeight));
         OnPropertyChanged(nameof(ValueContentVisible));
         OnPropertyChanged(nameof(GraphContentVisible));
+        OnPropertyChanged(nameof(HistoryContentVisible));
         OnPropertyChanged(nameof(ValueMaximized));
         OnPropertyChanged(nameof(GraphMaximized));
+        OnPropertyChanged(nameof(HistoryMaximized));
         OnPropertyChanged(nameof(ValueMaxIcon));
         OnPropertyChanged(nameof(GraphMaxIcon));
+        OnPropertyChanged(nameof(HistoryMaxIcon));
     }
 
     [RelayCommand] private void ToggleValueCollapsed() => ValueCollapsed = !ValueCollapsed;
     [RelayCommand] private void ToggleGraphCollapsed() => GraphCollapsed = !GraphCollapsed;
+    [RelayCommand] private void ToggleHistoryCollapsed() => HistoryCollapsed = !HistoryCollapsed;
     [RelayCommand] private void MaximizeValue() => MaximizedPane = MaximizedPane == "value" ? "" : "value";
     [RelayCommand] private void MaximizeGraph() => MaximizedPane = MaximizedPane == "graph" ? "" : "graph";
+    [RelayCommand] private void MaximizeHistory() => MaximizedPane = MaximizedPane == "history" ? "" : "history";
+
+    [RelayCommand]
+    private void ClearHistory()
+    {
+        History.Clear();
+        _lastValue.Clear();
+    }
 
     private async Task ConnectAsync()
     {
@@ -251,9 +291,19 @@ public sealed partial class RedisTabViewModel : TabViewModel
             };
             // Pretty-print JSON string values automatically (mirrors the macOS app).
             SelectedValue = type == RedisType.String ? JsonText.Pretty(text) : text;
+            RecordHistory(key, text);
             if (type == RedisType.String) RecordNumeric(key, text);
         }
         catch (Exception ex) { StatusText = "Load failed: " + ex.Message; }
+    }
+
+    /// <summary>Append a History entry whenever a key's value changes.</summary>
+    private void RecordHistory(string key, string value)
+    {
+        if (_lastValue.TryGetValue(key, out var prev) && prev == value) return;
+        _lastValue[key] = value;
+        History.Insert(0, new RedisValueSample { Key = key, Value = value });
+        while (History.Count > 500) History.RemoveAt(History.Count - 1);
     }
 
     /// <summary>Append a timestamped sample from a string value's numeric leaves
@@ -309,6 +359,7 @@ public sealed partial class RedisTabViewModel : TabViewModel
             var removed = SelectedKey;
             Keys.Remove(removed);
             _history.Remove(removed);
+            _lastValue.Remove(removed);
             SelectedKey = null;
             SelectedValue = "";
             KeyTtl = "";

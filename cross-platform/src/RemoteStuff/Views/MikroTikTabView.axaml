@@ -89,8 +89,8 @@
                              ToolTip.Tip="Router host or IP" />
                     <views:ZeroTierPicker Text="{Binding Host, Mode=TwoWay}" VerticalAlignment="Center"
                                           Margin="0,0,6,4" />
-                    <NumericUpDown Value="{Binding Port}" Minimum="1" Maximum="65535" Width="110" Margin="0,0,6,4"
-                                   FormatString="0" ToolTip.Tip="REST port" />
+                    <NumericUpDown Value="{Binding Port}" Minimum="1" Maximum="65535" Width="140" Margin="0,0,6,4"
+                                   FormatString="0" ToolTip.Tip="REST API port (RouterOS www/www-ssl service — NOT the WinBox 8291 port)" />
                     <TextBox Text="{Binding Username}" Watermark="admin" Width="120" Margin="0,0,6,4" />
                     <TextBox Text="{Binding Password}" Watermark="password" PasswordChar="•" Width="140" Margin="0,0,6,4" />
                     <CheckBox Content="HTTPS" IsChecked="{Binding UseHttps}" VerticalAlignment="Center" Margin="0,0,10,4" />
@@ -251,6 +251,15 @@
                     <Grid RowDefinitions="Auto,*">
                         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="8">
                             <Button Content="Export" Command="{Binding ExportConfigCommand}" />
+                            <CheckBox Content="Include secrets" IsChecked="{Binding IncludeSensitive}"
+                                      VerticalAlignment="Center"
+                                      ToolTip.Tip="Include passwords, PSKs and other credentials (export show-sensitive)" />
+                            <Button Content="Save file…" Command="{Binding SaveConfigFileCommand}"
+                                    ToolTip.Tip="Save the exported config to a .rsc file on this computer" />
+                            <TextBox Text="{Binding RouterFileName}" Width="110" Watermark="config"
+                                     ToolTip.Tip="Filename for export on the router (.rsc added automatically)" />
+                            <Button Content="Save to router" Command="{Binding SaveConfigToRouterCommand}"
+                                    ToolTip.Tip="Run export file= on the router, writing a .rsc into its Files list" />
                             <Button Content="Apply as script" Command="{Binding ApplyConfigCommand}" />
                             <TextBlock Text="Edit and apply as a RouterOS script (/import equivalent)."
                                        Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
