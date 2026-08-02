@@ -12,6 +12,7 @@ namespace RemoteStuff.Models;
 /// <summary>A saved MikroTik router reachable over the RouterOS v7+ REST API.</summary>
 public sealed class MikroTikRouter
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
     public string Host { get; set; } = "";
     public int Port { get; set; } = 443;
@@ -231,6 +232,28 @@ public sealed class MikroTikApi : IDisposable
             return new List<Dictionary<string, JsonElement>> { ToDict(root) };
         return new List<Dictionary<string, JsonElement>>();
     }
+
+    /// <summary>Create a new entry in a menu (PUT /rest/{menu}).</summary>
+    public Task AddEntryAsync(string menuPath, Dictionary<string, object> fields) =>
+        RequestStringAsync("/" + menuPath.TrimStart('/'), HttpMethod.Put, fields);
+
+    /// <summary>Update an entry (PATCH /rest/{menu}/{id}). An empty id patches a
+    /// settings menu (single object) itself.</summary>
+    public Task UpdateEntryAsync(string menuPath, string id, Dictionary<string, object> fields)
+    {
+        var path = string.IsNullOrEmpty(id)
+            ? "/" + menuPath.TrimStart('/')
+            : $"/{menuPath.TrimStart('/')}/{Uri.EscapeDataString(id)}";
+        return RequestStringAsync(path, HttpMethod.Patch, fields);
+    }
+
+    /// <summary>Delete an entry (DELETE /rest/{menu}/{id}).</summary>
+    public Task RemoveEntryAsync(string menuPath, string id) =>
+        RequestStringAsync($"/{menuPath.TrimStart('/')}/{Uri.EscapeDataString(id)}", HttpMethod.Delete, null);
+
+    /// <summary>Toggle a menu entry's enabled/disabled flag.</summary>
+    public Task SetEntryDisabledAsync(string menuPath, string id, bool disabled) =>
+        UpdateEntryAsync(menuPath, id, new Dictionary<string, object> { ["disabled"] = disabled ? "yes" : "no" });
 
     // MARK: HTTP plumbing
     private async Task<string> RequestStringAsync(string path, HttpMethod method, Dictionary<string, object>? body)

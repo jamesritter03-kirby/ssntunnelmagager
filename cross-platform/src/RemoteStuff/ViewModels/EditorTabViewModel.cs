@@ -59,6 +59,9 @@ public sealed partial class EditorTabViewModel : TabViewModel
     /// <summary>Show a git-style change-history strip in the gutter.</summary>
     [ObservableProperty] private bool _showChangeHistory;
 
+    /// <summary>Show the document map (minimap) overview beside the editor.</summary>
+    [ObservableProperty] private bool _showMinimap = true;
+
     /// <summary>Editor colour theme name (see <see cref="EditorThemes"/>). "Auto" follows the app.</summary>
     [ObservableProperty] private string _editorTheme = "Auto (match app)";
 
@@ -105,7 +108,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
     /// <summary>Languages the user can pick from (names map to TextMate grammars in the view).</summary>
     public IReadOnlyList<string> Languages { get; } = new[]
     {
-        "Plain Text", "C#", "JavaScript", "TypeScript", "Python", "JSON", "XML", "HTML",
+        "Auto", "Plain Text", "C#", "JavaScript", "TypeScript", "Python", "JSON", "XML", "HTML",
         "CSS", "Shell", "YAML", "Markdown", "SQL", "C", "C++", "Go", "Rust", "Java", "PHP", "Ruby",
         "Swift", "TOML", "INI"
     };
@@ -154,7 +157,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
         _filePath = filePath;
         _remoteSaver = remoteSaver;
         _lineEnding = DetectLineEnding(initialText);
-        _language = LanguageForPath(filePath);
+        _language = "Auto";
         _charCount = initialText.Length;
         _lineCount = CountLines(initialText);
         BackupId = backupId ?? Guid.NewGuid().ToString("N");
@@ -183,8 +186,19 @@ public sealed partial class EditorTabViewModel : TabViewModel
         Title = _baseTitle + " •";
         CharCount = value.Length;
         LineCount = CountLines(value);
+        // In Auto mode with no recognised extension the highlighting comes from the
+        // shebang line, so re-resolve when the buffer has no file to key off.
+        if (Language == "Auto" && LanguageForPath(FilePath) == "Plain Text")
+            OnPropertyChanged(nameof(EffectiveLanguage));
         if (!_restoring) ScheduleBackup();
     }
+
+    /// <summary>The concrete language driving highlighting: when <see cref="Language"/>
+    /// is "Auto", resolve it from the file extension (falling back to a shebang scan).</summary>
+    public string EffectiveLanguage =>
+        Language == "Auto" ? DetectLanguage(FilePath, Text) : Language;
+
+    partial void OnLanguageChanged(string value) => OnPropertyChanged(nameof(EffectiveLanguage));
 
     partial void OnIsDirtyChanged(bool value)
     {
@@ -220,6 +234,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
 
     partial void OnFilePathChanged(string? value)
     {
+        OnPropertyChanged(nameof(EffectiveLanguage));
         if (!string.IsNullOrEmpty(value)) StartWatching(value);
     }
 
@@ -405,6 +420,30 @@ public sealed partial class EditorTabViewModel : TabViewModel
         };
     }
 
+    /// <summary>Resolve a concrete language for "Auto" mode: prefer the file extension,
+    /// then fall back to the script's shebang line for extensionless files.</summary>
+    private static string DetectLanguage(string? path, string text)
+    {
+        var byExt = LanguageForPath(path);
+        return byExt != "Plain Text" ? byExt : LanguageFromShebang(text);
+    }
+
+    /// <summary>Map a leading <c>#!</c> interpreter line to a language name.</summary>
+    private static string LanguageFromShebang(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text[0] != '#' || text.Length < 2 || text[1] != '!')
+            return "Plain Text";
+        int nl = text.IndexOf('\n');
+        var line = (nl < 0 ? text : text[..nl]).ToLowerInvariant();
+        if (line.Contains("python")) return "Python";
+        if (line.Contains("node")) return "JavaScript";
+        if (line.Contains("ruby")) return "Ruby";
+        if (line.Contains("php")) return "PHP";
+        if (line.Contains("bash") || line.Contains("zsh") || line.Contains("/sh") || line.Contains(" sh"))
+            return "Shell";
+        return "Plain Text";
+    }
+
     /// <summary>Resolve the chosen encoding name to a concrete <see cref="System.Text.Encoding"/>.</summary>
     private Encoding ResolveEncoding() => Encoding switch
     {
@@ -469,7 +508,6 @@ public sealed partial class EditorTabViewModel : TabViewModel
             await File.WriteAllTextAsync(path, NormalizedText(), ResolveEncoding());
             FilePath = path;
             try { _diskBaseline = File.GetLastWriteTimeUtc(path); } catch { }
-            Language = LanguageForPath(path);
             IsDirty = false;
             Title = _baseTitle;
             StatusText = "Saved " + Path.GetFileName(path);
@@ -493,7 +531,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
             LineEnding = DetectLineEnding(content);
             Text = content;
             FilePath = path;
-            Language = LanguageForPath(path);
+            Language = "Auto";
             IsDirty = false;
             StatusText = "Opened " + Path.GetFileName(path);
         }

@@ -34,6 +34,12 @@ public partial class EditorTabView : UserControl
     // Word-completion popup
     private CompletionWindow? _completionWindow;
 
+    // Last language handed to the TextMate grammar (skips redundant re-applies).
+    private string? _appliedLanguage;
+
+    // Document map (minimap) overview.
+    private RemoteStuff.Views.Controls.Minimap? _minimap;
+
     public EditorTabView()
     {
         InitializeComponent();
@@ -58,6 +64,9 @@ public partial class EditorTabView : UserControl
 
             _foldingTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             _foldingTimer.Tick += (_, _) => { _foldingTimer!.Stop(); UpdateFoldings(); };
+
+            _minimap = this.FindControl<RemoteStuff.Views.Controls.Minimap>("Minimap");
+            if (_minimap != null) _minimap.Editor = _editor;
         }
         if (Avalonia.Application.Current is { } app)
             app.ActualThemeVariantChanged += OnAppThemeVariantChanged;
@@ -98,7 +107,7 @@ public partial class EditorTabView : UserControl
         if (_textMate is null) return;
         _registryOptions = new RegistryOptions(ResolveThemeName());
         _textMate.SetTheme(_registryOptions.GetDefaultTheme());
-        if (_vm != null) ApplyLanguage(_vm.Language);
+        if (_vm != null) ApplyLanguage(_vm.EffectiveLanguage);
     }
 
     private void OnAppThemeVariantChanged(object? sender, System.EventArgs e)
@@ -125,7 +134,7 @@ public partial class EditorTabView : UserControl
             _bookmarks.Clear();
             _changeHistory.Clear();
             ApplyTheme();
-            ApplyLanguage(_vm.Language);
+            ApplyLanguage(_vm.EffectiveLanguage);
             ApplyEditorOptions();
             ApplyFolding();
             UpdateFoldings();
@@ -148,9 +157,10 @@ public partial class EditorTabView : UserControl
             _foldingTimer?.Stop();
             _foldingTimer?.Start();
         }
-        else if (e.PropertyName == nameof(EditorTabViewModel.Language) && _vm != null)
+        else if (e.PropertyName == nameof(EditorTabViewModel.EffectiveLanguage) && _vm != null)
         {
-            ApplyLanguage(_vm.Language);
+            if (_vm.EffectiveLanguage == _appliedLanguage) return;
+            ApplyLanguage(_vm.EffectiveLanguage);
             ApplyFolding();
             UpdateFoldings();
         }
@@ -209,7 +219,7 @@ public partial class EditorTabView : UserControl
     private void ApplyFolding()
     {
         if (_editor is null) return;
-        bool wanted = (_vm?.ShowFolding ?? false) && SupportsFolding(_vm?.Language ?? "Plain Text");
+        bool wanted = (_vm?.ShowFolding ?? false) && SupportsFolding(_vm?.EffectiveLanguage ?? "Plain Text");
         if (wanted && _foldingManager is null)
             _foldingManager = FoldingManager.Install(_editor.TextArea);
         else if (!wanted && _foldingManager is not null)
@@ -223,7 +233,7 @@ public partial class EditorTabView : UserControl
     private void UpdateFoldings()
     {
         if (_editor?.Document is null || _foldingManager is null) return;
-        var language = _vm?.Language ?? "Plain Text";
+        var language = _vm?.EffectiveLanguage ?? "Plain Text";
         try
         {
             if (language is "XML" or "HTML")
@@ -441,7 +451,7 @@ public partial class EditorTabView : UserControl
     private void ToggleComment()
     {
         var doc = _editor!.Document;
-        var (prefix, blockStart, blockEnd) = CommentTokens(_vm?.Language ?? "Plain Text");
+        var (prefix, blockStart, blockEnd) = CommentTokens(_vm?.EffectiveLanguage ?? "Plain Text");
         var sel = _editor.TextArea.Selection;
 
         int startLine, endLine;
@@ -529,6 +539,7 @@ public partial class EditorTabView : UserControl
     private void ApplyLanguage(string language)
     {
         if (_textMate is null || _registryOptions is null) return;
+        _appliedLanguage = language;
         var ext = ExtensionFor(language);
         if (ext is null)
         {

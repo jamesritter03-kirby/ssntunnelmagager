@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -11,14 +12,20 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using RemoteStuff.Services.NetworkAdmin;
 
 namespace RemoteStuff.ViewModels;
 
 /// <summary>
 /// A cross-platform network browser: lists this machine's interfaces, gateway,
-/// DNS servers, hostname and public IP, and offers a LAN ping-sweep scanner.
-/// (macOS-only features from the original — Internet Sharing, "Mac as router",
-/// Wi-Fi RSSI — are not portable and are omitted.)
+/// DNS servers, hostname and public IP, and offers a LAN ping-sweep scanner. On
+/// macOS it additionally shows live Wi-Fi details (SSID, signal/RSSI, channel,
+/// transmit rate), read from <c>system_profiler</c> — no privileges required.
+/// A "Router &amp; DNS" panel adds privileged operations: editing an adapter's DNS
+/// servers and default gateway, and turning this computer into a router that
+/// shares one network's internet connection with another interface (NAT). Those
+/// operations are implemented per-OS via <see cref="INetworkAdmin"/> and only run
+/// on an explicit button click, prompting for administrator rights each time.
 /// </summary>
 public sealed partial class NetworkTabViewModel : TabViewModel
 {
@@ -62,6 +69,13 @@ public sealed partial class NetworkTabViewModel : TabViewModel
     [ObservableProperty] private string _publicIp = "—";
     [ObservableProperty] private bool _isRefreshing;
 
+    // ---- Wi-Fi (macOS only) ----
+    [ObservableProperty] private bool _hasWifi;
+    [ObservableProperty] private string _wifiSsid = "";
+    [ObservableProperty] private string _wifiSignal = "";
+    [ObservableProperty] private string _wifiChannel = "";
+    [ObservableProperty] private string _wifiTxRate = "";
+
     [ObservableProperty] private string _scanSubnet = "";
     [ObservableProperty] private bool _isScanning;
     [ObservableProperty] private string _scanStatus = "";
@@ -76,7 +90,131 @@ public sealed partial class NetworkTabViewModel : TabViewModel
     public NetworkTabViewModel()
     {
         Title = "Network";
+        _admin = NetworkAdmin.Create();
+        AdminSupported = _admin.IsSupported;
+        AdminPlatform = _admin.PlatformName;
+        AdminHint = _admin.ElevationHint;
         _ = RefreshAsync();
+    }
+
+    // ===== Router & DNS (privileged, per-OS via INetworkAdmin) =====
+
+    private readonly INetworkAdmin _admin;
+
+    /// <summary>Adapters available for DNS/gateway/sharing configuration.</summary>
+    public ObservableCollection<NetAdapter> Adapters { get; } = new();
+
+    [ObservableProperty] private bool _adminSupported;
+    [ObservableProperty] private string _adminPlatform = "";
+    [ObservableProperty] private string _adminHint = "";
+    [ObservableProperty] private bool _isAdminBusy;
+    [ObservableProperty] private string _adminStatus = "";
+
+    // DNS / gateway editor
+    [NotifyPropertyChangedFor(nameof(DnsEditText))]
+    [NotifyPropertyChangedFor(nameof(GatewayEditText))]
+    [ObservableProperty] private NetAdapter? _dnsAdapter;
+    [ObservableProperty] private string _dnsEditText = "";
+    [ObservableProperty] private string _gatewayEditText = "";
+
+    // Sharing (this computer as a router)
+    [ObservableProperty] private NetAdapter? _upstreamAdapter;
+    [ObservableProperty] private NetAdapter? _downstreamAdapter;
+    [ObservableProperty] private bool _isSharing;
+
+    public string ShareButtonText => IsSharing ? "Stop sharing" : "Start sharing";
+    partial void OnIsSharingChanged(bool value) => OnPropertyChanged(nameof(ShareButtonText));
+
+    private async Task LoadAdaptersAsync()
+    {
+        if (!_admin.IsSupported) return;
+        try
+        {
+            var adapters = await _admin.ListAdaptersAsync();
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var prevDns = DnsAdapter?.Device;
+                var prevUp = UpstreamAdapter?.Device;
+                var prevDown = DownstreamAdapter?.Device;
+                Adapters.Clear();
+                foreach (var a in adapters) Adapters.Add(a);
+                DnsAdapter = Adapters.FirstOrDefault(a => a.Device == prevDns) ?? Adapters.FirstOrDefault();
+                UpstreamAdapter = Adapters.FirstOrDefault(a => a.Device == prevUp) ?? Adapters.FirstOrDefault();
+                DownstreamAdapter = Adapters.FirstOrDefault(a => a.Device == prevDown)
+                                    ?? Adapters.FirstOrDefault(a => a.Device != UpstreamAdapter?.Device);
+            });
+        }
+        catch (Exception ex)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => AdminStatus = ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private async Task RefreshAdapters() => await LoadAdaptersAsync();
+
+    private static IReadOnlyList<string> ParseServers(string text) =>
+        text.Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    [RelayCommand]
+    private async Task ApplyDns()
+    {
+        if (DnsAdapter is null) { AdminStatus = "Pick an adapter first."; return; }
+        var servers = ParseServers(DnsEditText);
+        await RunAdminAsync(() => _admin.SetDnsAsync(DnsAdapter, servers));
+    }
+
+    [RelayCommand]
+    private async Task ApplyGateway()
+    {
+        if (DnsAdapter is null) { AdminStatus = "Pick an adapter first."; return; }
+        var gw = GatewayEditText.Trim();
+        if (!IPAddress.TryParse(gw, out _)) { AdminStatus = "Enter a valid gateway IP."; return; }
+        await RunAdminAsync(() => _admin.SetGatewayAsync(DnsAdapter, gw));
+    }
+
+    [RelayCommand]
+    private async Task ToggleSharing()
+    {
+        if (UpstreamAdapter is null || DownstreamAdapter is null)
+        {
+            AdminStatus = "Pick both an upstream (internet) and downstream adapter.";
+            return;
+        }
+        if (UpstreamAdapter.Device == DownstreamAdapter.Device)
+        {
+            AdminStatus = "Upstream and downstream must be different adapters.";
+            return;
+        }
+        var up = UpstreamAdapter;
+        var down = DownstreamAdapter;
+        var wasSharing = IsSharing;
+        var ok = await RunAdminAsync(() => wasSharing
+            ? _admin.StopSharingAsync(up, down)
+            : _admin.StartSharingAsync(up, down));
+        if (ok) IsSharing = !wasSharing;
+    }
+
+    private async Task<bool> RunAdminAsync(Func<Task<AdminResult>> op)
+    {
+        if (IsAdminBusy) return false;
+        IsAdminBusy = true;
+        AdminStatus = "Waiting for administrator authorization…";
+        try
+        {
+            var result = await op();
+            AdminStatus = result.Message;
+            return result.Ok;
+        }
+        catch (Exception ex)
+        {
+            AdminStatus = ex.Message;
+            return false;
+        }
+        finally
+        {
+            IsAdminBusy = false;
+        }
     }
 
     [RelayCommand]
@@ -137,12 +275,87 @@ public sealed partial class NetworkTabViewModel : TabViewModel
                 ScanSubnet = scanGuess;
 
             _ = FetchPublicIpAsync();
+            _ = UpdateWifiAsync();
+            _ = LoadAdaptersAsync();
         }
         finally
         {
             IsRefreshing = false;
         }
         await Task.CompletedTask;
+    }
+
+    /// <summary>Populate the Wi-Fi section on macOS by parsing
+    /// <c>system_profiler SPAirPortDataType</c>. No-op on other platforms.</summary>
+    private async Task UpdateWifiAsync()
+    {
+        if (!OperatingSystem.IsMacOS()) { HasWifi = false; return; }
+        try
+        {
+            var output = await RunAsync("/usr/sbin/system_profiler", "SPAirPortDataType");
+            var (ssid, signal, channel, txRate) = ParseAirport(output);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                WifiSsid = ssid;
+                WifiSignal = signal;
+                WifiChannel = channel;
+                WifiTxRate = txRate;
+                HasWifi = !string.IsNullOrEmpty(ssid);
+            });
+        }
+        catch
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => HasWifi = false);
+        }
+    }
+
+    private static (string Ssid, string Signal, string Channel, string TxRate) ParseAirport(string output)
+    {
+        var lines = output.Replace("\r", "").Split('\n');
+        string ssid = "", signal = "", channel = "", txRate = "";
+        int start = Array.FindIndex(lines, l => l.TrimEnd().EndsWith("Current Network Information:"));
+        if (start < 0) return (ssid, signal, channel, txRate);
+
+        // The SSID is the first indented "Name:" line after the header.
+        for (int i = start + 1; i < lines.Length; i++)
+        {
+            var trimmed = lines[i].Trim();
+            if (trimmed.Length == 0) continue;
+            if (trimmed.EndsWith(":") && !trimmed.Contains(": "))
+            {
+                ssid = trimmed.TrimEnd(':');
+                break;
+            }
+            break;
+        }
+
+        foreach (var raw in lines.Skip(start))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("Signal / Noise:", StringComparison.OrdinalIgnoreCase))
+                signal = line["Signal / Noise:".Length..].Trim();
+            else if (line.StartsWith("Channel:", StringComparison.OrdinalIgnoreCase) && channel.Length == 0)
+                channel = line["Channel:".Length..].Trim();
+            else if (line.StartsWith("Transmit Rate:", StringComparison.OrdinalIgnoreCase))
+                txRate = line["Transmit Rate:".Length..].Trim();
+        }
+        return (ssid, signal, channel, txRate);
+    }
+
+    private static async Task<string> RunAsync(string file, string args)
+    {
+        var psi = new ProcessStartInfo(file, args)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var proc = Process.Start(psi);
+        if (proc is null) return "";
+        var stdout = await proc.StandardOutput.ReadToEndAsync();
+        await proc.WaitForExitAsync();
+        return stdout;
     }
 
     private async Task FetchPublicIpAsync()

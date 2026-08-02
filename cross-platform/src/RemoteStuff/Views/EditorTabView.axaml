@@ -77,6 +77,8 @@
                               ToolTip.Tip="Code folding" />
                 <ToggleButton Content="{controls:Icon history}" Classes="tool" IsChecked="{Binding ShowChangeHistory, Mode=TwoWay}"
                               ToolTip.Tip="Change-history strip" />
+                <ToggleButton Content="{controls:Icon map}" Classes="tool" IsChecked="{Binding ShowMinimap, Mode=TwoWay}"
+                              ToolTip.Tip="Document map (minimap)" />
 
                 <Rectangle Classes="sep" />
 
@@ -135,13 +137,19 @@
             </StackPanel>
         </Border>
 
-        <ae:TextEditor Name="Editor" Grid.Row="1"
-                       FontFamily="Menlo, Consolas, monospace"
-                       FontSize="{Binding FontSize}"
-                       WordWrap="{Binding WordWrap}"
-                       ShowLineNumbers="{Binding ShowLineNumbers}"
-                       HorizontalScrollBarVisibility="Auto"
-                       VerticalScrollBarVisibility="Auto" />
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+            <ae:TextEditor Name="Editor" Grid.Column="0"
+                           FontFamily="Menlo, Consolas, monospace"
+                           FontSize="{Binding FontSize}"
+                           WordWrap="{Binding WordWrap}"
+                           ShowLineNumbers="{Binding ShowLineNumbers}"
+                           HorizontalScrollBarVisibility="Auto"
+                           VerticalScrollBarVisibility="Auto" />
+            <controls:Minimap Name="Minimap" Grid.Column="1" Width="84"
+                              IsVisible="{Binding ShowMinimap}"
+                              LineBrush="{DynamicResource AppSecondaryTextBrush}"
+                              Background="{DynamicResource AppChromeBrush}" />
+        </Grid>
 
         <Border Grid.Row="1" VerticalAlignment="Top" IsVisible="{Binding DiskChanged}"
                 Background="#3A3016" BorderBrush="#8A6D1E" BorderThickness="0,0,0,1" Padding="10,6">

@@ -15,6 +15,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 {
     private readonly ProfileStore _store;
     private readonly SecretStore _secrets;
+    private readonly MikroTikRouterStore _mikroTikRouters;
     private readonly ZeroTierService _zeroTier;
     public AppSettings Settings { get; }
 
@@ -514,6 +515,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         _store = store;
         _secrets = secrets;
+        _mikroTikRouters = new MikroTikRouterStore(secrets);
         Settings = settings;
         _expandedSidebarWidth = Math.Clamp(settings.SidebarWidth, 200, 560);
         _zeroTier = new ZeroTierService(secrets);
@@ -2676,7 +2678,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void NewMikroTik()
     {
-        var mt = new MikroTikTabViewModel();
+        var mt = new MikroTikTabViewModel(_mikroTikRouters);
         mt.CloseRequested += CloseTab;
         Tabs.Add(mt);
         SelectedTab = mt;

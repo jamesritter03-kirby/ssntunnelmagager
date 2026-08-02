@@ -4,125 +4,295 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:RemoteStuff.ViewModels"
              xmlns:m="using:RemoteStuff.Models"
+             xmlns:svc="using:RemoteStuff.Services"
              xmlns:views="using:RemoteStuff.Views"
              mc:Ignorable="d"
              x:Class="RemoteStuff.Views.MikroTikTabView"
              x:DataType="vm:MikroTikTabViewModel"
              x:CompileBindings="True">
 
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid ColumnDefinitions="250,*">
 
-        <!-- Connection bar -->
-        <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" Padding="10,8" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
-            <WrapPanel Orientation="Horizontal">
-                <TextBox Text="{Binding Host}" Watermark="192.168.88.1" Width="150" Margin="0,0,0,4"
-                         ToolTip.Tip="Router host or IP" />
-                <views:ZeroTierPicker Text="{Binding Host, Mode=TwoWay}" VerticalAlignment="Center"
-                                      Margin="0,0,6,4" />
-                <NumericUpDown Value="{Binding Port}" Minimum="1" Maximum="65535" Width="110" Margin="0,0,6,4"
-                               FormatString="0" ToolTip.Tip="REST port" />
-                <TextBox Text="{Binding Username}" Watermark="admin" Width="120" Margin="0,0,6,4" />
-                <TextBox Text="{Binding Password}" Watermark="password" PasswordChar="•" Width="140" Margin="0,0,6,4" />
-                <CheckBox Content="HTTPS" IsChecked="{Binding UseHttps}" VerticalAlignment="Center" Margin="0,0,10,4" />
-                <Button Content="Connect" Command="{Binding ConnectCommand}" Margin="0,0,6,4" />
-                <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,6,4" />
-                <Button Content="Reboot" Command="{Binding RebootCommand}" Margin="0,0,6,4" />
-                <ProgressBar IsIndeterminate="True" Width="80" Height="4" VerticalAlignment="Center"
-                             IsVisible="{Binding IsBusy}" />
-            </WrapPanel>
-        </Border>
+        <!-- ============ Sidebar: saved routers + discovery ============ -->
+        <Border Grid.Column="0" Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,1,0">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="8">
+                    <TextBlock Text="Routers" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Content="+ Add" FontSize="11" Padding="6,2" Command="{Binding NewRouterCommand}" />
+                    <Button Content="Scan" FontSize="11" Padding="6,2" Command="{Binding DiscoverCommand}"
+                            ToolTip.Tip="Discover MikroTik devices on the LAN (MNDP)" />
+                </StackPanel>
 
-        <!-- Content -->
-        <TabControl Grid.Row="1">
-            <TabItem Header="Overview">
-                <ScrollViewer>
-                    <StackPanel Margin="12" Spacing="4">
-                        <TextBlock Text="{Binding Identity, StringFormat='Identity: {0}'}" />
-                        <TextBlock Text="{Binding BoardName, StringFormat='Board: {0}'}" />
-                        <TextBlock Text="{Binding Version, StringFormat='RouterOS: {0}'}" />
-                        <TextBlock Text="{Binding Uptime, StringFormat='Uptime: {0}'}" />
-                        <TextBlock Text="{Binding CpuLoad, StringFormat='CPU: {0}'}" />
-                        <TextBlock Text="{Binding Memory, StringFormat='Memory: {0}'}" />
+                <ScrollViewer Grid.Row="1">
+                    <StackPanel Spacing="4" Margin="6,0">
+                        <ListBox ItemsSource="{Binding SavedRouters}" SelectedItem="{Binding SelectedRouter}"
+                                 Background="Transparent" IsVisible="{Binding HasSavedRouters}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="m:MikroTikRouter">
+                                    <StackPanel Margin="2,3">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Host}" FontSize="11"
+                                                   Foreground="{DynamicResource AppMutedTextBrush}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <TextBlock Text="No saved routers yet." FontSize="11" Margin="4,6"
+                                   Foreground="{DynamicResource AppMutedTextBrush}"
+                                   IsVisible="{Binding !HasSavedRouters}" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="4,2"
+                                    IsVisible="{Binding SelectedRouter, Converter={x:Static ObjectConverters.IsNotNull}}">
+                            <Button Content="Edit" FontSize="11" Padding="6,2" Command="{Binding EditRouterCommand}" />
+                            <Button Content="Remove" FontSize="11" Padding="6,2" Command="{Binding RemoveRouterCommand}" />
+                        </StackPanel>
+
+                        <TextBlock Text="Discovered on network" FontWeight="SemiBold" Margin="4,10,4,2"
+                                   IsVisible="{Binding HasDiscovered}" />
+                        <ItemsControl ItemsSource="{Binding Discovered}" IsVisible="{Binding HasDiscovered}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="svc:DiscoveredRouter">
+                                    <Border Padding="4,3" Margin="2,2" CornerRadius="4"
+                                            Background="{DynamicResource AppSurfaceBrush}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="12" />
+                                            <TextBlock Text="{Binding Ipv4}" FontSize="11"
+                                                       Foreground="{DynamicResource AppMutedTextBrush}" />
+                                            <TextBlock Text="{Binding Board}" FontSize="11"
+                                                       Foreground="{DynamicResource AppMutedTextBrush}" />
+                                            <Button Content="Add router" FontSize="11" Padding="6,1" Margin="0,2,0,0"
+                                                    Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).AddDiscoveredCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </ScrollViewer>
-            </TabItem>
 
-            <TabItem Header="Interfaces">
-                <ListBox ItemsSource="{Binding Interfaces}" Background="Transparent">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="m:MtInterface">
-                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
-                                <TextBlock Text="{Binding StatusGlyph}" />
-                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Width="140" />
-                                <TextBlock Text="{Binding Type}" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
-                                <TextBlock Text="{Binding Mac}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
-                                <Button Content="Toggle" FontSize="11" Padding="6,1"
-                                        Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).ToggleInterfaceCommand}"
-                                        CommandParameter="{Binding}" />
+                <ProgressBar Grid.Row="2" IsIndeterminate="True" Height="3" Margin="6"
+                             IsVisible="{Binding IsDiscovering}" />
+            </Grid>
+        </Border>
+
+        <!-- ============ Main content ============ -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
+
+            <!-- Connection bar (ad-hoc / current router) -->
+            <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" Padding="10,8"
+                    BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+                <WrapPanel Orientation="Horizontal">
+                    <TextBox Text="{Binding Host}" Watermark="192.168.88.1" Width="150" Margin="0,0,0,4"
+                             ToolTip.Tip="Router host or IP" />
+                    <views:ZeroTierPicker Text="{Binding Host, Mode=TwoWay}" VerticalAlignment="Center"
+                                          Margin="0,0,6,4" />
+                    <NumericUpDown Value="{Binding Port}" Minimum="1" Maximum="65535" Width="110" Margin="0,0,6,4"
+                                   FormatString="0" ToolTip.Tip="REST port" />
+                    <TextBox Text="{Binding Username}" Watermark="admin" Width="120" Margin="0,0,6,4" />
+                    <TextBox Text="{Binding Password}" Watermark="password" PasswordChar="•" Width="140" Margin="0,0,6,4" />
+                    <CheckBox Content="HTTPS" IsChecked="{Binding UseHttps}" VerticalAlignment="Center" Margin="0,0,10,4" />
+                    <Button Content="Connect" Command="{Binding ConnectCommand}" Margin="0,0,6,4" />
+                    <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,6,4" />
+                    <Button Content="Reboot" Command="{Binding RebootCommand}" Margin="0,0,6,4" />
+                    <ProgressBar IsIndeterminate="True" Width="80" Height="4" VerticalAlignment="Center"
+                                 IsVisible="{Binding IsBusy}" />
+                </WrapPanel>
+            </Border>
+
+            <!-- Content tabs -->
+            <TabControl Grid.Row="1">
+                <TabItem Header="Overview">
+                    <ScrollViewer>
+                        <StackPanel Margin="12" Spacing="4">
+                            <TextBlock Text="{Binding Identity, StringFormat='Identity: {0}'}" />
+                            <TextBlock Text="{Binding BoardName, StringFormat='Board: {0}'}" />
+                            <TextBlock Text="{Binding Version, StringFormat='RouterOS: {0}'}" />
+                            <TextBlock Text="{Binding Uptime, StringFormat='Uptime: {0}'}" />
+                            <TextBlock Text="{Binding CpuLoad, StringFormat='CPU: {0}'}" />
+                            <TextBlock Text="{Binding Memory, StringFormat='Memory: {0}'}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="Interfaces">
+                    <ListBox ItemsSource="{Binding Interfaces}" Background="Transparent">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="m:MtInterface">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
+                                    <TextBlock Text="{Binding StatusGlyph}" />
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Width="140" />
+                                    <TextBlock Text="{Binding Type}" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
+                                    <TextBlock Text="{Binding Mac}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                                    <Button Content="Toggle" FontSize="11" Padding="6,1"
+                                            Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).ToggleInterfaceCommand}"
+                                            CommandParameter="{Binding}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </TabItem>
+
+                <TabItem Header="Addresses">
+                    <ListBox ItemsSource="{Binding Addresses}" Background="Transparent">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="m:MtAddress">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
+                                    <TextBlock Text="{Binding Address}" FontWeight="SemiBold" Width="160" />
+                                    <TextBlock Text="{Binding Interface}" Foreground="{DynamicResource AppMutedTextBrush}" Width="120" />
+                                    <TextBlock Text="{Binding Network}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </TabItem>
+
+                <TabItem Header="DHCP Leases">
+                    <ListBox ItemsSource="{Binding Leases}" Background="Transparent">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="m:MtLease">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
+                                    <TextBlock Text="{Binding Address}" FontWeight="SemiBold" Width="140" />
+                                    <TextBlock Text="{Binding Mac}" Foreground="{DynamicResource AppMutedTextBrush}" Width="150" />
+                                    <TextBlock Text="{Binding HostName}" Width="160" />
+                                    <TextBlock Text="{Binding Status}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </TabItem>
+
+                <!-- WinBox-style config explorer -->
+                <TabItem Header="Explorer">
+                    <Grid ColumnDefinitions="200,*">
+                        <ListBox Grid.Column="0" ItemsSource="{Binding Menus}" SelectedItem="{Binding SelectedMenu}"
+                                 Background="Transparent" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,1,0">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="m:MtMenu">
+                                    <StackPanel Margin="2,3">
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock Text="{Binding Group}" FontSize="10"
+                                                   Foreground="{DynamicResource AppMutedTextBrush}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="8">
+                                <Button Content="Add" Command="{Binding AddEntryCommand}"
+                                        IsEnabled="{Binding SelectedMenu.Editable, FallbackValue=False}" />
+                                <Button Content="Reload" Command="{Binding ReloadMenuCommand}" />
+                                <TextBlock Text="{Binding MenuStatus}" VerticalAlignment="Center" FontSize="11"
+                                           Foreground="{DynamicResource AppMutedTextBrush}" />
                             </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </TabItem>
 
-            <TabItem Header="Addresses">
-                <ListBox ItemsSource="{Binding Addresses}" Background="Transparent">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="m:MtAddress">
-                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
-                                <TextBlock Text="{Binding Address}" FontWeight="SemiBold" Width="160" />
-                                <TextBlock Text="{Binding Interface}" Foreground="{DynamicResource AppMutedTextBrush}" Width="120" />
-                                <TextBlock Text="{Binding Network}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </TabItem>
+                            <ListBox Grid.Row="1" ItemsSource="{Binding MenuEntries}" Background="Transparent">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:MtEntryRow">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="2">
+                                            <TextBlock Grid.Column="0" Text="{Binding StatusGlyph}" Margin="0,0,8,0"
+                                                       VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding Summary}" FontSize="11"
+                                                           Foreground="{DynamicResource AppMutedTextBrush}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                            <Button Grid.Column="2" Content="Toggle" FontSize="11" Padding="6,1" Margin="2,0"
+                                                    Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).ToggleEntryCommand}"
+                                                    CommandParameter="{Binding}" />
+                                            <Button Grid.Column="3" Content="Edit" FontSize="11" Padding="6,1" Margin="2,0"
+                                                    Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).EditEntryCommand}"
+                                                    CommandParameter="{Binding}" />
+                                            <Button Grid.Column="4" Content="Delete" FontSize="11" Padding="6,1" Margin="2,0"
+                                                    Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).DeleteEntryCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
 
-            <TabItem Header="DHCP Leases">
-                <ListBox ItemsSource="{Binding Leases}" Background="Transparent">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="m:MtLease">
-                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
-                                <TextBlock Text="{Binding Address}" FontWeight="SemiBold" Width="140" />
-                                <TextBlock Text="{Binding Mac}" Foreground="{DynamicResource AppMutedTextBrush}" Width="150" />
-                                <TextBlock Text="{Binding HostName}" Width="160" />
-                                <TextBlock Text="{Binding Status}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </TabItem>
+                            <!-- Inline add/edit form -->
+                            <Border Grid.Row="2" IsVisible="{Binding IsEditingEntry}" Margin="8"
+                                    Background="{DynamicResource AppSurfaceBrush}" CornerRadius="6" Padding="10"
+                                    BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="{Binding EntryEditorTitle}" FontWeight="SemiBold" />
+                                    <ItemsControl ItemsSource="{Binding EditFields}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:MtFieldEntry">
+                                                <Grid ColumnDefinitions="140,*" Margin="0,2">
+                                                    <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center" />
+                                                    <CheckBox Grid.Column="1" IsChecked="{Binding BoolValue}"
+                                                              IsVisible="{Binding IsBool}" />
+                                                    <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}"
+                                                              SelectedItem="{Binding Value}" HorizontalAlignment="Stretch"
+                                                              IsVisible="{Binding HasChoices}" />
+                                                    <TextBox Grid.Column="1" Text="{Binding Value}" Watermark="{Binding Placeholder}"
+                                                             IsVisible="{Binding IsPlainText}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                        <Button Content="Cancel" Command="{Binding CancelEntryEditCommand}" />
+                                        <Button Content="Save" Command="{Binding SaveEntryCommand}" Classes="accent" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </TabItem>
 
-            <TabItem Header="Config">
-                <Grid RowDefinitions="Auto,*">
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="8">
-                        <Button Content="Export" Command="{Binding ExportConfigCommand}" />
-                        <Button Content="Apply as script" Command="{Binding ApplyConfigCommand}" />
-                        <TextBlock Text="Edit and apply as a RouterOS script (/import equivalent)."
-                                   Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                <TabItem Header="Config">
+                    <Grid RowDefinitions="Auto,*">
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="8">
+                            <Button Content="Export" Command="{Binding ExportConfigCommand}" />
+                            <Button Content="Apply as script" Command="{Binding ApplyConfigCommand}" />
+                            <TextBlock Text="Edit and apply as a RouterOS script (/import equivalent)."
+                                       Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBox Grid.Row="1" Text="{Binding ConfigText}" AcceptsReturn="True"
+                                 FontFamily="Menlo,Consolas,monospace" TextWrapping="NoWrap"
+                                 Margin="8,0,8,8" />
+                    </Grid>
+                </TabItem>
+            </TabControl>
+
+            <!-- Status -->
+            <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" Padding="10,3"
+                    BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0">
+                <TextBlock Text="{Binding StatusText}" Foreground="#999" FontSize="11" />
+            </Border>
+        </Grid>
+
+        <!-- ============ Router add/edit overlay ============ -->
+        <Border Grid.Column="0" Grid.ColumnSpan="2" IsVisible="{Binding IsEditingRouter}"
+                Background="#88000000">
+            <Border Width="360" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" Padding="16"
+                    BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Saved router" FontWeight="SemiBold" FontSize="14" />
+                    <TextBox Text="{Binding EditName}" Watermark="Name (e.g. Home gateway)" />
+                    <TextBox Text="{Binding EditHost}" Watermark="Host or IP (192.168.88.1)" />
+                    <Grid ColumnDefinitions="*,*">
+                        <NumericUpDown Grid.Column="0" Value="{Binding EditPort}" Minimum="1" Maximum="65535"
+                                       FormatString="0" Margin="0,0,8,0" ToolTip.Tip="REST port" />
+                        <CheckBox Grid.Column="1" Content="HTTPS" IsChecked="{Binding EditUseHttps}"
+                                  VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBox Text="{Binding EditUser}" Watermark="Username (admin)" />
+                    <TextBox Text="{Binding EditPassword}" Watermark="Password" PasswordChar="•" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <Button Content="Cancel" Command="{Binding CancelRouterEditCommand}" />
+                        <Button Content="Save" Command="{Binding SaveRouterCommand}" Classes="accent" />
                     </StackPanel>
-                    <TextBox Grid.Row="1" Text="{Binding ConfigText}" AcceptsReturn="True"
-                             FontFamily="Menlo,Consolas,monospace" TextWrapping="NoWrap"
-                             Margin="8,0,8,8" />
-                </Grid>
-            </TabItem>
-
-            <TabItem Header="Explorer">
-                <Grid RowDefinitions="Auto,*">
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="8">
-                        <TextBox Text="{Binding MenuPath}" Watermark="ip/firewall/filter" Width="240" />
-                        <Button Content="List" Command="{Binding ListMenuCommand}" />
-                    </StackPanel>
-                    <ListBox Grid.Row="1" ItemsSource="{Binding MenuRows}" Background="Transparent"
-                             FontFamily="Menlo,Consolas,monospace" FontSize="11" />
-                </Grid>
-            </TabItem>
-        </TabControl>
-
-        <!-- Status -->
-        <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" Padding="10,3" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0">
-            <TextBlock Text="{Binding StatusText}" Foreground="#999" FontSize="11" />
+                </StackPanel>
+            </Border>
         </Border>
     </Grid>
 </UserControl>
