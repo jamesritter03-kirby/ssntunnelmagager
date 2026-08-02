@@ -19,6 +19,11 @@ struct MikroTikConfigView: View {
 
     // Export / backup state.
     @State private var exporting = false
+    /// When on, exports include secrets (`show-sensitive=yes`).
+    @State private var includeSecrets = false
+    /// Router-side save prompt (file name entry) and its default.
+    @State private var showRouterSavePrompt = false
+    @State private var routerFileName = "config"
 
     /// A loaded config file awaiting user confirmation before it's applied.
     private struct PendingConfig: Identifiable {
@@ -79,6 +84,13 @@ struct MikroTikConfigView: View {
                   message: Text(res.message),
                   dismissButton: .default(Text("OK")))
         }
+        .alert("Save Config to Router", isPresented: $showRouterSavePrompt) {
+            TextField("File name", text: $routerFileName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { exportToRouter() }
+        } message: {
+            Text("Writes a “.rsc” export to \(router.displayName)’s own storage.\(includeSecrets ? " Secrets will be included." : "")")
+        }
     }
 
     // MARK: Config-file import
@@ -135,9 +147,28 @@ struct MikroTikConfigView: View {
         exporting = true
         Task {
             do {
-                let text = try await mikro.exportConfig(router)
+                let text = try await mikro.exportConfig(router, showSensitive: includeSecrets)
                 exporting = false
                 await saveExport(text)
+            } catch {
+                exporting = false
+                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                applyResult = ApplyResult(success: false, message: msg)
+            }
+        }
+    }
+
+    /// Save the router's `/export` to a `.rsc` file on the device itself.
+    private func exportToRouter() {
+        let name = safeName(routerFileName.isEmpty ? "config" : routerFileName)
+        exporting = true
+        Task {
+            do {
+                let file = try await mikro.exportToRouter(router, fileName: name, showSensitive: includeSecrets)
+                exporting = false
+                applyResult = ApplyResult(
+                    success: true,
+                    message: "Saved configuration to “\(file)” on \(router.displayName)’s storage. Retrieve it via WinBox (Files), FTP, or the Load & Apply menu on another router.")
             } catch {
                 exporting = false
                 let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -264,6 +295,15 @@ struct MikroTikConfigView: View {
                     exportConfig()
                 } label: {
                     Label("Export Config to File (.rsc)…", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    routerFileName = safeName(router.displayName)
+                    showRouterSavePrompt = true
+                } label: {
+                    Label("Save Config to Router (.rsc)…", systemImage: "internaldrive")
+                }
+                Toggle(isOn: $includeSecrets) {
+                    Label("Include Secrets (passwords, keys)", systemImage: "key")
                 }
                 Button {
                     createBackup()

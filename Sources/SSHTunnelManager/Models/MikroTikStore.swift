@@ -230,8 +230,11 @@ struct MikroTikAPI {
 
     /// Export the router's current configuration as a RouterOS script (`.rsc`
     /// text), equivalent to running `/export`. Returns the script source.
-    func exportConfig() async throws -> String {
-        let data = try await request("/export", method: "POST", body: [:])
+    /// When `showSensitive` is true the export includes secrets (passwords,
+    /// WPA/PSK keys, IPsec secrets, SNMP communities) via `show-sensitive=yes`.
+    func exportConfig(showSensitive: Bool = false) async throws -> String {
+        let body: [String: Any] = showSensitive ? ["show-sensitive": "yes"] : [:]
+        let data = try await request("/export", method: "POST", body: body)
         // RouterOS returns the export in a few shapes depending on version:
         // a single object {"output": "..."} , an array of such objects, or a
         // bare JSON string. Handle all three.
@@ -248,6 +251,17 @@ struct MikroTikAPI {
         if let str = try? decoder.decode(String.self, from: data) { return str }
         if let raw = String(data: data, encoding: .utf8), !raw.isEmpty { return raw }
         throw MikroTikError.decoding
+    }
+
+    /// Save the router's configuration to a `.rsc` file on the device itself
+    /// (`/export file=<name>`). `fileName` is without extension; RouterOS adds
+    /// `.rsc`. Returns the resulting file name. When `showSensitive` is true the
+    /// saved script includes secrets.
+    func exportToRouter(fileName: String, showSensitive: Bool = false) async throws -> String {
+        var body: [String: Any] = ["file": fileName]
+        if showSensitive { body["show-sensitive"] = "yes" }
+        _ = try await request("/export", method: "POST", body: body)
+        return fileName + ".rsc"
     }
 
     /// Create a binary backup file on the router (`/system/backup/save`). The
@@ -625,15 +639,29 @@ final class MikroTikStore: ObservableObject {
         errors[router.id] = nil
     }
 
-    /// Export a router's configuration as `.rsc` script text.
-    func exportConfig(_ router: MikroTikRouter) async throws -> String {
+    /// Export a router's configuration as `.rsc` script text. Pass
+    /// `showSensitive: true` to include secrets in the exported script.
+    func exportConfig(_ router: MikroTikRouter, showSensitive: Bool = false) async throws -> String {
         guard let pw = password(for: router.id), !pw.isEmpty else {
             throw MikroTikError.notConfigured
         }
         let api = MikroTikAPI(router: router, password: pw)
-        let text = try await api.exportConfig()
+        let text = try await api.exportConfig(showSensitive: showSensitive)
         errors[router.id] = nil
         return text
+    }
+
+    /// Save a router's configuration to a `.rsc` file on the device itself;
+    /// returns the resulting file name.
+    func exportToRouter(_ router: MikroTikRouter, fileName: String,
+                        showSensitive: Bool = false) async throws -> String {
+        guard let pw = password(for: router.id), !pw.isEmpty else {
+            throw MikroTikError.notConfigured
+        }
+        let api = MikroTikAPI(router: router, password: pw)
+        let file = try await api.exportToRouter(fileName: fileName, showSensitive: showSensitive)
+        errors[router.id] = nil
+        return file
     }
 
     /// Create a binary backup file on a router; returns its file name.
