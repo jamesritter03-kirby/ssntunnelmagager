@@ -67,6 +67,14 @@ final class MQTTClient: ObservableObject {
     /// Upper bound on graph samples retained per topic (oldest dropped first).
     private let maxSamplesPerTopic = 600
 
+    /// Upper bound on the number of distinct topics retained. Because we
+    /// subscribe to `#`, a busy broker left running for hours can otherwise grow
+    /// `topics`/`history` without limit — every insert is `@Published`, so an
+    /// ever-larger dictionary makes SwiftUI re-diff the whole topic tree on each
+    /// message, which is the classic "gets sluggish after a day" symptom. When we
+    /// cross this cap we evict the least-recently-updated topics.
+    private let maxTopics = 2000
+
     /// Mirrors connection state to the owning session's running indicator.
     var onRunningChanged: ((Bool) -> Void)?
 
@@ -285,6 +293,7 @@ final class MQTTClient: ObservableObject {
 
     private func record(topic: String, payload: Data, retained: Bool) {
         let now = Date()
+        let isNewTopic = topics[topic] == nil
         var state = topics[topic] ?? TopicState(payload: Data(), retained: retained, count: 0, lastUpdate: now)
         state.payload = payload
         state.retained = retained
@@ -299,8 +308,29 @@ final class MQTTClient: ObservableObject {
             }
             history[topic] = series
         }
+        if isNewTopic && topics.count > maxTopics {
+            evictOldestTopics(down: maxTopics)
+        }
         totalMessages += 1
         lastActivity = now
+    }
+
+    /// Drop the least-recently-updated topics until `topics.count <= limit`,
+    /// pruning their graph history and tree UI state too so nothing leaks.
+    private func evictOldestTopics(down limit: Int) {
+        guard topics.count > limit else { return }
+        let overflow = topics.count - limit
+        let victims = topics
+            .sorted { $0.value.lastUpdate < $1.value.lastUpdate }
+            .prefix(overflow)
+            .map(\.key)
+        for key in victims {
+            topics.removeValue(forKey: key)
+            history.removeValue(forKey: key)
+            uiExpandedBranches.remove(key)
+            uiSeenBranches.remove(key)
+            if uiSelectedTopicID == key { uiSelectedTopicID = nil }
+        }
     }
 
     // MARK: - Numeric extraction (graphing)
