@@ -8,6 +8,24 @@
              x:DataType="vm:NetworkTabViewModel"
              x:CompileBindings="True">
 
+    <UserControl.Styles>
+        <!-- Bare text button used for click-to-copy IP / MAC addresses. -->
+        <Style Selector="Button.copy">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="ToolTip.Tip" Value="Click to copy" />
+        </Style>
+        <Style Selector="Button.copy:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="TextBlock.TextDecorations" Value="Underline" />
+        </Style>
+    </UserControl.Styles>
+
     <TabControl>
       <TabItem Header="Network">
         <Grid ColumnDefinitions="*,*">
@@ -31,15 +49,21 @@
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="Gateway:" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
-                        <TextBlock Text="{Binding DefaultGateway}" />
+                        <Button Classes="copy" Command="{Binding CopyTextCommand}" CommandParameter="{Binding DefaultGateway}">
+                            <TextBlock Text="{Binding DefaultGateway}" />
+                        </Button>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="DNS:" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
-                        <TextBlock Text="{Binding DnsServers}" TextWrapping="Wrap" />
+                        <Button Classes="copy" Command="{Binding CopyTextCommand}" CommandParameter="{Binding DnsServers}">
+                            <TextBlock Text="{Binding DnsServers}" TextWrapping="Wrap" />
+                        </Button>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="Public IP:" Foreground="{DynamicResource AppMutedTextBrush}" Width="90" />
-                        <TextBlock Text="{Binding PublicIp}" />
+                        <Button Classes="copy" Command="{Binding CopyTextCommand}" CommandParameter="{Binding PublicIp}">
+                            <TextBlock Text="{Binding PublicIp}" />
+                        </Button>
                     </StackPanel>
                     <StackPanel Spacing="3" IsVisible="{Binding HasWifi}">
                         <Separator Margin="0,4" />
@@ -72,12 +96,24 @@
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                                 <TextBlock Text="{Binding TypeLabel}" Foreground="{DynamicResource AppMutedTextBrush}" />
                             </StackPanel>
-                            <TextBlock Text="{Binding Ipv4}" Foreground="#bbb" FontSize="11" Margin="18,0,0,0"
-                                       IsVisible="{Binding Ipv4, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                            <TextBlock Text="{Binding Ipv6}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" Margin="18,0,0,0"
-                                       IsVisible="{Binding Ipv6, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                            <TextBlock Text="{Binding Mac}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" Margin="18,0,0,0"
-                                       IsVisible="{Binding Mac, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <Button Classes="copy" Margin="18,0,0,0"
+                                    Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).CopyTextCommand}"
+                                    CommandParameter="{Binding Ipv4}"
+                                    IsVisible="{Binding Ipv4, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <TextBlock Text="{Binding Ipv4}" Foreground="#bbb" FontSize="11" />
+                            </Button>
+                            <Button Classes="copy" Margin="18,0,0,0"
+                                    Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).CopyTextCommand}"
+                                    CommandParameter="{Binding Ipv6}"
+                                    IsVisible="{Binding Ipv6, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <TextBlock Text="{Binding Ipv6}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" />
+                            </Button>
+                            <Button Classes="copy" Margin="18,0,0,0"
+                                    Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).CopyTextCommand}"
+                                    CommandParameter="{Binding Mac}"
+                                    IsVisible="{Binding Mac, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <TextBlock Text="{Binding Mac}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" />
+                            </Button>
                         </StackPanel>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -105,7 +141,11 @@
                     <DataTemplate x:DataType="vm:NetworkTabViewModel+ScanHit">
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
                             <TextBlock Text="🟢" />
-                            <TextBlock Text="{Binding Display}" />
+                            <Button Classes="copy"
+                                    Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).CopyTextCommand}"
+                                    CommandParameter="{Binding Ip}">
+                                <TextBlock Text="{Binding Display}" />
+                            </Button>
                             <TextBlock Text="{Binding LatencyMs, StringFormat='{}{0} ms'}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" />
                         </StackPanel>
                     </DataTemplate>

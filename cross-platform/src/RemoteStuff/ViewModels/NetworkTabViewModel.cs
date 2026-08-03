@@ -178,6 +178,19 @@ public sealed partial class NetworkTabViewModel : TabViewModel
     [RelayCommand]
     private async Task RefreshAdapters() => await LoadAdaptersAsync();
 
+    /// <summary>Copy an IP or MAC address to the clipboard (click-to-copy on the network tab).</summary>
+    [RelayCommand]
+    private async Task CopyText(string? value)
+    {
+        var text = value?.Trim();
+        if (string.IsNullOrEmpty(text) || text is "—") return;
+        if (Services.DialogService.Top?.Clipboard is { } cb)
+        {
+            await cb.SetTextAsync(text);
+            ScanStatus = $"Copied {text}";
+        }
+    }
+
     private static IReadOnlyList<string> ParseServers(string text) =>
         text.Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
