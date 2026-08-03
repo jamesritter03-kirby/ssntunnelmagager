@@ -100,6 +100,7 @@ public sealed partial class NetworkTabViewModel : TabViewModel
     // ===== Router & DNS (privileged, per-OS via INetworkAdmin) =====
 
     private readonly INetworkAdmin _admin;
+    private Services.DhcpServer? _dhcp;
 
     /// <summary>Adapters available for DNS/gateway/sharing configuration.</summary>
     public ObservableCollection<NetAdapter> Adapters { get; } = new();
@@ -128,6 +129,16 @@ public sealed partial class NetworkTabViewModel : TabViewModel
 
     public string ShareButtonText => IsSharing ? "Stop sharing" : "Start sharing";
     partial void OnIsSharingChanged(bool value) => OnPropertyChanged(nameof(ShareButtonText));
+
+    // When the upstream (internet) adapter is chosen, surface its DNS servers so the
+    // user sees exactly what clients will receive (they can still override the field).
+    partial void OnUpstreamAdapterChanged(NetAdapter? value)
+    {
+        if (value is null) return;
+        var dns = UpstreamDnsServers(value);
+        if (dns.Count > 0 && string.IsNullOrWhiteSpace(DnsEditText))
+            DnsEditText = string.Join(", ", dns);
+    }
 
     private static int MaskToPrefix(string mask)
     {
@@ -214,7 +225,84 @@ public sealed partial class NetworkTabViewModel : TabViewModel
             ActiveRouter = IsSharing
                 ? new RouterState(RouterIp.Trim(), prefix)
                 : null;
+
+            if (IsSharing)
+                StartDhcp(up, down);
+            else
+                StopDhcp();
         }
+    }
+
+    // WinNAT sets the downstream interface to DHCP-Disabled and the gateway is not a
+    // DNS resolver, so we run our own DHCP server to hand out addresses + real DNS.
+    private void StartDhcp(NetAdapter upstream, NetAdapter downstream)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            _dhcp?.Dispose();
+            _dhcp = new Services.DhcpServer();
+            // Prefer DNS the user typed; otherwise hand clients the upstream adapter's
+            // own DNS servers so they resolve names through the same path this PC does.
+            var dns = ParseServers(DnsEditText).ToList();
+            if (dns.Count == 0)
+                dns = UpstreamDnsServers(upstream).ToList();
+            _dhcp.Start(new Services.DhcpServer.Config
+            {
+                ServerIp = RouterIp.Trim(),
+                SubnetMask = RouterSubnet.Trim(),
+                PoolStart = DhcpStart.Trim(),
+                PoolEnd = DhcpEnd.Trim(),
+                DnsServers = dns,
+                InterfaceIndex = ResolveInterfaceIndex(downstream)
+            });
+        }
+        catch (Exception ex)
+        {
+            AdminStatus = $"Router active, but DHCP failed to start ({ex.Message}). Run elevated for client addressing.";
+        }
+    }
+
+    /// <summary>The DNS servers configured on the upstream (internet) adapter.</summary>
+    private static List<string> UpstreamDnsServers(NetAdapter upstream)
+    {
+        var result = new List<string>();
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.Name != upstream.Device && ni.Description != upstream.Device) continue;
+                foreach (var d in ni.GetIPProperties().DnsAddresses)
+                    if (d.AddressFamily == AddressFamily.InterNetwork)
+                        result.Add(d.ToString());
+                break;
+            }
+        }
+        catch { }
+        return result;
+    }
+
+    private void StopDhcp()
+    {
+        try { _dhcp?.Dispose(); } catch { }
+        _dhcp = null;
+    }
+
+    private static int ResolveInterfaceIndex(NetAdapter adapter)
+    {
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.Name == adapter.Device || ni.Description == adapter.Device)
+                {
+                    var p = ni.GetIPProperties().GetIPv4Properties();
+                    if (p != null) return p.Index;
+                }
+            }
+        }
+        catch { }
+        return 0;
     }
 
     private async Task<bool> RunAdminAsync(Func<Task<AdminResult>> op)
@@ -463,6 +551,12 @@ public sealed partial class NetworkTabViewModel : TabViewModel
         var i = 0;
         while (i < ScanResults.Count && LastOctet(ScanResults[i].Ip) < octet) i++;
         ScanResults.Insert(i, hit);
+    }
+
+    public override void Dispose()
+    {
+        StopDhcp();
+        base.Dispose();
     }
 
     private static async Task ResolveHostAsync(ScanHit hit)
