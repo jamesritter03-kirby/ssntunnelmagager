@@ -145,40 +145,39 @@
                              IsVisible="{Binding IsAdminBusy}" VerticalAlignment="Center" />
               </StackPanel>
 
-              <!-- DNS + gateway editor -->
+              <!-- Unified network configuration card -->
               <Border Background="{DynamicResource AppSurfaceBrush}" Padding="12" CornerRadius="6">
-                <StackPanel Spacing="8">
+                <StackPanel Spacing="10">
+
+                  <!-- DNS & gateway -->
                   <TextBlock Text="DNS &amp; gateway" FontWeight="SemiBold" />
                   <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Adapter:" Width="80" VerticalAlignment="Center"
+                    <TextBlock Text="Adapter:" Width="100" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppMutedTextBrush}" />
                     <ComboBox ItemsSource="{Binding Adapters}" SelectedItem="{Binding DnsAdapter}"
-                              MinWidth="260" />
+                              MinWidth="240" />
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="DNS:" Width="80" VerticalAlignment="Center"
+                    <TextBlock Text="DNS:" Width="100" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppMutedTextBrush}" />
-                    <TextBox Text="{Binding DnsEditText}" Watermark="1.1.1.1, 8.8.8.8 (blank = auto)"
-                             Width="260" />
-                    <Button Content="Apply DNS" Classes="accent" Command="{Binding ApplyDnsCommand}"
+                    <TextBox Text="{Binding DnsEditText}" Watermark="1.1.1.1, 8.8.8.8 (blank = auto)" Width="240" />
+                    <Button Content="Apply" Classes="accent" Command="{Binding ApplyDnsCommand}"
                             IsEnabled="{Binding !IsAdminBusy}" />
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Gateway:" Width="80" VerticalAlignment="Center"
+                    <TextBlock Text="Gateway:" Width="100" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppMutedTextBrush}" />
-                    <TextBox Text="{Binding GatewayEditText}" Watermark="192.168.1.1" Width="260" />
-                    <Button Content="Apply gateway" Classes="accent" Command="{Binding ApplyGatewayCommand}"
+                    <TextBox Text="{Binding GatewayEditText}" Watermark="192.168.1.1" Width="240" />
+                    <Button Content="Apply" Classes="accent" Command="{Binding ApplyGatewayCommand}"
                             IsEnabled="{Binding !IsAdminBusy}" />
                   </StackPanel>
-                </StackPanel>
-              </Border>
 
-              <!-- This computer as a router -->
-              <Border Background="{DynamicResource AppSurfaceBrush}" Padding="12" CornerRadius="6">
-                <StackPanel Spacing="8">
+                  <Separator Margin="0,4" />
+
+                  <!-- This computer as a router -->
                   <TextBlock Text="This computer as a router" FontWeight="SemiBold" />
                   <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}"
-                             Text="Share the internet from one adapter (upstream) with devices on another adapter (downstream) using NAT. The downstream adapter will be assigned the router IP automatically." />
+                             Text="Share internet from an upstream adapter with devices on a downstream adapter using NAT. The downstream adapter is assigned the router IP automatically." />
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Text="Upstream:" Width="100" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppMutedTextBrush}" />
@@ -194,22 +193,23 @@
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Text="Router IP:" Width="100" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppMutedTextBrush}" />
-                    <TextBox Text="{Binding RouterIp, Mode=TwoWay}" Width="140" Watermark="10.1.1.1" />
+                    <TextBox Text="{Binding RouterIp, Mode=TwoWay}" Width="130" Watermark="10.1.1.1" />
                     <TextBlock Text="Subnet:" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppMutedTextBrush}" />
-                    <TextBox Text="{Binding RouterSubnet, Mode=TwoWay}" Width="140" Watermark="255.255.255.0" />
+                    <TextBox Text="{Binding RouterSubnet, Mode=TwoWay}" Width="130" Watermark="255.255.255.0" />
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Text="DHCP range:" Width="100" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppMutedTextBrush}" />
-                    <TextBox Text="{Binding DhcpStart, Mode=TwoWay}" Width="135" Watermark="10.1.1.100" />
+                    <TextBox Text="{Binding DhcpStart, Mode=TwoWay}" Width="125" Watermark="10.1.1.100" />
                     <TextBlock Text="—" VerticalAlignment="Center" />
-                    <TextBox Text="{Binding DhcpEnd, Mode=TwoWay}" Width="135" Watermark="10.1.1.254" />
+                    <TextBox Text="{Binding DhcpEnd, Mode=TwoWay}" Width="125" Watermark="10.1.1.254" />
                   </StackPanel>
                   <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}"
-                             Text="DHCP range is informational — configure a DHCP server or assign client IPs manually within this range." />
+                             Text="DHCP range is informational — use the DNS &amp; gateway fields above to set the upstream adapter's DNS, or assign client IPs manually within this range." />
                   <Button Content="{Binding ShareButtonText}" Classes="accent"
                           Command="{Binding ToggleSharingCommand}" IsEnabled="{Binding !IsAdminBusy}" />
+
                 </StackPanel>
               </Border>
 
