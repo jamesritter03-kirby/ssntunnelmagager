@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Net;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -11,6 +12,8 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using RemoteStuff.Services;
+using RemoteStuff.ViewModels;
+using RemoteStuff.Views.Controls;
 
 namespace RemoteStuff.Views;
 
@@ -41,6 +44,8 @@ public sealed class ZeroTierPicker : UserControl
 
     private readonly ObservableCollection<PickRow> _rows = new();
     private readonly List<PickRow> _all = new();
+    private readonly List<PickRow> _routerAll = new();
+    private readonly ObservableCollection<PickRow> _routerRows = new();
 
     private readonly TextBox _searchBox;
     private readonly CheckBox _onlineOnly;
@@ -60,8 +65,8 @@ public sealed class ZeroTierPicker : UserControl
 
         _myNetworks = new CheckBox
         {
-            Content = "My networks", FontSize = 11,
-            [ToolTip.TipProperty] = "Only networks this computer has joined"
+            Content = "Connected to this PC", FontSize = 11,
+            [ToolTip.TipProperty] = "Only ZeroTier networks this computer is connected to (requires local ZeroTier daemon)"
         };
         _myNetworks.IsCheckedChanged += (_, _) => ApplyFilter();
 
@@ -104,12 +109,37 @@ public sealed class ZeroTierPicker : UserControl
         header.Children.Add(_searchBox);
         header.Children.Add(controls);
 
+        var routerSection = new StackPanel { Spacing = 2, Margin = new Thickness(6, 6, 6, 0) };
+        routerSection.Children.Add(new TextBlock
+        {
+            Text = "Router clients (NAT)",
+            FontSize = 11, FontWeight = FontWeight.SemiBold,
+            Foreground = new SolidColorBrush(Color.Parse("#888")),
+            Margin = new Thickness(4, 0, 0, 2)
+        });
+        routerSection.Children.Add(new ItemsControl
+        {
+            ItemsSource = _routerRows,
+            ItemTemplate = new FuncDataTemplate<PickRow>((row, _) => BuildRow(row), supportsRecycling: false)
+        });
+
         var dock = new DockPanel { MaxHeight = 420 };
         DockPanel.SetDock(header, Dock.Top);
         DockPanel.SetDock(_empty, Dock.Bottom);
         dock.Children.Add(header);
         dock.Children.Add(_empty);
-        dock.Children.Add(new ScrollViewer { Content = list });
+        dock.Children.Add(new ScrollViewer
+        {
+            Content = new StackPanel
+            {
+                Children =
+                {
+                    routerSection,
+                    new Separator { Margin = new Thickness(6, 2) },
+                    list
+                }
+            }
+        });
 
         var body = new Border { Width = 320, Child = dock };
 
@@ -122,8 +152,7 @@ public sealed class ZeroTierPicker : UserControl
 
         var globe = new Button
         {
-            Content = "🌎",
-            FontSize = 14,
+            Content = new LineIcon { Kind = "globe", Width = 16, Height = 16 },
             Padding = new Thickness(6, 2),
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
@@ -245,6 +274,7 @@ public sealed class ZeroTierPicker : UserControl
 
         _loadedOnce = true;
         Rebuild(svc);
+        await RebuildRouterClientsAsync();
     }
 
     private void Rebuild(ZeroTierService svc)
@@ -286,12 +316,15 @@ public sealed class ZeroTierPicker : UserControl
         var needle = _searchBox.Text?.Trim() ?? "";
         var onlineOnly = _onlineOnly.IsChecked == true;
         var myNetworks = _myNetworks.IsChecked == true;
+        var svc = ZeroTierService.Shared;
+        var daemonOffline = myNetworks && svc is not null && !svc.LocalDaemonAvailable;
 
         _rows.Clear();
         foreach (var r in _all)
         {
             if (onlineOnly && !r.IsOnline) continue;
-            if (myNetworks && !r.IsLocalMember) continue;
+            // When daemon is offline, skip the connected-to filter so it doesn't hide everything.
+            if (myNetworks && !daemonOffline && !r.IsLocalConnected) continue;
             if (needle.Length > 0 &&
                 r.Name.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0 &&
                 r.Ip.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0 &&
@@ -300,12 +333,75 @@ public sealed class ZeroTierPicker : UserControl
             _rows.Add(r);
         }
 
-        _empty.IsVisible = _rows.Count == 0;
+        _empty.IsVisible = _rows.Count == 0 && _routerRows.Count == 0;
         _empty.Text = _all.Count == 0
             ? "No ZeroTier devices found. Add an account in the ZeroTier tab."
+            : daemonOffline
+                ? "Local ZeroTier daemon is offline — showing all devices."
             : myNetworks
-                ? "No devices on networks this computer has joined."
+                ? "No devices on networks this computer is connected to."
                 : "No matching devices.";
+    }
+
+    private async Task RebuildRouterClientsAsync()
+    {
+        _routerAll.Clear();
+        _routerRows.Clear();
+        var router = NetworkTabViewModel.ActiveRouter;
+        if (router is null) return;
+        var clients = await Task.Run(() => ReadArpClients(router.RouterIp, router.PrefixLength));
+        foreach (var (ip, label) in clients)
+            _routerAll.Add(new PickRow { Name = label, Ip = ip, Network = "NAT router", IsOnline = true });
+        foreach (var r in _routerAll)
+            _routerRows.Add(r);
+    }
+
+    private static List<(string Ip, string Label)> ReadArpClients(string routerIp, int prefixLength)
+    {
+        var results = new List<(string, string)>();
+        try
+        {
+            var network = RemoteStuff.Services.NetworkAdmin.NetAdminUtil.NetworkAddress(routerIp, prefixLength);
+            if (network is null) return results;
+            // Parse ARP table — works cross-platform (arp -a output format differs slightly).
+            var psi = new System.Diagnostics.ProcessStartInfo(
+                OperatingSystem.IsWindows() ? "arp" : "arp")
+            {
+                Arguments = "-a",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc is null) return results;
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit();
+            // Match IPv4 addresses in the ARP table that fall within our subnet.
+            foreach (System.Text.RegularExpressions.Match m in
+                System.Text.RegularExpressions.Regex.Matches(output,
+                    @"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"))
+            {
+                var ip = m.Groups[1].Value;
+                if (ip == routerIp) continue; // skip router itself
+                if (InSubnet(ip, network, prefixLength))
+                    results.Add((ip, ip));
+            }
+        }
+        catch { /* ignore — ARP table unavailable */ }
+        return results;
+    }
+
+    private static bool InSubnet(string ip, string networkAddr, int prefix)
+    {
+        if (!IPAddress.TryParse(ip, out var ipAddr) ||
+            !IPAddress.TryParse(networkAddr, out var netAddr)) return false;
+        var ipb = ipAddr.GetAddressBytes();
+        var nb = netAddr.GetAddressBytes();
+        if (ipb.Length != 4 || nb.Length != 4) return false;
+        uint mask = prefix == 0 ? 0u : (~0u << (32 - prefix));
+        uint ipInt = ((uint)ipb[0] << 24) | ((uint)ipb[1] << 16) | ((uint)ipb[2] << 8) | ipb[3];
+        uint netInt = ((uint)nb[0] << 24) | ((uint)nb[1] << 16) | ((uint)nb[2] << 8) | nb[3];
+        return (ipInt & mask) == (netInt & mask);
     }
 
     private void OnPickRow(object? sender, RoutedEventArgs e)

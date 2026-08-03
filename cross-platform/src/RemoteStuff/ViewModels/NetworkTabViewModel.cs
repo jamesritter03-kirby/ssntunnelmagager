@@ -203,10 +203,18 @@ public sealed partial class NetworkTabViewModel : TabViewModel
         var up = UpstreamAdapter;
         var down = DownstreamAdapter;
         var wasSharing = IsSharing;
+        var prefix = MaskToPrefix(RouterSubnet.Trim());
         var ok = await RunAdminAsync(() => wasSharing
             ? _admin.StopSharingAsync(up, down)
-            : _admin.StartSharingAsync(up, down, RouterIp.Trim(), MaskToPrefix(RouterSubnet.Trim())));
-        if (ok) IsSharing = !wasSharing;
+            : _admin.StartSharingAsync(up, down, RouterIp.Trim(), prefix));
+        if (ok)
+        {
+            IsSharing = !wasSharing;
+            // Publish active router state so the ZeroTier IP picker can show NAT clients.
+            ActiveRouter = IsSharing
+                ? new RouterState(RouterIp.Trim(), prefix)
+                : null;
+        }
     }
 
     private async Task<bool> RunAdminAsync(Func<Task<AdminResult>> op)
@@ -494,4 +502,10 @@ public sealed partial class NetworkTabViewModel : TabViewModel
         var bytes = mac.GetAddressBytes();
         return bytes.Length == 0 ? "" : string.Join(":", bytes.Select(b => b.ToString("X2")));
     }
+
+    /// <summary>Published when NAT sharing starts so the ZeroTier IP picker can list router clients.</summary>
+    public static RouterState? ActiveRouter { get; private set; }
 }
+
+/// <summary>Tracks the active router subnet so the ZeroTier picker can list ARP-discovered clients.</summary>
+public sealed record RouterState(string RouterIp, int PrefixLength);
