@@ -151,7 +151,9 @@ public sealed class TrayService : IDisposable
         if (_tray is not null)
         {
             _tray.ToolTipText = count == 0 ? "Remote Stuff CP" : $"Remote Stuff CP — {count} connected";
-            _tray.Icon = MakeIcon(count);
+            // Win32 icon creation can fail with a spurious Win32Exception on some
+            // Windows configurations — swallow it so ZeroTier/session updates survive.
+            try { _tray.Icon = MakeIcon(count); } catch { /* ignore */ }
         }
     }
 
