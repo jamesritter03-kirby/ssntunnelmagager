@@ -121,8 +121,17 @@
                 <TextBlock Text="Couldn't connect over SFTP" FontWeight="Bold" Foreground="#E88" />
                 <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppTextBrush}" TextWrapping="Wrap" />
                 <TextBlock Foreground="#999" FontSize="11" TextWrapping="Wrap"
-                           Text="SFTP can't use ssh-agent or interactive prompts. Enter the account password (or key passphrase) and retry." />
-                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                           Text="SFTP can't use ssh-agent or interactive prompts. Enter the account password (or key passphrase) and retry. To use SSH key auth, enter the key file path below." />
+                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
+                    <TextBlock Grid.Column="0" Text="SSH key" FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}"
+                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox Grid.Column="1" Text="{Binding ReconnectIdentityFile, Mode=TwoWay}"
+                             Watermark="Path to private key file (optional)"
+                             VerticalContentAlignment="Center" Margin="0,0,8,0" />
+                    <Button Grid.Column="2" Content="Browse…" Padding="10,4"
+                            Click="OnBrowseIdentityFile" />
+                </Grid>
+                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,0">
                     <TextBox Grid.Column="0" Text="{Binding ReconnectPassword, Mode=TwoWay}"
                              PasswordChar="•" Watermark="Password or key passphrase"
                              VerticalContentAlignment="Center" Margin="0,0,8,0"

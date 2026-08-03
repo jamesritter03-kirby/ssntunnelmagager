@@ -151,4 +151,19 @@ public partial class SftpTabView : UserControl
                 vm.ReconnectCommand.Execute(null);
         }
     }
+
+    private async void OnBrowseIdentityFile(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is not SftpTabViewModel vm) return;
+        var dialog = new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title = "Choose an SSH private key",
+            AllowMultiple = false
+        };
+        var top = TopLevel.GetTopLevel(this);
+        if (top is null) return;
+        var files = await top.StorageProvider.OpenFilePickerAsync(dialog);
+        if (files.Count > 0)
+            vm.ReconnectIdentityFile = files[0].TryGetLocalPath() ?? "";
+    }
 }

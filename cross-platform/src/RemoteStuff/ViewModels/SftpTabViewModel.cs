@@ -99,6 +99,9 @@ public sealed partial class SftpTabViewModel : TabViewModel
     /// <summary>Password / passphrase typed into the reconnect bar.</summary>
     [ObservableProperty] private string _reconnectPassword = "";
 
+    /// <summary>SSH key file path typed into the reconnect bar (overrides the profile's key).</summary>
+    [ObservableProperty] private string _reconnectIdentityFile = "";
+
     /// <summary>When ticked, a successful reconnect saves the typed password to the profile.</summary>
     [ObservableProperty] private bool _savePassword = true;
 
@@ -180,6 +183,8 @@ public sealed partial class SftpTabViewModel : TabViewModel
     {
         if (!string.IsNullOrEmpty(ReconnectPassword))
             _password = ReconnectPassword;
+        if (!string.IsNullOrEmpty(ReconnectIdentityFile))
+            _profile.IdentityFile = RemoteStuff.Services.SshCommandBuilder.ExpandPath(ReconnectIdentityFile.Trim());
         await ConnectAsync();
     }
 
