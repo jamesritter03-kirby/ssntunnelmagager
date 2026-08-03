@@ -199,6 +199,10 @@ public sealed class ZeroTierService
     // networkId (lowercased) -> live join status on this device (e.g. "OK").
     private Dictionary<string, string> _localStatus = new();
 
+    /// <summary>True when the local ZeroTier service responded during the last refresh.
+    /// When false, member-of filtering cannot work and should be skipped gracefully.</summary>
+    public bool LocalDaemonAvailable { get; private set; }
+
     /// <summary>
     /// This device's join status for a network id (e.g. <c>"OK"</c> when the tunnel
     /// is up), or <c>null</c> if it hasn't joined that network / the local service
@@ -213,7 +217,7 @@ public sealed class ZeroTierService
     private async Task RefreshLocalAsync()
     {
         var token = ReadLocalAuthToken();
-        if (string.IsNullOrEmpty(token)) { _localStatus = new(); return; }
+        if (string.IsNullOrEmpty(token)) { _localStatus = new(); LocalDaemonAvailable = false; return; }
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, "http://127.0.0.1:9993/network");
@@ -221,7 +225,7 @@ public sealed class ZeroTierService
             req.Headers.TryAddWithoutValidation("Accept", "application/json");
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             using var resp = await Http.SendAsync(req, cts.Token);
-            if (!resp.IsSuccessStatusCode) { _localStatus = new(); return; }
+            if (!resp.IsSuccessStatusCode) { _localStatus = new(); LocalDaemonAvailable = false; return; }
             var json = await resp.Content.ReadAsStringAsync(cts.Token);
             using var doc = JsonDocument.Parse(json);
             var map = new Dictionary<string, string>();
@@ -235,8 +239,9 @@ public sealed class ZeroTierService
                 }
             }
             _localStatus = map;
+            LocalDaemonAvailable = true;
         }
-        catch { _localStatus = new(); }
+        catch { _localStatus = new(); LocalDaemonAvailable = false; }
     }
 
     /// <summary>

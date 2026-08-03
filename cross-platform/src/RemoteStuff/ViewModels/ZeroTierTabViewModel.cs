@@ -402,7 +402,8 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         var filter = FilterText?.Trim() ?? "";
         bool filtering = filter.Length > 0;
         bool onlineOnly = ShowOnlineOnly;
-        bool memberOfOnly = ShowMemberOfOnly;
+        // Suppress member-of filter when the local daemon is unreachable — can't detect joined networks.
+        bool memberOfOnly = ShowMemberOfOnly && _service.LocalDaemonAvailable;
         bool anyFilter = filtering || onlineOnly || memberOfOnly;
 
         // Restore each account/network's expand state from the persistent collapse sets
@@ -466,8 +467,8 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         if (!_service.HasAccounts)
             StatusText = "Add a ZeroTier account to begin.";
         else if (filtering)
-            StatusText = $"{networkCount} networks match “{filter}”";
-        else if (onlineOnly)
+            StatusText = $"{networkCount} networks match “{filter}”";        else if (ShowMemberOfOnly && !_service.LocalDaemonAvailable)
+            StatusText = $"{AccountGroups.Count} accounts · {networkCount} networks (local ZeroTier daemon offline — member-of filter bypassed)";        else if (onlineOnly)
             StatusText = $"{networkCount} networks with online devices";
         else if (memberOfOnly)
             StatusText = $"{networkCount} networks joined on this device";
