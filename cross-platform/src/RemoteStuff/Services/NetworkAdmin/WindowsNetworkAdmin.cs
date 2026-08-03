@@ -67,20 +67,24 @@ internal sealed class WindowsNetworkAdmin : INetworkAdmin
         return RunElevatedAsync(script, "Default gateway updated.");
     }
 
-    public Task<AdminResult> StartSharingAsync(NetAdapter upstream, NetAdapter downstream)
+    public Task<AdminResult> StartSharingAsync(NetAdapter upstream, NetAdapter downstream,
+        string routerIp = "10.1.1.1", int prefixLength = 24)
     {
-        var cidr = NetAdminUtil.SubnetCidr(downstream);
-        if (cidr is null)
-            return Task.FromResult(AdminResult.Fail(
-                "The downstream interface needs a static IPv4 address/subnet before sharing."));
+        var cidr = $"{routerIp}/{prefixLength}";
+        var network = NetAdminUtil.NetworkAddress(routerIp, prefixLength);
+        if (network is null)
+            return Task.FromResult(AdminResult.Fail("Invalid router IP or prefix length."));
         var up = Ps(upstream.Device);
         var down = Ps(downstream.Device);
         var script =
+            // Remove any existing IPv4 address on the downstream adapter, then assign the router IP.
+            $"Get-NetIPAddress -InterfaceAlias '{down}' -AddressFamily IPv4 -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue; " +
+            $"New-NetIPAddress -InterfaceAlias '{down}' -IPAddress '{Ps(routerIp)}' -PrefixLength {prefixLength} -ErrorAction SilentlyContinue; " +
             $"Set-NetIPInterface -InterfaceAlias '{up}' -Forwarding Enabled; " +
             $"Set-NetIPInterface -InterfaceAlias '{down}' -Forwarding Enabled; " +
             $"if (Get-NetNat -Name '{NatName}' -ErrorAction SilentlyContinue) {{ Remove-NetNat -Name '{NatName}' -Confirm:$false }}; " +
-            $"New-NetNat -Name '{NatName}' -InternalIPInterfaceAddressPrefix '{cidr}'";
-        return RunElevatedAsync(script, $"Sharing {upstream.Device} → {downstream.Device} is active.");
+            $"New-NetNat -Name '{NatName}' -InternalIPInterfaceAddressPrefix '{network}/{prefixLength}'";
+        return RunElevatedAsync(script, $"Router active: {routerIp}/{prefixLength} on {downstream.Device}.");
     }
 
     public Task<AdminResult> StopSharingAsync(NetAdapter upstream, NetAdapter downstream)

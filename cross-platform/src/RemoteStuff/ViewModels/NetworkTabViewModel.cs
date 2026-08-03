@@ -121,9 +121,23 @@ public sealed partial class NetworkTabViewModel : TabViewModel
     [ObservableProperty] private NetAdapter? _upstreamAdapter;
     [ObservableProperty] private NetAdapter? _downstreamAdapter;
     [ObservableProperty] private bool _isSharing;
+    [ObservableProperty] private string _routerIp = "10.1.1.1";
+    [ObservableProperty] private string _routerSubnet = "255.255.255.0";
+    [ObservableProperty] private string _dhcpStart = "10.1.1.100";
+    [ObservableProperty] private string _dhcpEnd = "10.1.1.254";
 
     public string ShareButtonText => IsSharing ? "Stop sharing" : "Start sharing";
     partial void OnIsSharingChanged(bool value) => OnPropertyChanged(nameof(ShareButtonText));
+
+    private static int MaskToPrefix(string mask)
+    {
+        if (!System.Net.IPAddress.TryParse(mask, out var m)) return 24;
+        int bits = 0;
+        foreach (var b in m.GetAddressBytes())
+            for (int i = 7; i >= 0; i--)
+                if ((b & (1 << i)) != 0) bits++;
+        return bits;
+    }
 
     private async Task LoadAdaptersAsync()
     {
@@ -191,7 +205,7 @@ public sealed partial class NetworkTabViewModel : TabViewModel
         var wasSharing = IsSharing;
         var ok = await RunAdminAsync(() => wasSharing
             ? _admin.StopSharingAsync(up, down)
-            : _admin.StartSharingAsync(up, down));
+            : _admin.StartSharingAsync(up, down, RouterIp.Trim(), MaskToPrefix(RouterSubnet.Trim())));
         if (ok) IsSharing = !wasSharing;
     }
 

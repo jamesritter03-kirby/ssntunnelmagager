@@ -82,19 +82,21 @@ internal sealed partial class MacNetworkAdmin : INetworkAdmin
         return RunElevatedAsync(cmd, "Default gateway updated.");
     }
 
-    public Task<AdminResult> StartSharingAsync(NetAdapter upstream, NetAdapter downstream)
+    public Task<AdminResult> StartSharingAsync(NetAdapter upstream, NetAdapter downstream,
+        string routerIp = "10.1.1.1", int prefixLength = 24)
     {
         if (string.IsNullOrEmpty(upstream.Device) || string.IsNullOrEmpty(downstream.Device))
             return Task.FromResult(AdminResult.Fail("Could not determine interface names."));
+        var mask = NetAdminUtil.PrefixToMask(prefixLength);
         var up = upstream.Device;
         var down = downstream.Device;
-        // Enable IP forwarding, write a minimal pf ruleset that NATs the downstream
-        // subnet out the upstream interface, then load and enable pf.
         var cmd =
+            $"networksetup -setmanual '{upstream.ServiceName}' dummy dummy dummy 2>/dev/null; " +
+            $"ifconfig {down} {routerIp} netmask {mask} && " +
             "sysctl -w net.inet.ip.forwarding=1 && " +
             $"printf 'nat on {up} from ({down}:network) to any -> ({up})\\npass all\\n' > {NatConf} && " +
             $"pfctl -f {NatConf} -e";
-        return RunElevatedAsync(cmd, $"Sharing {up} → {down} is active.");
+        return RunElevatedAsync(cmd, $"Router active: {routerIp}/{prefixLength} on {down}.");
     }
 
     public Task<AdminResult> StopSharingAsync(NetAdapter upstream, NetAdapter downstream)

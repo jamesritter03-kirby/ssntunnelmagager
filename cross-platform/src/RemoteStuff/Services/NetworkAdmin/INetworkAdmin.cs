@@ -59,8 +59,10 @@ public interface INetworkAdmin
     Task<AdminResult> SetGatewayAsync(NetAdapter adapter, string gateway);
 
     /// <summary>Share <paramref name="upstream"/>'s internet with devices on
-    /// <paramref name="downstream"/> (enable forwarding + NAT).</summary>
-    Task<AdminResult> StartSharingAsync(NetAdapter upstream, NetAdapter downstream);
+    /// <paramref name="downstream"/> (enable forwarding + NAT). The downstream
+    /// adapter is assigned <paramref name="routerIp"/>/<paramref name="prefixLength"/>.</summary>
+    Task<AdminResult> StartSharingAsync(NetAdapter upstream, NetAdapter downstream,
+        string routerIp = "10.1.1.1", int prefixLength = 24);
     Task<AdminResult> StopSharingAsync(NetAdapter upstream, NetAdapter downstream);
 }
 
@@ -88,7 +90,7 @@ internal sealed class UnsupportedNetworkAdmin : INetworkAdmin
         Task.FromResult(AdminResult.Fail("Not supported on this platform."));
     public Task<AdminResult> SetGatewayAsync(NetAdapter a, string g) =>
         Task.FromResult(AdminResult.Fail("Not supported on this platform."));
-    public Task<AdminResult> StartSharingAsync(NetAdapter u, NetAdapter d) =>
+    public Task<AdminResult> StartSharingAsync(NetAdapter u, NetAdapter d, string routerIp = "10.1.1.1", int prefixLength = 24) =>
         Task.FromResult(AdminResult.Fail("Not supported on this platform."));
     public Task<AdminResult> StopSharingAsync(NetAdapter u, NetAdapter d) =>
         Task.FromResult(AdminResult.Fail("Not supported on this platform."));
@@ -146,5 +148,24 @@ internal static class NetAdminUtil
             for (int b = 0; b < 8; b++) if ((mb[i] & (1 << b)) != 0) bits++;
         }
         return $"{new IPAddress(net)}/{bits}";
+    }
+
+    /// <summary>Returns the network address (host bits zeroed) for a given IP + prefix, e.g. "10.1.1.0".</summary>
+    public static string? NetworkAddress(string ip, int prefixLength)
+    {
+        if (!IPAddress.TryParse(ip, out var addr)) return null;
+        var bytes = addr.GetAddressBytes();
+        if (bytes.Length != 4) return null;
+        uint mask = prefixLength == 0 ? 0u : (~0u << (32 - prefixLength));
+        uint ipInt = ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
+        uint net = ipInt & mask;
+        return $"{(net >> 24) & 0xFF}.{(net >> 16) & 0xFF}.{(net >> 8) & 0xFF}.{net & 0xFF}";
+    }
+
+    /// <summary>Converts a CIDR prefix length (e.g. 24) to a dotted subnet mask (e.g. "255.255.255.0").</summary>
+    public static string PrefixToMask(int prefixLength)
+    {
+        uint mask = prefixLength == 0 ? 0u : (~0u << (32 - prefixLength));
+        return $"{(mask >> 24) & 0xFF}.{(mask >> 16) & 0xFF}.{(mask >> 8) & 0xFF}.{mask & 0xFF}";
     }
 }

@@ -102,18 +102,22 @@ internal sealed class LinuxNetworkAdmin : INetworkAdmin
         return RunElevatedAsync(script, "Default gateway updated.");
     }
 
-    public Task<AdminResult> StartSharingAsync(NetAdapter upstream, NetAdapter downstream)
+    public Task<AdminResult> StartSharingAsync(NetAdapter upstream, NetAdapter downstream,
+        string routerIp = "10.1.1.1", int prefixLength = 24)
     {
         var up = upstream.Device;
         var down = downstream.Device;
         if (string.IsNullOrEmpty(up) || string.IsNullOrEmpty(down))
             return Task.FromResult(AdminResult.Fail("Could not determine interface names."));
         var script =
+            $"ip addr flush dev {down}; " +
+            $"ip addr add {routerIp}/{prefixLength} dev {down}; " +
+            $"ip link set {down} up; " +
             "sysctl -w net.ipv4.ip_forward=1; " +
             $"iptables -t nat -C POSTROUTING -o {up} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o {up} -j MASQUERADE; " +
             $"iptables -C FORWARD -i {down} -o {up} -j ACCEPT 2>/dev/null || iptables -A FORWARD -i {down} -o {up} -j ACCEPT; " +
             $"iptables -C FORWARD -i {up} -o {down} -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables -A FORWARD -i {up} -o {down} -m state --state RELATED,ESTABLISHED -j ACCEPT";
-        return RunElevatedAsync(script, $"Sharing {up} → {down} is active.");
+        return RunElevatedAsync(script, $"Router active: {routerIp}/{prefixLength} on {down}.");
     }
 
     public Task<AdminResult> StopSharingAsync(NetAdapter upstream, NetAdapter downstream)

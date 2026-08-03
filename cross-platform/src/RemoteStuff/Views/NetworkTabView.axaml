@@ -178,19 +178,36 @@
                 <StackPanel Spacing="8">
                   <TextBlock Text="This computer as a router" FontWeight="SemiBold" />
                   <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}"
-                             Text="Share the internet from one adapter (upstream) with devices on another adapter (downstream) using NAT. The downstream adapter should have a static IP on its own subnet." />
+                             Text="Share the internet from one adapter (upstream) with devices on another adapter (downstream) using NAT. The downstream adapter will be assigned the router IP automatically." />
                   <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Upstream:" Width="80" VerticalAlignment="Center"
+                    <TextBlock Text="Upstream:" Width="100" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppMutedTextBrush}" />
                     <ComboBox ItemsSource="{Binding Adapters}" SelectedItem="{Binding UpstreamAdapter}"
-                              MinWidth="260" />
+                              MinWidth="240" />
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Downstream:" Width="80" VerticalAlignment="Center"
+                    <TextBlock Text="Downstream:" Width="100" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppMutedTextBrush}" />
                     <ComboBox ItemsSource="{Binding Adapters}" SelectedItem="{Binding DownstreamAdapter}"
-                              MinWidth="260" />
+                              MinWidth="240" />
                   </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Router IP:" Width="100" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppMutedTextBrush}" />
+                    <TextBox Text="{Binding RouterIp, Mode=TwoWay}" Width="140" Watermark="10.1.1.1" />
+                    <TextBlock Text="Subnet:" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppMutedTextBrush}" />
+                    <TextBox Text="{Binding RouterSubnet, Mode=TwoWay}" Width="140" Watermark="255.255.255.0" />
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="DHCP range:" Width="100" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppMutedTextBrush}" />
+                    <TextBox Text="{Binding DhcpStart, Mode=TwoWay}" Width="135" Watermark="10.1.1.100" />
+                    <TextBlock Text="—" VerticalAlignment="Center" />
+                    <TextBox Text="{Binding DhcpEnd, Mode=TwoWay}" Width="135" Watermark="10.1.1.254" />
+                  </StackPanel>
+                  <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}"
+                             Text="DHCP range is informational — configure a DHCP server or assign client IPs manually within this range." />
                   <Button Content="{Binding ShareButtonText}" Classes="accent"
                           Command="{Binding ToggleSharingCommand}" IsEnabled="{Binding !IsAdminBusy}" />
                 </StackPanel>
