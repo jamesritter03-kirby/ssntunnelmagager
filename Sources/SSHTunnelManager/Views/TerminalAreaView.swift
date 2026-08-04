@@ -1101,6 +1101,27 @@ private struct TabBar: View {
                                 Label("Connect to Profile", systemImage: "network")
                             }
                         }
+                        let closedTabs = sessions.recentlyClosed.filter { $0.kind == .tab }
+                        if !closedTabs.isEmpty {
+                            Divider()
+                            Menu {
+                                ForEach(closedTabs) { item in
+                                    Button {
+                                        sessions.reopenClosedItem(item)
+                                    } label: {
+                                        Label(item.title, systemImage: item.symbol)
+                                    }
+                                }
+                                Divider()
+                                Button {
+                                    sessions.clearRecentlyClosed()
+                                } label: {
+                                    Label("Clear Recently Closed", systemImage: "trash")
+                                }
+                            } label: {
+                                Label("Recently Closed", systemImage: "arrow.uturn.backward")
+                            }
+                        }
                     } label: {
                         Image(systemName: "plus")
                             .padding(.horizontal, 6)
