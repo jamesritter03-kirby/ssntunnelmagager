@@ -70,6 +70,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// `ssh-keygen -R host` silently misses.
     private var hostKeyOffendingFile: String? = nil
     private var hostKeyOffendingLine: Int? = nil
+    /// One-shot: the next spawn overrides the profile's `StrictHostKeyChecking`
+    /// with `accept-new` so a reconnect right after removing a changed key can
+    /// actually re-learn the new key (strict mode would otherwise refuse the now
+    /// unknown host and re-raise "Host key verification failed").
+    private var acceptNewHostKeyOnce = false
     /// Set when the user deliberately stopped this session (Disconnect / close /
     /// quit), so the manager's auto-reconnect doesn't treat it as a dropped link.
     var userInitiatedStop = false
@@ -588,11 +593,38 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         userInitiatedStop = false
         runOnConnectFired = false
         openSessionLogIfNeeded()
+        // Honour a pending "accept the new host key" reconnect for ssh sessions.
+        var spawnArgs = args
+        if acceptNewHostKeyOnce {
+            acceptNewHostKeyOnce = false
+            if executable == SSHCommandBuilder.sshPath {
+                spawnArgs = TerminalSession.argsAcceptingNewHostKey(args)
+            }
+        }
         terminalView.startProcess(executable: executable,
-                                  args: args,
+                                  args: spawnArgs,
                                   environment: TerminalSession.environment(extra: extraEnvironment),
                                   execName: nil,
                                   currentDirectory: startDirectory)
+    }
+
+    /// Rewrite ssh args so the server's (new) host key is accepted and stored:
+    /// drop any profile `StrictHostKeyChecking=…` and prepend `accept-new`. ssh
+    /// uses the first value it sees for an option, so prepending guarantees ours
+    /// wins over anything in the profile's extra options.
+    private static func argsAcceptingNewHostKey(_ args: [String]) -> [String] {
+        var out: [String] = []
+        var i = 0
+        while i < args.count {
+            if args[i] == "-o", i + 1 < args.count,
+               args[i + 1].hasPrefix("StrictHostKeyChecking=") {
+                i += 2
+                continue
+            }
+            out.append(args[i])
+            i += 1
+        }
+        return ["-o", "StrictHostKeyChecking=accept-new"] + out
     }
 
     /// Called when the terminal view becomes part of a window. If a PTY start was
@@ -912,6 +944,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             self.hostKeyChangedHost = nil
             self.hostKeyOffendingFile = nil
             self.hostKeyOffendingLine = nil
+            // Let the imminent reconnect accept and store the server's new key,
+            // regardless of the profile's strict setting — the user just approved
+            // the change by choosing "Remove Key & Reconnect".
+            self.acceptNewHostKeyOnce = true
         }
         return ok
     }
