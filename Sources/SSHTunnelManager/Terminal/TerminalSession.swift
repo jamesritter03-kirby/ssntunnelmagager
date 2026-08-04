@@ -64,6 +64,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// offers to remove the stale `known_hosts` entry and reconnect. Cleared once
     /// handled or dismissed.
     @Published var hostKeyChangedHost: String? = nil
+    /// The exact `known_hosts` file + 1-based line ssh named as "Offending ...",
+    /// captured so we can delete precisely — this handles hashed entries, custom
+    /// `UserKnownHostsFile`s, and `[host]:port` forms that a bare
+    /// `ssh-keygen -R host` silently misses.
+    private var hostKeyOffendingFile: String? = nil
+    private var hostKeyOffendingLine: Int? = nil
     /// Set when the user deliberately stopped this session (Disconnect / close /
     /// quit), so the manager's auto-reconnect doesn't treat it as a dropped link.
     var userInitiatedStop = false
@@ -650,6 +656,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             return
         }
         hasStarted = false
+        // Clear stale output so a prior host-key warning still sitting in the tail
+        // doesn't immediately re-trigger the "host key changed" prompt on the
+        // fresh connection (the reconnect is actually succeeding).
+        recentOutputTail = ""
         start()
     }
 
@@ -831,7 +841,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// Watch output to spot password prompts so the next submitted line isn't recorded.
     private func handleOutput(_ data: ArraySlice<UInt8>) {
         appendToSessionLog(data)
-        recentOutputTail = String((recentOutputTail + String(decoding: data, as: UTF8.self)).suffix(400))
+        recentOutputTail = String((recentOutputTail + String(decoding: data, as: UTF8.self)).suffix(2000))
         // Strip ANSI colours / cursor moves first: a styled prompt like
         // "Password: \u{1b}[0m" would otherwise not end in ":" and slip past.
         let cleaned = TerminalSession.strippingTerminalControls(recentOutputTail)
@@ -867,21 +877,75 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         // Fall back to the profile's host if we couldn't parse one out.
         let resolved = host ?? hostForKnownHosts
         guard let resolved, !resolved.isEmpty else { return }
+        // Capture the exact "Offending <type> key in <file>:<line>" ssh named, so
+        // removal can target that entry precisely rather than guessing a form.
+        if let m = text.range(of: #"Offending [^\n]*?key in ([^\n:]+):(\d+)"#,
+                              options: .regularExpression) {
+            let line = String(text[m])
+            if let colon = line.range(of: #" in "#, options: .regularExpression) {
+                let tail = String(line[colon.upperBound...])   // "<file>:<line>"
+                if let lastColon = tail.lastIndex(of: ":") {
+                    hostKeyOffendingFile = String(tail[..<lastColon])
+                        .trimmingCharacters(in: .whitespaces)
+                    hostKeyOffendingLine = Int(tail[tail.index(after: lastColon)...]
+                        .trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
         hostKeyChangedHost = resolved
     }
 
-    /// Remove the stale `known_hosts` entry for the offending host via
-    /// `ssh-keygen -R`. Returns true on success. Runs off the main thread.
+    /// Remove the stale `known_hosts` entry for the offending host. Tries every
+    /// form the entry could take — the host ssh named, the profile's host, and
+    /// their `[host]:port` variants — via `ssh-keygen -R`, then deletes the exact
+    /// `file:line` ssh reported as a safety net (covers hashed entries and custom
+    /// known_hosts files). Returns true when an entry was actually removed. Runs
+    /// off the main thread.
     func clearChangedHostKey() async -> Bool {
-        guard let host = hostKeyChangedHost else { return false }
-        let ok = await TerminalSession.runSSHKeygenRemove(host: host)
-        await MainActor.run { self.hostKeyChangedHost = nil }
+        guard hostKeyChangedHost != nil else { return false }
+        let hosts = hostKeyRemovalCandidates()
+        let file = hostKeyOffendingFile
+        let line = hostKeyOffendingLine
+        let ok = await TerminalSession.removeChangedHostKey(
+            hosts: hosts, offendingFile: file, offendingLine: line)
+        await MainActor.run {
+            self.hostKeyChangedHost = nil
+            self.hostKeyOffendingFile = nil
+            self.hostKeyOffendingLine = nil
+        }
         return ok
+    }
+
+    /// Every plausible known_hosts key for the offending host: the host ssh
+    /// named, the profile's launch host, plus `[host]:port` forms when a
+    /// non-standard port is in use (OpenSSH stores those bracketed).
+    private func hostKeyRemovalCandidates() -> [String] {
+        var hosts: [String] = []
+        func add(_ h: String?) {
+            guard let h, !h.isEmpty, !hosts.contains(h) else { return }
+            hosts.append(h)
+        }
+        add(hostKeyChangedHost)
+        add(hostForKnownHosts)
+        if let port = portFromArgs(), port != 22 {
+            for h in hosts where !h.hasPrefix("[") {
+                add("[\(h)]:\(port)")
+            }
+        }
+        return hosts
+    }
+
+    /// The `-p <port>` value from the ssh launch args, if any.
+    private func portFromArgs() -> Int? {
+        guard let i = args.firstIndex(of: "-p"), i + 1 < args.count else { return nil }
+        return Int(args[i + 1])
     }
 
     /// Dismiss the host-key-changed prompt without removing anything.
     func dismissHostKeyChange() {
         hostKeyChangedHost = nil
+        hostKeyOffendingFile = nil
+        hostKeyOffendingLine = nil
     }
 
     /// The host string used for known_hosts lookups: the profile's host (with a
@@ -900,23 +964,92 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         return nil
     }
 
-    /// Run `ssh-keygen -R <host>` to drop the offending key. Best-effort.
-    nonisolated static func runSSHKeygenRemove(host: String) async -> Bool {
+    /// Remove the offending host key from `known_hosts`. Runs `ssh-keygen -R`
+    /// for each candidate host form, against both the default file and (if named)
+    /// the exact file ssh reported, then deletes the precise offending line as a
+    /// safety net. Returns true when at least one entry was removed.
+    nonisolated static func removeChangedHostKey(hosts: [String],
+                                                 offendingFile: String?,
+                                                 offendingLine: Int?) async -> Bool {
         await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
-                proc.arguments = ["-R", host]
-                proc.standardOutput = Pipe()
-                proc.standardError = Pipe()
-                do {
-                    try proc.run()
-                    proc.waitUntilExit()
-                    cont.resume(returning: proc.terminationStatus == 0)
-                } catch {
-                    cont.resume(returning: false)
+                var removedAny = false
+
+                // Files to target with ssh-keygen -R: the default, plus the exact
+                // file ssh named if it's something non-default.
+                var files: [String?] = [nil]
+                if let f = offendingFile, !f.isEmpty,
+                   f != Self.defaultKnownHostsPath {
+                    files.append(f)
                 }
+                for host in hosts {
+                    for file in files where runKeygenRemove(host: host, file: file) {
+                        removedAny = true
+                    }
+                }
+
+                // Belt-and-suspenders: drop the exact line ssh flagged. Guaranteed
+                // to clear hashed entries or unusual forms ssh-keygen -R can miss.
+                if let f = offendingFile, let ln = offendingLine,
+                   removeLine(ln, from: f) {
+                    removedAny = true
+                }
+                cont.resume(returning: removedAny)
             }
+        }
+    }
+
+    /// The user's default `~/.ssh/known_hosts` path.
+    nonisolated static var defaultKnownHostsPath: String {
+        (NSHomeDirectory() as NSString).appendingPathComponent(".ssh/known_hosts")
+    }
+
+    /// Run `ssh-keygen -R <host>` (optionally `-f <file>`). Returns true only when
+    /// ssh-keygen reports it actually updated a file (it prints "Host ... found"
+    /// and writes when a match exists; exit status is 0 even on no-match).
+    nonisolated private static func runKeygenRemove(host: String, file: String?) -> Bool {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
+        var a = ["-R", host]
+        if let file { a += ["-f", file] }
+        proc.arguments = a
+        let out = Pipe(); let err = Pipe()
+        proc.standardOutput = out
+        proc.standardError = err
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                + String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            // ssh-keygen writes an ".old" backup and prints "found:" when it
+            // removed something; "not found" means nothing matched.
+            return proc.terminationStatus == 0 && text.localizedCaseInsensitiveContains("found:")
+        } catch {
+            return false
+        }
+    }
+
+    /// Delete the given 1-based line from a `known_hosts` file. Returns true when
+    /// the line existed and was removed.
+    nonisolated private static func removeLine(_ line: Int, from path: String) -> Bool {
+        let expanded = (path as NSString).expandingTildeInPath
+        guard line > 0,
+              let contents = try? String(contentsOfFile: expanded, encoding: .utf8)
+        else { return false }
+        // Preserve a trailing newline distinction by splitting on "\n".
+        var lines = contents.components(separatedBy: "\n")
+        // A trailing newline yields a final empty element; ignore it for indexing.
+        let hadTrailingNewline = contents.hasSuffix("\n")
+        if hadTrailingNewline, lines.last == "" { lines.removeLast() }
+        guard line <= lines.count else { return false }
+        lines.remove(at: line - 1)
+        var rebuilt = lines.joined(separator: "\n")
+        if hadTrailingNewline, !rebuilt.isEmpty { rebuilt += "\n" }
+        do {
+            try rebuilt.write(toFile: expanded, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
         }
     }
 
