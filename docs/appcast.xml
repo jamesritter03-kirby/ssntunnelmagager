@@ -3,6 +3,22 @@
     <channel>
         <title>Remote Stuff</title>
         <item>
+            <title>1.9.87</title>
+            <pubDate>Mon, 03 Aug 2026 19:31:35 -0500</pubDate>
+            <sparkle:version>97</sparkle:version>
+            <sparkle:shortVersionString>1.9.87</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH-Tunnel-Manager-1.9.87-97.zip" length="8514062" type="application/octet-stream" sparkle:edSignature="wTK1WfzOVh5nkPdVoTL68wqmkPVjfEupFLNQdXbvRCaC3AT8tBeAEG9oh5ppQbznpjAZTepllQZTT27ONhjnBg=="/>
+            <sparkle:deltas>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff97-96.delta" sparkle:deltaFrom="96" length="180206" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="X4WMiAvl149vrwdiXxQBf2XE7mfUkeD1g+XwaSIDQ143wYHQ4hybuN/WlUZ8loxQVSmwx80GwY9X6FUlDTJ4Dw=="/>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff97-95.delta" sparkle:deltaFrom="95" length="425866" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="T6Iz3W298jQ7viAMcKYSvd0x7nVu5iiULd7poMNhmNAmDJFlUNI4MX+bjUkrNj92x8hQYDNMGNmE3MoHkAPiAg=="/>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff97-94.delta" sparkle:deltaFrom="94" length="504890" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="LJKZxK7/7OCuXQSCKHujfGs/wCx34QKmHoTsG5pmCIB7dGXvN4QJVWP1RPBWeBeZ9AlyCLyDGFMv/E/nyfwtBQ=="/>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff97-93.delta" sparkle:deltaFrom="93" length="629462" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="UEnJVu7GY7cO/HQeAXch7V9X2KzQ+2rGbGCeKP8CjUO30MvTRoxWZEixn06sw/SlRQv9KDlLrJ2CQmxF5LA5Bw=="/>
+                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff97-92.delta" sparkle:deltaFrom="92" length="718106" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="xmD/4ZbQCvoelkGVfxDc/pJ9iJz2NHOubk6WrI6UFNGTo3IsmRL9z17Ihz4HrGm3eosRjJwfGTcETzD3pDW8Bw=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>1.9.86</title>
             <pubDate>Mon, 03 Aug 2026 19:19:18 -0500</pubDate>
             <sparkle:version>96</sparkle:version>
@@ -32,22 +48,6 @@
                 <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff95-92.delta" sparkle:deltaFrom="92" length="704270" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="KdWRftTS5IJcr8wyhXDq8GNOKC2SgzlF5HOtMLPzq1zcaDgUA95rEYuHsCBOmoBc5XgUs4dnptqlgVmqPQcqBQ=="/>
                 <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff95-91.delta" sparkle:deltaFrom="91" length="726406" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="gCO9UKrjOoIaCqAmAbyDIADVVOLNiIN6y5D/iu8s/i+MZdYddEesg7+yw1m7k11JMFErlXI7GZfI9enCdZ5uBQ=="/>
                 <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff95-90.delta" sparkle:deltaFrom="90" length="759310" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="lYnv6twC16E7XreF6PRLkpj1gT33pA3u9W6brgnL+owFmBP7/cBqb2jOqWY1V70Com07FotGwBdZdB7SmU99Aw=="/>
-            </sparkle:deltas>
-        </item>
-        <item>
-            <title>1.9.84</title>
-            <pubDate>Sat, 01 Aug 2026 20:48:05 -0500</pubDate>
-            <sparkle:version>94</sparkle:version>
-            <sparkle:shortVersionString>1.9.84</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/SSH-Tunnel-Manager-1.9.84-94.zip" length="8507505" type="application/octet-stream" sparkle:edSignature="eTEyWPykyIk+rjrKHZIOUZwxS7UlVh5LWeo3LX9n0yxzxYRL47TsptKPqtn12LDpJ/ue1TcMwyfENzwx5TsYBQ=="/>
-            <sparkle:deltas>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff94-93.delta" sparkle:deltaFrom="93" length="572178" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="AFt3xjFBwZYEYIMhj9WUrtUzACfCuRUdhPRUrlmJpdQADRNgwbKl6rL1FtixXv7ovcxT3UkuTdj1hhIUcCZsAw=="/>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff94-92.delta" sparkle:deltaFrom="92" length="685930" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="Ko5VTrVa2CwlYlIiCgsRoJzwp94rTUxtsMDnk7MOwVf2fkpTIgr5cA4BODXTvvLeDK8MtBpcZHY9feXPTB8dAw=="/>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff94-91.delta" sparkle:deltaFrom="91" length="704666" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="t6Xzmuc5kR90olu8fx2CEHMguxW6gbmAVrmQlSxxvd7xc7PuqsCElaM9tETOy9M/0UzO50AxHkawVSssd5HjAA=="/>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff94-90.delta" sparkle:deltaFrom="90" length="757482" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="C8wtktohFTjHtw+3ikDrAWnxkhuihScJ6s5ehF10ZJf84G7/Z8kL24QKLoitxeEYAJ1K6LB2TruZc6DlBEk2AA=="/>
-                <enclosure url="https://github.com/jamesritter03-kirby/ssntunnelmagager/releases/download/updates/Remote%20Stuff94-89.delta" sparkle:deltaFrom="89" length="791426" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="Qq+1KmFG2e6lzs7W47owfsp2ZabtRPWoTAcQEBTHCEueK/YY4rxCQDmVJSzEGou9/A5sjM30vz28CizWdEMEAQ=="/>
             </sparkle:deltas>
         </item>
     </channel>

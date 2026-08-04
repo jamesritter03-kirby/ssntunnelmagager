@@ -885,7 +885,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         if secretPromptActive && !wasActive {
             maybeAutofillPassword()
         }
-        detectHostKeyChange(in: cleaned)
         maybeFireRunOnConnect()
     }
 
@@ -893,8 +892,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// offending host so the UI can offer to remove the stale known_hosts entry.
     private func detectHostKeyChange(in text: String) {
         guard hostKeyChangedHost == nil else { return }
-        guard text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
-                || text.contains("Host key verification failed") else { return }
+        // Only ssh's actual changed-key banner should raise this. The generic
+        // "Host key verification failed" line also appears for *unknown* hosts and
+        // for nested ssh/git/rsync commands run inside an already-connected shell,
+        // which would otherwise pop this dialog in a perfectly healthy tab.
+        guard text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") else { return }
         // Prefer the explicit "Host key for <host> has changed" line.
         var host: String?
         if let range = text.range(of: #"Host key for (?:'|\")?([^'\"\s]+)(?:'|\")? has changed"#,
@@ -1595,6 +1597,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             self.isRunning = false
             self.exitCode = exitCode
             self.tunnelHealth = .unknown
+            // Only look for a changed host key once ssh has actually quit — the
+            // real changed-key case exits immediately (255). Scanning live output
+            // would false-fire on nested ssh/git commands in a connected shell.
+            self.detectHostKeyChange(in:
+                TerminalSession.strippingTerminalControls(self.recentOutputTail))
         }
     }
 }
