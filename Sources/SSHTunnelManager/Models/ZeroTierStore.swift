@@ -227,8 +227,10 @@ enum ZeroTierError: LocalizedError {
 /// A thin async wrapper over the ZeroTier REST API. Works with **ZeroTier
 /// Central** (api.zerotier.com) and **self-hosted controllers** such as ZTNET:
 /// the base URL is per-account, and the token is sent in both the Central
-/// (`Authorization: token …`) and ZTNET (`x-ztnet-auth`) headers so either
-/// server accepts it (each ignores the header it doesn't use).
+/// (`Authorization`) and ZTNET (`x-ztnet-auth`) headers so either server accepts
+/// it (each ignores the header it doesn't use). For Central the Authorization
+/// scheme is negotiated per request — see `send` — because newer tokens require
+/// `bearer` while older ones use `token`.
 struct ZeroTierAPI {
     let token: String
     /// Base URL already including the `/api/v1` path.
@@ -288,24 +290,52 @@ struct ZeroTierAPI {
                        body: ["name": name, "description": description])
     }
 
-    private func get<T: Decodable>(_ path: String) async throws -> T {
+    /// ZeroTier Central's Authorization schemes: newer API tokens require
+    /// `bearer …` (what ZeroTier's own client sends), while older tokens — and
+    /// the published API spec — use `token …`. Try `bearer` first, then fall back
+    /// to `token` on an auth rejection, so both old and new keys work. ZTNET
+    /// ignores Authorization entirely and reads the `x-ztnet-auth` header instead.
+    private static let authSchemes = ["bearer", "token"]
+
+    /// Perform a request, retrying with the alternate Central auth scheme if the
+    /// first is rejected with 401/403. Non-auth errors fail immediately. Returns
+    /// the raw response body on success.
+    private func send(method: String, path: String, body: [String: Any]? = nil) async throws -> Data {
         guard !token.isEmpty else { throw ZeroTierError.notConfigured }
         guard let url = URL(string: baseURL + path) else { throw ZeroTierError.transport("bad URL") }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 20
-        req.setValue("token \(token)", forHTTPHeaderField: "Authorization")  // ZeroTier Central
-        req.setValue(token, forHTTPHeaderField: "x-ztnet-auth")              // self-hosted (ZTNET)
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        let data: Data, response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: req)
-        } catch {
-            throw ZeroTierError.transport(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse else { throw ZeroTierError.decoding }
-        guard (200..<300).contains(http.statusCode) else {
+
+        var lastAuthError: ZeroTierError?
+        for scheme in Self.authSchemes {
+            var req = URLRequest(url: url)
+            req.httpMethod = method
+            req.timeoutInterval = 20
+            req.setValue("\(scheme) \(token)", forHTTPHeaderField: "Authorization")  // ZeroTier Central
+            req.setValue(token, forHTTPHeaderField: "x-ztnet-auth")                  // self-hosted (ZTNET)
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let body {
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            }
+            let data: Data, response: URLResponse
+            do {
+                (data, response) = try await URLSession.shared.data(for: req)
+            } catch {
+                throw ZeroTierError.transport(error.localizedDescription)
+            }
+            guard let http = response as? HTTPURLResponse else { throw ZeroTierError.decoding }
+            if (200..<300).contains(http.statusCode) { return data }
+            // Only an auth rejection is worth retrying with the other scheme.
+            if http.statusCode == 401 || http.statusCode == 403 {
+                lastAuthError = ZeroTierError.http(http.statusCode, Self.errorDetail(from: data))
+                continue
+            }
             throw ZeroTierError.http(http.statusCode, Self.errorDetail(from: data))
         }
+        throw lastAuthError ?? ZeroTierError.decoding
+    }
+
+    private func get<T: Decodable>(_ path: String) async throws -> T {
+        let data = try await send(method: "GET", path: path)
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
@@ -317,26 +347,7 @@ struct ZeroTierAPI {
     /// ignored. Used for member updates (authorize / deauthorize), which both
     /// ZeroTier Central and ZTNET expose as a `POST` to the member endpoint.
     private func post(_ path: String, body: [String: Any]) async throws {
-        guard !token.isEmpty else { throw ZeroTierError.notConfigured }
-        guard let url = URL(string: baseURL + path) else { throw ZeroTierError.transport("bad URL") }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.timeoutInterval = 20
-        req.setValue("token \(token)", forHTTPHeaderField: "Authorization")  // ZeroTier Central
-        req.setValue(token, forHTTPHeaderField: "x-ztnet-auth")              // self-hosted (ZTNET)
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        let data: Data, response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: req)
-        } catch {
-            throw ZeroTierError.transport(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse else { throw ZeroTierError.decoding }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ZeroTierError.http(http.statusCode, Self.errorDetail(from: data))
-        }
+        _ = try await send(method: "POST", path: path, body: body)
     }
 
     /// Pull a short, human-readable message out of an error response body.

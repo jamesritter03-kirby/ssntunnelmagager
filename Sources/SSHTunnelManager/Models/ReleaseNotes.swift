@@ -45,6 +45,13 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.90", build: 100, date: "Aug 5, 2026",
+            highlights: [
+                "Fixed: adding a ZeroTier account with a newer API key now loads your networks. The app authenticates with the current ZeroTier scheme (and still accepts older keys), so accounts that showed no networks despite a correct URL and key now work.",
+            ],
+            isDownloadable: true
+        ),
+        Release(
             shortVersion: "1.9.89", build: 99, date: "Aug 5, 2026",
             highlights: [
                 "Fixed: authorizing or deauthorizing a device from the ZeroTier browser on ZeroTier Central no longer fails — the request now sends only the value ZeroTier expects, so the toggle takes effect instead of being rejected.",
