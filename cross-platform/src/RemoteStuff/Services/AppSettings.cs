@@ -54,6 +54,24 @@ public sealed class AppSettings
     /// <summary>ZeroTier panel: show only networks this device has joined (vs. all). Remembered.</summary>
     public bool ZeroTierShowMemberOfOnly { get; set; }
 
+    /// <summary>Remembered width of the ZeroTier side panel (px). Wider by default so
+    /// its toolbar buttons don't wrap.</summary>
+    public double ZeroTierPanelWidth { get; set; } = 400;
+
+    // --- Network tab: Router &amp; DNS (remembered across launches) ---
+    public string RouterDnsAdapter { get; set; } = "";
+    public string RouterDns { get; set; } = "";
+    public string RouterGateway { get; set; } = "";
+    public string RouterUpstreamAdapter { get; set; } = "";
+    public string RouterDownstreamAdapter { get; set; } = "";
+    public string RouterIp { get; set; } = "10.1.1.1";
+    public string RouterSubnet { get; set; } = "255.255.255.0";
+    public string RouterDhcpStart { get; set; } = "10.1.1.100";
+    public string RouterDhcpEnd { get; set; } = "10.1.1.254";
+
+    /// <summary>Automatically start internet sharing (the router) when the app launches.</summary>
+    public bool RouterAutoStart { get; set; }
+
     public AppSettings()
     {
         var baseDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -92,6 +110,18 @@ public sealed class AppSettings
                         ZeroTierConnectUsername = loaded.ZeroTierConnectUsername;
                     ZeroTierShowOnlineOnly = loaded.ZeroTierShowOnlineOnly;
                     ZeroTierShowMemberOfOnly = loaded.ZeroTierShowMemberOfOnly;
+                    if (loaded.ZeroTierPanelWidth > 0)
+                        ZeroTierPanelWidth = loaded.ZeroTierPanelWidth;
+                    RouterDnsAdapter = loaded.RouterDnsAdapter;
+                    RouterDns = loaded.RouterDns;
+                    RouterGateway = loaded.RouterGateway;
+                    RouterUpstreamAdapter = loaded.RouterUpstreamAdapter;
+                    RouterDownstreamAdapter = loaded.RouterDownstreamAdapter;
+                    if (!string.IsNullOrWhiteSpace(loaded.RouterIp)) RouterIp = loaded.RouterIp;
+                    if (!string.IsNullOrWhiteSpace(loaded.RouterSubnet)) RouterSubnet = loaded.RouterSubnet;
+                    if (!string.IsNullOrWhiteSpace(loaded.RouterDhcpStart)) RouterDhcpStart = loaded.RouterDhcpStart;
+                    if (!string.IsNullOrWhiteSpace(loaded.RouterDhcpEnd)) RouterDhcpEnd = loaded.RouterDhcpEnd;
+                    RouterAutoStart = loaded.RouterAutoStart;
                 }
             }
         }
@@ -118,6 +148,17 @@ public sealed class AppSettings
         public string ZeroTierConnectUsername { get; set; } = "";
         public bool ZeroTierShowOnlineOnly { get; set; }
         public bool ZeroTierShowMemberOfOnly { get; set; }
+        public double ZeroTierPanelWidth { get; set; } = 400;
+        public string RouterDnsAdapter { get; set; } = "";
+        public string RouterDns { get; set; } = "";
+        public string RouterGateway { get; set; } = "";
+        public string RouterUpstreamAdapter { get; set; } = "";
+        public string RouterDownstreamAdapter { get; set; } = "";
+        public string RouterIp { get; set; } = "10.1.1.1";
+        public string RouterSubnet { get; set; } = "255.255.255.0";
+        public string RouterDhcpStart { get; set; } = "10.1.1.100";
+        public string RouterDhcpEnd { get; set; } = "10.1.1.254";
+        public bool RouterAutoStart { get; set; }
     }
 
     public void Save()

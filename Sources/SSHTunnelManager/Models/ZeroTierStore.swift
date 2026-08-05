@@ -236,6 +236,11 @@ struct ZeroTierAPI {
     /// Base URL already including the `/api/v1` path.
     let baseURL: String
 
+    /// Whether this API talks to ZeroTier Central (vs. a self-hosted ZTNET
+    /// controller). Central and ZTNET disagree on the authorize request body, so
+    /// this drives `authorizeBody`.
+    var isCentral: Bool { baseURL == ZeroTierAccount.centralBaseURL }
+
     func networks() async throws -> [ZeroTierNetwork] {
         try await get("/network")
     }
@@ -259,21 +264,26 @@ struct ZeroTierAPI {
 
     // MARK: Member authorization (write)
 
+    /// Build the authorize request body for the current controller. ZeroTier
+    /// Central validates strictly and wants the flag nested under `config`,
+    /// rejecting a top-level `authorized` with HTTP 400. ZTNET validates just as
+    /// strictly the other way: its `.strict()` schema wants a top-level
+    /// `authorized` and rejects an unknown `config` key with HTTP 400. So the body
+    /// must match the controller exactly — sending both keys breaks ZTNET.
+    private func authorizeBody(_ authorized: Bool) -> [String: Any] {
+        isCentral ? ["config": ["authorized": authorized]] : ["authorized": authorized]
+    }
+
     /// Authorize or deauthorize a member on a Central / personal network.
-    /// ZeroTier Central validates the body strictly: the authorization flag
-    /// lives under `config`, and sending a stray top-level `authorized` key is
-    /// rejected with HTTP 400, so only `config` is sent here.
     func setMemberAuthorized(networkId: String, nodeId: String, authorized: Bool) async throws {
         try await post("/network/\(networkId)/member/\(nodeId)",
-                       body: ["config": ["authorized": authorized]])
+                       body: authorizeBody(authorized))
     }
 
     /// Authorize or deauthorize a member on a self-hosted (ZTNET) org network.
-    /// ZTNET accepts the flag at the top level; `config` is included too so both
-    /// controller versions are covered.
     func setMemberAuthorized(orgId: String, networkId: String, nodeId: String, authorized: Bool) async throws {
         try await post("/org/\(orgId)/network/\(networkId)/member/\(nodeId)",
-                       body: ["authorized": authorized, "config": ["authorized": authorized]])
+                       body: authorizeBody(authorized))
     }
 
     /// Update a member's display name and description on a Central / personal

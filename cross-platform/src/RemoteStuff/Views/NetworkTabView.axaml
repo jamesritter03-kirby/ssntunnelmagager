@@ -91,11 +91,15 @@
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:NetworkTabViewModel+InterfaceRow">
                         <StackPanel Spacing="1" Margin="2">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="{Binding StatusGlyph}" />
-                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                <TextBlock Text="{Binding TypeLabel}" Foreground="{DynamicResource AppMutedTextBrush}" />
-                            </StackPanel>
+                            <Button Classes="copy" ToolTip.Tip="Click to scan this network"
+                                    Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).UseInterfaceForScanCommand}"
+                                    CommandParameter="{Binding}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding StatusGlyph}" />
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding TypeLabel}" Foreground="{DynamicResource AppMutedTextBrush}" />
+                                </StackPanel>
+                            </Button>
                             <Button Classes="copy" Margin="18,0,0,0"
                                     Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).CopyTextCommand}"
                                     CommandParameter="{Binding Ipv4}"
@@ -247,6 +251,8 @@
                   </StackPanel>
                   <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}"
                              Text="DHCP range is informational — use the DNS &amp; gateway fields above to set the upstream adapter's DNS, or assign client IPs manually within this range." />
+                  <CheckBox Content="Start this router automatically when the app launches"
+                            IsChecked="{Binding AutoStartRouter, Mode=TwoWay}" />
                   <Button Content="{Binding ShareButtonText}" Classes="accent"
                           Command="{Binding ToggleSharingCommand}" IsEnabled="{Binding !IsAdminBusy}" />
 

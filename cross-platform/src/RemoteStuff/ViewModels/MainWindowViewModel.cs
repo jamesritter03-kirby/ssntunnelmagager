@@ -43,6 +43,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+    /// <summary>Create an empty saved workspace template with the given name so a
+    /// profile that references a missing template (e.g. after import) resolves. The
+    /// user can arrange tabs and re-save it later. Returns false if the name is blank
+    /// or one already exists. Used by the profile editor's "create it" action.</summary>
+    private bool CreateEmptyWorkspaceTemplate(string name)
+    {
+        name = name?.Trim() ?? "";
+        if (name.Length == 0) return false;
+        if (_store.WorkspaceTemplates.Any(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            return false;
+        _store.SaveWorkspaceTemplate(new WorkspaceTemplate { Name = name });
+        RefreshSavedWorkspaces();
+        return true;
+    }
+
     /// <summary>Repopulate <see cref="SavedWorkspaces"/> from the store (after a
     /// save / delete) so the Workspace menu stays current.</summary>
     private void RefreshSavedWorkspaces()
@@ -165,7 +180,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case ZtDeviceAction.NewProfile:
             {
                 var profile = new SshProfile { Name = name, Host = host, Username = user };
-                var editor = new ProfileEditorViewModel(profile, isNew: true, Save, hasSavedPassword: false, SavedWorkspaceNames());
+                var editor = new ProfileEditorViewModel(profile, isNew: true, Save, hasSavedPassword: false, SavedWorkspaceNames(), CreateEmptyWorkspaceTemplate);
                 EditProfileRequested?.Invoke(editor);
                 break;
             }
@@ -866,7 +881,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void NewProfile()
     {
-        var editor = new ProfileEditorViewModel(new SshProfile(), isNew: true, Save, hasSavedPassword: false, SavedWorkspaceNames());
+        var editor = new ProfileEditorViewModel(new SshProfile(), isNew: true, Save, hasSavedPassword: false, SavedWorkspaceNames(), CreateEmptyWorkspaceTemplate);
         EditProfileRequested?.Invoke(editor);
     }
 
@@ -890,7 +905,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void EditProfile()
     {
         if (SelectedProfile is not { } p) return;
-        var editor = new ProfileEditorViewModel(p.Clone(), isNew: false, Save, _secrets.Has(p.Id), SavedWorkspaceNames());
+        var editor = new ProfileEditorViewModel(p.Clone(), isNew: false, Save, _secrets.Has(p.Id), SavedWorkspaceNames(), CreateEmptyWorkspaceTemplate);
         EditProfileRequested?.Invoke(editor);
     }
 
@@ -1120,7 +1135,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 // A ControlMaster socket lets us add/remove forwards live (ssh -O forward).
                 // Windows OpenSSH doesn't support connection multiplexing, so skip it there.
                 controlPath = OperatingSystem.IsWindows() ? null : ControlSocketPath(profile.Id);
-                exe = File.Exists("/usr/bin/ssh") ? "/usr/bin/ssh" : "ssh";
+                // Resolve the full ssh path (incl. the Windows System32\OpenSSH location)
+                // so a broken PATH doesn't stop the terminal from finding the client.
+                exe = SshCommandBuilder.FindSshExecutable() ?? "ssh";
                 // Suppress password fallback when a key is configured but no password is stored.
                 var suppressPw = !string.IsNullOrEmpty(profile.IdentityFile) && string.IsNullOrEmpty(storedPassword);
                 args = SshCommandBuilder.Arguments(profile, controlPath, suppressPasswordAuth: suppressPw).ToArray();
@@ -2355,6 +2372,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Avalonia.Threading.DispatcherTimer.RunOnce(
                 () => _ = RunUpdateCheck(interactive: false), TimeSpan.FromSeconds(3));
 
+        // Auto-start the internet-sharing router if the user enabled it.
+        if (Settings.RouterAutoStart)
+            Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+            {
+                NewNetwork();
+                var net = Tabs.OfType<NetworkTabViewModel>().FirstOrDefault();
+                if (net is not null) _ = net.AutoStartRouterIfEnabledAsync();
+            }, TimeSpan.FromSeconds(2));
+
         // Stagger auto-connect profiles so we don't spawn every ssh at once.
         var autos = _store.Profiles.Where(p => p.AutoConnectOnLaunch).ToList();
         var delay = 0;
@@ -2669,7 +2695,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         var existing = Tabs.OfType<NetworkTabViewModel>().FirstOrDefault();
         if (existing is not null) { SelectedTab = existing; return; }
-        var net = new NetworkTabViewModel();
+        var net = new NetworkTabViewModel(Settings);
         net.CloseRequested += CloseTab;
         Tabs.Add(net);
         SelectedTab = net;

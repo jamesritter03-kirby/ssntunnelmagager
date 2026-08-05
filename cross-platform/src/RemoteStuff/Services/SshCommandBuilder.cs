@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using RemoteStuff.Models;
 
@@ -23,6 +24,56 @@ public static class SshCommandBuilder
             return home + path[1..];
         }
         return path;
+    }
+
+    /// <summary>
+    /// Locate the OpenSSH <c>ssh</c> client executable, returning its full path or
+    /// <c>null</c> if none is found. The interactive terminal shells out to this
+    /// binary (unlike SFTP, which uses the bundled SSH.NET library), so a machine
+    /// missing the Windows "OpenSSH Client" optional feature can SFTP but not open
+    /// an SSH terminal. Checking the canonical System32 location — not just PATH —
+    /// covers installs that didn't refresh the app's PATH.
+    /// </summary>
+    public static string? FindSshExecutable()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var candidates = new List<string>();
+            var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
+            if (!string.IsNullOrEmpty(system))
+                candidates.Add(Path.Combine(system, "OpenSSH", "ssh.exe"));
+            var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            if (!string.IsNullOrEmpty(pf))
+            {
+                candidates.Add(Path.Combine(pf, "OpenSSH", "ssh.exe"));
+                candidates.Add(Path.Combine(pf, "Git", "usr", "bin", "ssh.exe"));
+            }
+            foreach (var c in candidates)
+                if (File.Exists(c)) return c;
+            return SearchPath("ssh.exe");
+        }
+
+        foreach (var c in new[] { "/usr/bin/ssh", "/usr/local/bin/ssh", "/opt/homebrew/bin/ssh" })
+            if (File.Exists(c)) return c;
+        return SearchPath("ssh");
+    }
+
+    /// <summary>Find an executable by scanning the <c>PATH</c> environment variable.</summary>
+    private static string? SearchPath(string exeName)
+    {
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrEmpty(path)) return null;
+        foreach (var dir in path.Split(Path.PathSeparator))
+        {
+            if (string.IsNullOrWhiteSpace(dir)) continue;
+            try
+            {
+                var full = Path.Combine(dir.Trim(), exeName);
+                if (File.Exists(full)) return full;
+            }
+            catch { /* skip malformed PATH entries */ }
+        }
+        return null;
     }
 
     /// <summary>Build the argument list passed to <c>ssh</c> for a profile.</summary>

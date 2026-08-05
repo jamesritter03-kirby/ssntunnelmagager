@@ -194,6 +194,75 @@ public sealed class ZeroTierService
         Updated?.Invoke();
     }
 
+    /// <summary>
+    /// Probe an account's base URL + token with a single request. Returns null when
+    /// the controller is reachable and the token is accepted; otherwise a
+    /// human-readable reason (bad host, timeout, unauthorized, wrong path) so a
+    /// typo'd URL surfaces a clear error instead of silently showing no networks.
+    /// </summary>
+    public async Task<string?> TestConnectionAsync(string baseUrl, string token)
+    {
+        baseUrl = string.IsNullOrWhiteSpace(baseUrl) ? ZeroTierAccount.CentralBaseUrl : baseUrl.Trim();
+        if (string.IsNullOrWhiteSpace(token)) return "No API token was provided.";
+        try
+        {
+            using var resp = await SendAsync(baseUrl, token, HttpMethod.Get, "/network", null);
+            if (resp.IsSuccessStatusCode) return null;
+            if ((int)resp.StatusCode is 401 or 403)
+            {
+                // An org-scoped token may be denied on /network but allowed on /org.
+                using var orgResp = await SendAsync(baseUrl, token, HttpMethod.Get, "/org", null);
+                if (orgResp.IsSuccessStatusCode) return null;
+                return "The server rejected the API token (unauthorized). Check the token.";
+            }
+            if ((int)resp.StatusCode == 404)
+                return "The server didn't recognize the ZeroTier API." + SuggestApiPath(baseUrl);
+            return $"The server returned {(int)resp.StatusCode} {resp.ReasonPhrase}. Check the base URL and token." + SuggestApiPath(baseUrl);
+        }
+        catch (TaskCanceledException)
+        {
+            return "The server didn't respond in time. Check the base URL and that the controller is running.";
+        }
+        catch (HttpRequestException ex)
+        {
+            return "Couldn't reach the server — " + FriendlyNetworkError(ex) + " Check the base URL for typos." + SuggestApiPath(baseUrl);
+        }
+        catch (UriFormatException)
+        {
+            return "The base URL isn't valid. It should look like https://host/api/v1.";
+        }
+    }
+
+    /// <summary>Suggest the conventional <c>/api/v1</c> suffix when a non-Central base
+    /// URL is missing it — a common cause of "wrong API path" failures.</summary>
+    private static string SuggestApiPath(string baseUrl)
+    {
+        var trimmed = baseUrl.TrimEnd('/');
+        if (trimmed.EndsWith("/api/v1", StringComparison.OrdinalIgnoreCase)) return string.Empty;
+        return $" The URL usually ends in /api/v1 — try {trimmed}/api/v1.";
+    }
+
+    /// <summary>Unwrap a network exception to a short, plain reason (DNS/refused/timeout).</summary>
+    private static string FriendlyNetworkError(Exception ex)
+    {
+        var inner = ex;
+        while (inner.InnerException is not null) inner = inner.InnerException;
+        if (inner is System.Net.Sockets.SocketException se)
+        {
+            return se.SocketErrorCode switch
+            {
+                System.Net.Sockets.SocketError.HostNotFound => "the host name couldn't be found (DNS lookup failed).",
+                System.Net.Sockets.SocketError.TryAgain => "the host name couldn't be resolved (DNS lookup failed).",
+                System.Net.Sockets.SocketError.ConnectionRefused => "the connection was refused.",
+                System.Net.Sockets.SocketError.TimedOut => "the connection timed out.",
+                System.Net.Sockets.SocketError.NetworkUnreachable => "the network is unreachable.",
+                System.Net.Sockets.SocketError.HostUnreachable => "the host is unreachable.",
+                _ => inner.Message
+            };
+        }
+        return inner.Message;
+    }
+
     // ---- Local node (this device's own joined networks, via loopback service) ----
 
     // networkId (lowercased) -> live join status on this device (e.g. "OK").
@@ -301,7 +370,12 @@ public sealed class ZeroTierService
 
     // ---- Member authorization (write) ----
 
-    public async Task SetAuthorizedAsync(ZeroTierMember member, bool authorized)
+    /// <summary>Authorize or deauthorize a member, then re-read it from the controller
+    /// to confirm the change actually took effect. Returns the controller's resulting
+    /// authorized state — which may differ from <paramref name="authorized"/> if the API
+    /// token can read members but lacks authorize permission (a common cause of a
+    /// silently-ignored request).</summary>
+    public async Task<bool> SetAuthorizedAsync(ZeroTierMember member, bool authorized)
     {
         var account = _accounts.FirstOrDefault(a => a.Id == member.AccountId);
         if (account is null)
@@ -313,19 +387,28 @@ public sealed class ZeroTierService
         string path;
         object body;
         if (member.OrgId is null)
-        {
             path = $"/network/{member.NetworkId}/member/{member.NodeId}";
-            body = new { config = new { authorized } };
-        }
         else
-        {
             path = $"/org/{member.OrgId}/network/{member.NetworkId}/member/{member.NodeId}";
-            body = new { authorized, config = new { authorized } };
-        }
+
+        // The two controllers validate the body differently, so the authorize flag
+        // must be placed where each one expects it — using the wrong shape is silently
+        // rejected (ZeroTier Central 400s a stray top-level key; ZTNET's strict schema
+        // 400s an unknown `config` key), which is the usual cause of "authorize does
+        // nothing". Central keeps it under `config`; ZTNET wants it at the top level.
+        if (account.IsCentral)
+            body = new { config = new { authorized } };
+        else
+            body = new { authorized };
 
         await PostAsync(account.BaseUrl, token, path, body);
-        member.Authorized = authorized;
+        // Confirm against the controller rather than assuming success: a read-only
+        // token / insufficient network permission can return 200 yet leave the member
+        // unchanged, so the UI must reflect what the controller actually stored.
+        var confirmed = await GetMemberAuthorizedAsync(account.BaseUrl, token, path) ?? authorized;
+        member.Authorized = confirmed;
         Updated?.Invoke();
+        return confirmed;
     }
 
     public async Task SetDescriptionAsync(ZeroTierMember member, string description)
@@ -348,11 +431,49 @@ public sealed class ZeroTierService
 
     // ---- HTTP ----
 
+    // ZeroTier Central's Authorization schemes: newer API tokens require `bearer`
+    // (what ZeroTier's own client sends), while older tokens — and the published API
+    // spec — use `token`. Try `bearer` first, then fall back to `token` on an auth
+    // rejection, so both old and new keys work. ZTNET ignores Authorization and reads
+    // the `x-ztnet-auth` header instead. Sending the wrong Central scheme is why a
+    // freshly-created token can list nothing (401) even though it's valid.
+    private static readonly string[] AuthSchemes = { "bearer", "token" };
+
+    /// <summary>Send a request, retrying with the alternate Central auth scheme on a
+    /// 401/403. Non-auth failures return immediately. The caller owns (and disposes)
+    /// the returned response.</summary>
+    private static async Task<HttpResponseMessage> SendAsync(
+        string baseUrl, string token, HttpMethod method, string path, string? jsonBody)
+    {
+        var url = baseUrl.TrimEnd('/') + path;
+        HttpResponseMessage? authFail = null;
+        foreach (var scheme in AuthSchemes)
+        {
+            var req = new HttpRequestMessage(method, url);
+            req.Headers.TryAddWithoutValidation("Authorization", scheme + " " + token); // Central
+            req.Headers.TryAddWithoutValidation("x-ztnet-auth", token);                 // self-hosted (ZTNET)
+            req.Headers.TryAddWithoutValidation("Accept", "application/json");
+            if (jsonBody != null)
+                req.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+
+            var resp = await Http.SendAsync(req);
+            if (resp.IsSuccessStatusCode) { authFail?.Dispose(); return resp; }
+            // Only an auth rejection is worth retrying with the other scheme.
+            if ((int)resp.StatusCode is 401 or 403)
+            {
+                authFail?.Dispose();
+                authFail = resp;
+                continue;
+            }
+            authFail?.Dispose();
+            return resp;
+        }
+        return authFail!;
+    }
+
     private static async Task<JsonElement?> GetArrayAsync(string baseUrl, string token, string path)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, baseUrl.TrimEnd('/') + path);
-        AddAuth(req, token);
-        using var resp = await Http.SendAsync(req);
+        using var resp = await SendAsync(baseUrl, token, HttpMethod.Get, path, null);
         if (!resp.IsSuccessStatusCode) return null;
         var json = await resp.Content.ReadAsStringAsync();
         try
@@ -365,12 +486,27 @@ public sealed class ZeroTierService
         catch { return null; }
     }
 
+    /// <summary>Read a single member and return its authorized flag, or null if the
+    /// request failed or couldn't be parsed. Used to confirm an authorize/deauthorize
+    /// actually took effect on the controller.</summary>
+    private static async Task<bool?> GetMemberAuthorizedAsync(string baseUrl, string token, string path)
+    {
+        using var resp = await SendAsync(baseUrl, token, HttpMethod.Get, path, null);
+        if (!resp.IsSuccessStatusCode) return null;
+        var json = await resp.Content.ReadAsStringAsync();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            return ZeroTierMember.FromJson(doc.RootElement).Authorized;
+        }
+        catch { return null; }
+    }
+
     private static async Task PostAsync(string baseUrl, string token, string path, object body)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, baseUrl.TrimEnd('/') + path);
-        AddAuth(req, token);
-        req.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-        using var resp = await Http.SendAsync(req);
+        using var resp = await SendAsync(
+            baseUrl, token, HttpMethod.Post, path, JsonSerializer.Serialize(body));
         if (!resp.IsSuccessStatusCode)
         {
             // Surface the controller's own explanation (bad token, wrong endpoint,
@@ -383,12 +519,5 @@ public sealed class ZeroTierService
                 msg += ": " + (detail.Length > 300 ? detail[..300] + "…" : detail);
             throw new HttpRequestException(msg);
         }
-    }
-
-    private static void AddAuth(HttpRequestMessage req, string token)
-    {
-        req.Headers.TryAddWithoutValidation("Authorization", "token " + token); // Central
-        req.Headers.TryAddWithoutValidation("x-ztnet-auth", token);             // self-hosted (ZTNET)
-        req.Headers.TryAddWithoutValidation("Accept", "application/json");
     }
 }

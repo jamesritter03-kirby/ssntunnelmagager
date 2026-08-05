@@ -195,6 +195,27 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
     [ObservableProperty] private string _workspaceName;
     [ObservableProperty] private string _workspaceTemplateName;
 
+    /// <summary>Non-empty when the profile references a saved workspace template that
+    /// doesn't exist on this computer (e.g. after importing profiles from another
+    /// machine). Drives the warning banner offering to create it or pick another launch.</summary>
+    [ObservableProperty] private string _missingTemplateName = "";
+
+    /// <summary>True when the selected launch references a workspace template missing locally.</summary>
+    public bool HasMissingTemplate => !string.IsNullOrEmpty(MissingTemplateName);
+
+    partial void OnMissingTemplateNameChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasMissingTemplate));
+        CreateMissingTemplateCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Names of workspace templates that exist locally (case-insensitive).</summary>
+    private readonly HashSet<string> _existingTemplateNames = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Callback into the store to create an empty workspace template by name.
+    /// Returns true when created. Wired by the main view model.</summary>
+    private Func<string, bool>? _createWorkspaceTemplate;
+
     public bool HasSavedPassword { get; }
 
     /// <summary>True when at least one saved workspace exists to offer as a launch
@@ -266,6 +287,9 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         // profile's own name — several profiles can recreate the same template and
         // still open under distinct, recognisable workspace names.
         WorkspaceTemplateName = value.TemplateName ?? "";
+        // Warn only while a missing template is the active choice; switching to any
+        // other launch (Current / New / an existing template) clears the banner.
+        MissingTemplateName = value.TemplateName is { } t && !_existingTemplateNames.Contains(t) ? t : "";
         OnPropertyChanged(nameof(ShowWorkspaceName));
     }
 
@@ -277,12 +301,13 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
     public IReadOnlyList<StrictHostKeyChecking> HostKeyOptions { get; } = Enum.GetValues<StrictHostKeyChecking>();
 
     public ProfileEditorViewModel(SshProfile profile, bool isNew, Action<SshProfile, bool> onSave, bool hasSavedPassword = false,
-        IReadOnlyList<string>? savedWorkspaceNames = null)
+        IReadOnlyList<string>? savedWorkspaceNames = null, Func<string, bool>? createWorkspaceTemplate = null)
     {
         _original = profile;
         IsNew = isNew;
         _onSave = onSave;
         HasSavedPassword = hasSavedPassword;
+        _createWorkspaceTemplate = createWorkspaceTemplate;
 
         _name = profile.Name;
         _isLocal = profile.IsLocal;
@@ -327,7 +352,10 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         WorkspaceLaunchChoices.Add(new WorkspaceLaunchChoice("Current workspace", WorkspaceLaunch.Current));
         WorkspaceLaunchChoices.Add(new WorkspaceLaunchChoice("New workspace for this profile", WorkspaceLaunch.NewWorkspace));
         foreach (var wsName in savedWorkspaceNames ?? Array.Empty<string>())
+        {
+            _existingTemplateNames.Add(wsName);
             WorkspaceLaunchChoices.Add(new WorkspaceLaunchChoice($"Recreate saved workspace: {wsName}", WorkspaceLaunch.NewWorkspace, wsName));
+        }
         HasSavedWorkspaces = (savedWorkspaceNames?.Count ?? 0) > 0;
         _selectedLaunchChoice = ResolveInitialLaunchChoice(profile);
 
@@ -361,8 +389,37 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
             var match = WorkspaceLaunchChoices.FirstOrDefault(
                 c => c.TemplateName is { } t && t.Equals(templateName, StringComparison.OrdinalIgnoreCase));
             if (match is not null) return match;
+
+            // The profile points at a workspace template that doesn't exist here (a
+            // common case after importing profiles from another computer). Keep the
+            // reference instead of silently dropping it: add a "(missing)" choice and
+            // flag it so the editor can offer to create it or switch launch modes.
+            var missing = new WorkspaceLaunchChoice(
+                $"Recreate saved workspace: {templateName} (missing)", WorkspaceLaunch.NewWorkspace, templateName);
+            WorkspaceLaunchChoices.Add(missing);
+            MissingTemplateName = templateName;
+            return missing;
         }
         return WorkspaceLaunchChoices.First(c => c.TemplateName is null && c.Launch == profile.WorkspaceLaunch);
+    }
+
+    /// <summary>Create an empty workspace template named after the missing reference so
+    /// the profile resolves. The user can arrange and re-save its tabs later.</summary>
+    [RelayCommand(CanExecute = nameof(HasMissingTemplate))]
+    private void CreateMissingTemplate()
+    {
+        var name = MissingTemplateName?.Trim();
+        if (string.IsNullOrEmpty(name) || _createWorkspaceTemplate is null) return;
+        if (!_createWorkspaceTemplate(name)) return;
+
+        _existingTemplateNames.Add(name);
+        // Replace the "(missing)" entry with a normal one and keep it selected so the
+        // warning clears and the launch still targets the newly-created template.
+        var idx = WorkspaceLaunchChoices.IndexOf(SelectedLaunchChoice!);
+        var resolved = new WorkspaceLaunchChoice($"Recreate saved workspace: {name}", WorkspaceLaunch.NewWorkspace, name);
+        if (idx >= 0) WorkspaceLaunchChoices[idx] = resolved;
+        else WorkspaceLaunchChoices.Add(resolved);
+        SelectedLaunchChoice = resolved;
     }
 
     private void AddForwardRow(ForwardRowViewModel row)

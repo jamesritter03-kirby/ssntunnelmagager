@@ -82,9 +82,18 @@ public sealed partial class ZtMemberRowViewModel : ObservableObject
         AuthBusy = true;
         try
         {
-            await _service.SetAuthorizedAsync(Member, target);
-            Authorized = target;
-            _owner.SetStatus(target ? $"Authorized {Name}." : $"Deauthorized {Name}.");
+            var confirmed = await _service.SetAuthorizedAsync(Member, target);
+            Authorized = confirmed;
+            // SetAuthorizedAsync queued a Rebuild (via Updated) that rewrites StatusText,
+            // so post our result after it or it gets clobbered and looks like nothing happened.
+            var message = confirmed == target
+                ? (target ? $"Authorized {Name}." : $"Deauthorized {Name}.")
+                // The POST succeeded but the controller left the member unchanged —
+                // usually an API token that can read members but lacks permission to
+                // change them.
+                : $"The ZeroTier controller didn't apply the change for {Name}. " +
+                  "Your API token may not have permission to authorize members.";
+            Dispatcher.UIThread.Post(() => _owner.SetStatus(message));
         }
         catch (Exception ex)
         {
@@ -531,12 +540,21 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
             return;
         }
         var label = string.IsNullOrWhiteSpace(NewLabel) ? "ZeroTier" : NewLabel.Trim();
-        _service.AddAccount(label, NewBaseUrl, NewToken.Trim());
+        var baseUrl = NewBaseUrl;
+        var token = NewToken.Trim();
+        _service.AddAccount(label, baseUrl, token);
         NewLabel = "";
         NewToken = "";
         NewBaseUrl = ZeroTierAccount.CentralBaseUrl;
         ReloadAccounts();
         await Refresh();
+
+        // Surface a clear reason (bad host/URL, timeout, unauthorized) instead of a
+        // silent "0 networks" — a typo'd base URL was a real support headache.
+        var problem = await _service.TestConnectionAsync(baseUrl, token);
+        if (problem is not null)
+            // Post after the queued Rebuild (fired by Refresh's Updated event) so it isn't clobbered.
+            Dispatcher.UIThread.Post(() => StatusText = $"“{label}”: {problem}");
     }
 
     [RelayCommand]

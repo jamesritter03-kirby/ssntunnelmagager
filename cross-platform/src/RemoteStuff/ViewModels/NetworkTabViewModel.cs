@@ -87,20 +87,36 @@ public sealed partial class NetworkTabViewModel : TabViewModel
 
     private CancellationTokenSource? _scanCts;
 
-    public NetworkTabViewModel()
+    public NetworkTabViewModel(RemoteStuff.Services.AppSettings? settings = null)
     {
         Title = "Network";
+        _settings = settings;
         _admin = NetworkAdmin.Create();
         AdminSupported = _admin.IsSupported;
         AdminPlatform = _admin.PlatformName;
         AdminHint = _admin.ElevationHint;
+        if (settings is { } s)
+        {
+            _dnsEditText = s.RouterDns;
+            _gatewayEditText = s.RouterGateway;
+            if (!string.IsNullOrWhiteSpace(s.RouterIp)) _routerIp = s.RouterIp;
+            if (!string.IsNullOrWhiteSpace(s.RouterSubnet)) _routerSubnet = s.RouterSubnet;
+            if (!string.IsNullOrWhiteSpace(s.RouterDhcpStart)) _dhcpStart = s.RouterDhcpStart;
+            if (!string.IsNullOrWhiteSpace(s.RouterDhcpEnd)) _dhcpEnd = s.RouterDhcpEnd;
+            _autoStartRouter = s.RouterAutoStart;
+        }
         _ = RefreshAsync();
     }
 
     // ===== Router & DNS (privileged, per-OS via INetworkAdmin) =====
 
     private readonly INetworkAdmin _admin;
+    private readonly RemoteStuff.Services.AppSettings? _settings;
     private Services.DhcpServer? _dhcp;
+
+    // Set while adapter selections are being restored from settings so that
+    // reselecting an adapter doesn't clobber the remembered DNS / gateway text.
+    private bool _suppressAdapterPrefill;
 
     /// <summary>Adapters available for DNS/gateway/sharing configuration.</summary>
     public ObservableCollection<NetAdapter> Adapters { get; } = new();
@@ -127,17 +143,77 @@ public sealed partial class NetworkTabViewModel : TabViewModel
     [ObservableProperty] private string _dhcpStart = "10.1.1.100";
     [ObservableProperty] private string _dhcpEnd = "10.1.1.254";
 
+    /// <summary>Start internet sharing (the router) automatically when the app launches.</summary>
+    [ObservableProperty] private bool _autoStartRouter;
+
     public string ShareButtonText => IsSharing ? "Stop sharing" : "Start sharing";
     partial void OnIsSharingChanged(bool value) => OnPropertyChanged(nameof(ShareButtonText));
+
+    // ---- Persist Router & DNS fields as the user edits them ----
+    partial void OnAutoStartRouterChanged(bool value) => SaveRouterSettings();
+    partial void OnDnsEditTextChanged(string value) => SaveRouterSettings();
+    partial void OnGatewayEditTextChanged(string value) => SaveRouterSettings();
+    partial void OnRouterIpChanged(string value) => SaveRouterSettings();
+    partial void OnRouterSubnetChanged(string value) => SaveRouterSettings();
+    partial void OnDhcpStartChanged(string value) => SaveRouterSettings();
+    partial void OnDhcpEndChanged(string value) => SaveRouterSettings();
+    partial void OnDownstreamAdapterChanged(NetAdapter? value) => SaveRouterSettings();
+
+    private void SaveRouterSettings()
+    {
+        if (_settings is not { } s) return;
+        s.RouterDnsAdapter = DnsAdapter?.Device ?? s.RouterDnsAdapter;
+        s.RouterDns = DnsEditText;
+        s.RouterGateway = GatewayEditText;
+        s.RouterUpstreamAdapter = UpstreamAdapter?.Device ?? s.RouterUpstreamAdapter;
+        s.RouterDownstreamAdapter = DownstreamAdapter?.Device ?? s.RouterDownstreamAdapter;
+        s.RouterIp = RouterIp;
+        s.RouterSubnet = RouterSubnet;
+        s.RouterDhcpStart = DhcpStart;
+        s.RouterDhcpEnd = DhcpEnd;
+        s.RouterAutoStart = AutoStartRouter;
+        s.Save();
+    }
 
     // When the upstream (internet) adapter is chosen, surface its DNS servers so the
     // user sees exactly what clients will receive (they can still override the field).
     partial void OnUpstreamAdapterChanged(NetAdapter? value)
     {
+        SaveRouterSettings();
         if (value is null) return;
         var dns = UpstreamDnsServers(value);
         if (dns.Count > 0 && string.IsNullOrWhiteSpace(DnsEditText))
             DnsEditText = string.Join(", ", dns);
+    }
+
+    // Picking an adapter defaults the DNS and gateway fields to that adapter's
+    // current configuration; the user is free to change them before applying.
+    partial void OnDnsAdapterChanged(NetAdapter? value)
+    {
+        if (value is null || _suppressAdapterPrefill) { SaveRouterSettings(); return; }
+        var dns = UpstreamDnsServers(value);
+        DnsEditText = dns.Count > 0 ? string.Join(", ", dns) : "";
+        GatewayEditText = AdapterGateway(value) ?? "";
+        SaveRouterSettings();
+    }
+
+    /// <summary>The default IPv4 gateway currently configured on an adapter, if any.</summary>
+    private static string? AdapterGateway(NetAdapter adapter)
+    {
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.Name != adapter.Device && ni.Description != adapter.Device) continue;
+                foreach (var g in ni.GetIPProperties().GatewayAddresses)
+                    if (g.Address.AddressFamily == AddressFamily.InterNetwork
+                        && !g.Address.Equals(IPAddress.Any))
+                        return g.Address.ToString();
+                break;
+            }
+        }
+        catch { }
+        return null;
     }
 
     private static int MaskToPrefix(string mask)
@@ -158,15 +234,18 @@ public sealed partial class NetworkTabViewModel : TabViewModel
             var adapters = await _admin.ListAdaptersAsync();
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var prevDns = DnsAdapter?.Device;
-                var prevUp = UpstreamAdapter?.Device;
-                var prevDown = DownstreamAdapter?.Device;
+                var prevDns = DnsAdapter?.Device ?? _settings?.RouterDnsAdapter;
+                var prevUp = UpstreamAdapter?.Device ?? _settings?.RouterUpstreamAdapter;
+                var prevDown = DownstreamAdapter?.Device ?? _settings?.RouterDownstreamAdapter;
                 Adapters.Clear();
                 foreach (var a in adapters) Adapters.Add(a);
+                // Restore remembered selections without overwriting remembered DNS/gateway text.
+                _suppressAdapterPrefill = true;
                 DnsAdapter = Adapters.FirstOrDefault(a => a.Device == prevDns) ?? Adapters.FirstOrDefault();
                 UpstreamAdapter = Adapters.FirstOrDefault(a => a.Device == prevUp) ?? Adapters.FirstOrDefault();
                 DownstreamAdapter = Adapters.FirstOrDefault(a => a.Device == prevDown)
                                     ?? Adapters.FirstOrDefault(a => a.Device != UpstreamAdapter?.Device);
+                _suppressAdapterPrefill = false;
             });
         }
         catch (Exception ex)
@@ -189,6 +268,27 @@ public sealed partial class NetworkTabViewModel : TabViewModel
             await cb.SetTextAsync(text);
             ScanStatus = $"Copied {text}";
         }
+    }
+
+    /// <summary>Fill the LAN scanner's subnet from a clicked interface's IPv4 address.</summary>
+    [RelayCommand]
+    private void UseInterfaceForScan(InterfaceRow? row)
+    {
+        var ipv4 = row?.Ipv4?.Split(',').Select(s => s.Trim()).FirstOrDefault(s => s.Length > 0);
+        if (string.IsNullOrEmpty(ipv4)) return;
+        var prefix = SubnetPrefix(ipv4);
+        if (prefix.Length == 0) return;
+        ScanSubnet = prefix;
+        ScanStatus = $"Subnet set to {prefix}.0/24 from {row!.Name}";
+    }
+
+    /// <summary>Called once at app startup: start the router automatically if enabled.</summary>
+    public async Task AutoStartRouterIfEnabledAsync()
+    {
+        if (!AutoStartRouter || IsSharing) return;
+        if (Adapters.Count == 0) await LoadAdaptersAsync();
+        if (UpstreamAdapter is null || DownstreamAdapter is null) return;
+        await ToggleSharing();
     }
 
     private static IReadOnlyList<string> ParseServers(string text) =>

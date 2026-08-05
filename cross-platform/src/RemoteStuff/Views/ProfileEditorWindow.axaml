@@ -258,6 +258,17 @@
                                            Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" TextWrapping="Wrap" />
                             </StackPanel>
                         </Grid>
+                        <Border IsVisible="{Binding HasMissingTemplate}"
+                                Background="#332E1A" BorderBrush="#F5A623" BorderThickness="1" CornerRadius="6" Padding="10">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="{Binding MissingTemplateName, StringFormat='This profile recreates a saved workspace named “{0}”, but no such workspace exists on this computer. It was likely imported from another machine.'}"
+                                           Foreground="{DynamicResource AppTextBrush}" FontSize="12" TextWrapping="Wrap" />
+                                <TextBlock Text="Create it as an empty workspace (you can add tabs and re-save it later), or pick another option under “Launch into” above."
+                                           Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" TextWrapping="Wrap" />
+                                <Button Content="Create empty workspace" Command="{Binding CreateMissingTemplateCommand}"
+                                        HorizontalAlignment="Left" />
+                            </StackPanel>
+                        </Border>
                         <TextBlock Text="Tip: arrange some tabs, then choose Save Workspace… from the Workspace menu to reuse that layout here as a template."
                                    IsVisible="{Binding !HasSavedWorkspaces}"
                                    Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" TextWrapping="Wrap" />

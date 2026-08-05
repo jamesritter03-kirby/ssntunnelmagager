@@ -55,6 +55,7 @@ public sealed partial class BrowserTabViewModel : TabViewModel
             {
                 _web = new WebView();
                 EnableDeveloperTools(_web);
+                _web.WebViewCreated += OnWebViewCreated;
                 _web.NavigationStarting += OnNavigationStarting;
                 _web.NavigationCompleted += OnNavigationCompleted;
                 _web.Loaded += OnWebLoaded;
@@ -90,8 +91,16 @@ public sealed partial class BrowserTabViewModel : TabViewModel
 
         if (!_didInitialNavigate)
         {
-            _didInitialNavigate = true;
-            NavigateTo(_currentUrl ?? InitialUrl);
+            // The first navigation now happens in OnWebViewCreated, once the native
+            // engine's core is actually ready. Issuing it here (on Avalonia's Loaded)
+            // raced WebView2's asynchronous core init and left a blank white page.
+            // Keep a deferred fallback in case a backend never raises WebViewCreated.
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_didInitialNavigate || _web is null) return;
+                _didInitialNavigate = true;
+                NavigateTo(_currentUrl ?? InitialUrl);
+            }, DispatcherPriority.Background);
         }
         else if (blank && !string.IsNullOrWhiteSpace(_currentUrl) && _currentUrl != "about:blank")
         {
@@ -106,6 +115,28 @@ public sealed partial class BrowserTabViewModel : TabViewModel
         // can fire before this control exists (so its nudge no-ops on a null _web); nudging
         // here guarantees the repaint happens once the view is actually created and attached.
         if (IsCellVisible) NudgeRepaint();
+    }
+
+    /// <summary>The native engine's core is ready. Perform the first navigation here
+    /// rather than on Avalonia's <c>Loaded</c> event: WebView2 initializes its core
+    /// asynchronously, so a URL set on Loaded arrived before the core existed and was
+    /// dropped, leaving a blank white page that only sometimes loaded (and that
+    /// closing and reopening the tab happened to fix).</summary>
+    private void OnWebViewCreated(object? sender, WebViewCore.Events.WebViewCreatedEventArgs e)
+    {
+        if (!e.IsSucceed || _web is null) return;
+        EnsureNativeServerTrust();
+        if (!_didInitialNavigate)
+        {
+            _didInitialNavigate = true;
+            NavigateTo(_currentUrl ?? InitialUrl);
+        }
+        else
+        {
+            // The core was torn down and re-created (e.g. after the tab was hidden);
+            // reload the page the user was on so the tab doesn't come back blank.
+            RestorePageIfBlank();
+        }
     }
 
     /// <summary>When our center cell is shown again, the platform may have torn down the
@@ -531,6 +562,7 @@ public sealed partial class BrowserTabViewModel : TabViewModel
     {
         if (_web is not null)
         {
+            _web.WebViewCreated -= OnWebViewCreated;
             _web.NavigationStarting -= OnNavigationStarting;
             _web.NavigationCompleted -= OnNavigationCompleted;
             _web.Loaded -= OnWebLoaded;

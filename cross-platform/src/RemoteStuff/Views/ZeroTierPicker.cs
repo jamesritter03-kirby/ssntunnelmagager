@@ -349,16 +349,42 @@ public sealed class ZeroTierPicker : UserControl
         _routerRows.Clear();
         var router = NetworkTabViewModel.ActiveRouter;
         if (router is null) return;
-        var clients = await Task.Run(() => ReadArpClients(router.RouterIp, router.PrefixLength));
-        foreach (var (ip, label) in clients)
-            _routerAll.Add(new PickRow { Name = label, Ip = ip, Network = "NAT router", IsOnline = true });
+        var ips = await Task.Run(() => ReadArpClients(router.RouterIp, router.PrefixLength));
+        foreach (var ip in ips)
+        {
+            var host = await ResolveHostNameAsync(ip);
+            _routerAll.Add(new PickRow
+            {
+                Name = string.IsNullOrEmpty(host) ? "Router client" : host,
+                Ip = ip, Network = "NAT router", IsOnline = true
+            });
+        }
         foreach (var r in _routerAll)
             _routerRows.Add(r);
     }
 
-    private static List<(string Ip, string Label)> ReadArpClients(string routerIp, int prefixLength)
+    /// <summary>Best-effort reverse-DNS lookup with a short timeout so a slow
+    /// resolver can't stall the picker.</summary>
+    private static async Task<string?> ResolveHostNameAsync(string ip)
     {
-        var results = new List<(string, string)>();
+        try
+        {
+            var lookup = Dns.GetHostEntryAsync(ip);
+            var done = await Task.WhenAny(lookup, Task.Delay(1200));
+            if (done == lookup && lookup.Status == TaskStatus.RanToCompletion)
+            {
+                var name = lookup.Result.HostName;
+                if (!string.IsNullOrEmpty(name) && name != ip)
+                    return name;
+            }
+        }
+        catch { /* no reverse DNS */ }
+        return null;
+    }
+
+    private static List<string> ReadArpClients(string routerIp, int prefixLength)
+    {
+        var results = new List<string>();
         try
         {
             var network = RemoteStuff.Services.NetworkAdmin.NetAdminUtil.NetworkAddress(routerIp, prefixLength);
@@ -383,8 +409,8 @@ public sealed class ZeroTierPicker : UserControl
             {
                 var ip = m.Groups[1].Value;
                 if (ip == routerIp) continue; // skip router itself
-                if (InSubnet(ip, network, prefixLength))
-                    results.Add((ip, ip));
+                if (!results.Contains(ip) && InSubnet(ip, network, prefixLength))
+                    results.Add(ip);
             }
         }
         catch { /* ignore — ARP table unavailable */ }

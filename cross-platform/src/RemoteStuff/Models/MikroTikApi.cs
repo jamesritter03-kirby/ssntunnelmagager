@@ -281,6 +281,13 @@ public sealed class MikroTikApi : IDisposable
         {
             if ((int)resp.StatusCode == 401)
                 throw new InvalidOperationException("Login failed — check the username and password.");
+            // A 404 on the REST base means the device isn't serving the RouterOS REST
+            // API, which only exists on RouterOS 7.1+. Switches on SwOS and routers on
+            // RouterOS 6 return 404 here, so point the user at the real requirement.
+            if ((int)resp.StatusCode == 404)
+                throw new InvalidOperationException(
+                    "This device doesn’t have the RouterOS REST API (HTTP 404). It requires RouterOS 7.1 or newer — " +
+                    "SwOS switches and RouterOS 6 don’t support it. Upgrade to RouterOS 7, or manage this device through its own web UI.");
             if (!resp.IsSuccessStatusCode)
                 throw new InvalidOperationException($"Router API error (HTTP {(int)resp.StatusCode}).");
             return await resp.Content.ReadAsStringAsync();

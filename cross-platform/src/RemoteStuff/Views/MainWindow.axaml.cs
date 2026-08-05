@@ -256,7 +256,7 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private double _lastZeroTierWidth = 340;
+    private double _lastZeroTierWidth = 400;
 
     private void UpdateZeroTierColumn()
     {
@@ -265,14 +265,41 @@ public partial class MainWindow : Window
         var col = grid.ColumnDefinitions[3];
         if (_vm?.IsZeroTierVisible == true)
         {
+            if (_vm.Settings.ZeroTierPanelWidth > 0)
+                _lastZeroTierWidth = _vm.Settings.ZeroTierPanelWidth;
             col.Width = new GridLength(_lastZeroTierWidth);
         }
         else
         {
             if (col.Width.IsAbsolute && col.Width.Value > 0)
+            {
                 _lastZeroTierWidth = col.Width.Value;
+                PersistZeroTierWidth();
+            }
             col.Width = new GridLength(0);
         }
+    }
+
+    // Remember the ZeroTier panel width across launches.
+    private void PersistZeroTierWidth()
+    {
+        if (_vm is { } vm && _lastZeroTierWidth > 0)
+        {
+            vm.Settings.ZeroTierPanelWidth = _lastZeroTierWidth;
+            vm.Settings.Save();
+        }
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (_vm?.IsZeroTierVisible == true &&
+            this.FindControl<Grid>("BodyGrid") is { } grid && grid.ColumnDefinitions.Count >= 4 &&
+            grid.ColumnDefinitions[3].Width is { IsAbsolute: true, Value: > 0 } w)
+        {
+            _lastZeroTierWidth = w.Value;
+        }
+        PersistZeroTierWidth();
+        base.OnClosing(e);
     }
 
     private void OnPreviewKeyDown(object? sender, KeyEventArgs e)
