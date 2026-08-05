@@ -45,6 +45,13 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.89", build: 99, date: "Aug 5, 2026",
+            highlights: [
+                "Fixed: authorizing or deauthorizing a device from the ZeroTier browser on ZeroTier Central no longer fails — the request now sends only the value ZeroTier expects, so the toggle takes effect instead of being rejected.",
+            ],
+            isDownloadable: true
+        ),
+        Release(
             shortVersion: "1.9.82", build: 92, date: "Jul 31, 2026",
             highlights: [
                 "Terminal command history now captures the full command line — including tab-completions, commands recalled with the Up/Down arrows, and lines you edited before pressing Enter.",
