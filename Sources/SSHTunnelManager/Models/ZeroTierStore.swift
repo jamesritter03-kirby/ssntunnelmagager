@@ -823,8 +823,17 @@ final class ZeroTierStore: ObservableObject {
                 membersByNetwork[member.networkId] = list
             }
             lastError = nil
-            // Re-fetch to pick up server-side effects (e.g. a newly assigned IP).
+            // Re-fetch to pick up server-side effects (e.g. a newly assigned IP)
+            // and to confirm the change actually took effect on the controller.
             if let network { await refreshMembers(network) }
+            // A token that can read members but lacks authorize permission returns
+            // success yet leaves the member unchanged; the refresh reverts the badge,
+            // so warn rather than letting it look like nothing happened.
+            if let confirmed = membersByNetwork[member.networkId]?.first(where: { $0.id == member.id }),
+               confirmed.authorized != authorized {
+                lastError = "The ZeroTier controller didn’t apply the change for \(member.displayName). "
+                    + "Your API token may not have permission to authorize members."
+            }
         } catch {
             lastError = friendly(error, account: account)
         }

@@ -45,6 +45,14 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.107", build: 101, date: "Aug 5, 2026",
+            highlights: [
+                "ZeroTier: authorizing or deauthorizing a device now tells you when it didn’t take effect — if your API token can read devices but lacks permission to change them, you’ll see a clear message instead of the toggle silently snapping back.",
+                "MikroTik: connecting to a device that doesn’t support the RouterOS REST API now explains that it needs RouterOS 7.1 or newer (SwOS switches and RouterOS 6 don’t support it), instead of a bare “HTTP 404”.",
+            ],
+            isDownloadable: true
+        ),
+        Release(
             shortVersion: "1.9.90", build: 100, date: "Aug 5, 2026",
             highlights: [
                 "Fixed: adding a ZeroTier account with a newer API key now loads your networks. The app authenticates with the current ZeroTier scheme (and still accepts older keys), so accounts that showed no networks despite a correct URL and key now work.",

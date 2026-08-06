@@ -91,6 +91,7 @@ enum MikroTikError: LocalizedError {
     case notConfigured
     case badURL
     case auth
+    case notRestApi
     case http(Int)
     case transport(String)
     case decoding
@@ -100,6 +101,9 @@ enum MikroTikError: LocalizedError {
         case .notConfigured: return "This router has no saved password. Edit it and enter one."
         case .badURL:        return "The router address is invalid."
         case .auth:          return "Login failed — check the username and password."
+        case .notRestApi:
+            return "This device doesn’t have the RouterOS REST API (HTTP 404). It requires RouterOS 7.1 or newer — "
+                + "SwOS switches and RouterOS 6 don’t support it. Upgrade to RouterOS 7, or manage this device through its own web UI."
         case .http(let c):   return "Router API error (HTTP \(c))."
         case .transport(let m): return "Couldn’t reach the router: \(m)"
         case .decoding:      return "The router returned data the app couldn’t read."
@@ -295,6 +299,9 @@ struct MikroTikAPI {
         }
         guard let http = response as? HTTPURLResponse else { throw MikroTikError.decoding }
         if http.statusCode == 401 { throw MikroTikError.auth }
+        // A 404 on the REST base means the device isn't serving the RouterOS REST API,
+        // which only exists on RouterOS 7.1+ — SwOS switches and RouterOS 6 return 404.
+        if http.statusCode == 404 { throw MikroTikError.notRestApi }
         guard (200..<300).contains(http.statusCode) else { throw MikroTikError.http(http.statusCode) }
         return data
     }
