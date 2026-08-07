@@ -256,15 +256,19 @@ public sealed class TerminalControl : Control
         catch (Exception ex)
         {
             var msg = ex.Message;
-            // A missing OpenSSH client is the common cause on Windows: SFTP still works
-            // (it uses the bundled SSH.NET library) but the terminal can't launch ssh.
+            // A missing OpenSSH client is the common cause: SFTP still works (it uses the
+            // bundled SSH.NET library) but the terminal can't launch the ssh binary.
             var exeName = Path.GetFileNameWithoutExtension(executable);
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
-                string.Equals(exeName, "ssh", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(exeName, "ssh", StringComparison.OrdinalIgnoreCase))
             {
-                msg += "\r\n  The OpenSSH client (ssh.exe) wasn't found. Install it via " +
-                       "Settings > System > Optional features > Add a feature > \"OpenSSH Client\", then reopen this tab." +
-                       "\r\n  (SFTP still works because it uses a built-in SSH library.)";
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    msg += "\r\n  The OpenSSH client (ssh.exe) wasn't found. Install it via " +
+                           "Settings > System > Optional features > Add a feature > \"OpenSSH Client\", then reopen this tab." +
+                           "\r\n  (SFTP still works because it uses a built-in SSH library.)";
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                    msg += "\r\n  The OpenSSH client wasn't found. Install it with: " +
+                           "sudo apt install openssh-client  (or your distro's equivalent), then reopen this tab." +
+                           "\r\n  (SFTP still works because it uses a built-in SSH library.)";
             }
             _emu.Feed($"\r\n  Failed to start: {msg}\r\n".AsSpan());
             InvalidateVisual();

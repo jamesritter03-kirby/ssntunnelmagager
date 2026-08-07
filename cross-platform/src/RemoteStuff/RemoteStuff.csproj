@@ -42,6 +42,22 @@
   </ItemGroup>
 
   <!--
+    Linux has no engine behind WebView.Avalonia (WebView2/WKWebView are Windows/macOS only),
+    so on Linux the in-app browser embeds Chromium via CefGlue instead. Only the Linux
+    publishes pull it in (guarded by the LINUX_CEF constant); Windows/macOS keep the
+    lightweight OS-native WebView untouched. arm64 uses the dedicated .ARM64 package.
+  -->
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
+    <DefineConstants>$(DefineConstants);LINUX_CEF</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">
+    <PackageReference Include="CefGlue.Avalonia.ARM64" Version="120.6099.211" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <PackageReference Include="CefGlue.Avalonia" Version="120.6099.211" />
+  </ItemGroup>
+
+  <!--
     macOS-only helper providing a working WKUIDelegate for JavaScript alert/confirm/prompt
     dialogs (the WebView.Avalonia mac backend ships empty ones). Included only for osx-*
     publishes and for dev builds running on macOS; excluded from Windows/Linux output. The

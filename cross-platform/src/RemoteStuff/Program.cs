@@ -89,5 +89,10 @@ internal sealed class Program
             })
             .WithInterFont()
             .UseDesktopWebView()
+#if LINUX_CEF
+            // Linux has no WebView.Avalonia engine; bring up the embedded Chromium (CefGlue)
+            // runtime here so browser tabs can render. Guarded so it never touches Win/macOS.
+            .AfterSetup(_ => RemoteStuff.ViewModels.LinuxCef.Initialize())
+#endif
             .LogToTrace();
 }

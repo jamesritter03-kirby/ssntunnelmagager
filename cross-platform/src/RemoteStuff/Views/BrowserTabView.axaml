@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:RemoteStuff.ViewModels"
+             xmlns:controls="using:RemoteStuff.Views.Controls"
              mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="640"
              x:Class="RemoteStuff.Views.BrowserTabView"
              x:DataType="vm:BrowserTabViewModel">
@@ -11,7 +12,24 @@
         <ProgressBar Grid.Row="0" IsIndeterminate="True" Height="2"
                      IsVisible="{Binding IsLoading}" Foreground="#0E639C" Background="Transparent" />
 
-        <ContentControl Name="WebHost" Grid.Row="1" Content="{Binding Web}"
+        <ContentControl Name="WebHost" Grid.Row="1" Content="{Binding MountedWeb}"
+                        IsVisible="{Binding IsWebViewSupported}"
                         Background="{DynamicResource AppInsetBrush}" />
+
+        <!-- Linux: no embedded browser engine is available, so offer the system browser. -->
+        <Border Grid.Row="1" IsVisible="{Binding !IsWebViewSupported}"
+                Background="{DynamicResource AppInsetBrush}">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" MaxWidth="440">
+                <controls:LineIcon Kind="globe" Width="40" Height="40" HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource AppMutedTextBrush}" />
+                <TextBlock Text="The in-app browser isn't available on Linux."
+                           HorizontalAlignment="Center" TextAlignment="Center"
+                           Foreground="{DynamicResource AppTextBrush}" FontSize="14" />
+                <TextBlock Text="{Binding AddressText}" HorizontalAlignment="Center" TextAlignment="Center"
+                           Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
+                <Button Content="Open in system browser" HorizontalAlignment="Center"
+                        Command="{Binding OpenExternallyCommand}" />
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

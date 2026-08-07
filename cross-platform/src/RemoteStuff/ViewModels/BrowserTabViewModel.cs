@@ -33,6 +33,19 @@ public sealed partial class BrowserTabViewModel : TabViewModel
 
     public override bool IsBrowserTab => true;
 
+    /// <summary>Whether an embedded web view is usable on this OS. On Windows/macOS this is
+    /// the WebView.Avalonia backend (WebView2 / WKWebView); on Linux it is the embedded CEF
+    /// browser, which is only "supported" once the CEF runtime has actually initialized.
+    /// When false, the tab offers the system browser instead.</summary>
+#if LINUX_CEF
+    public static bool WebViewSupported => LinuxCef.Available;
+#else
+    public static bool WebViewSupported { get; } =
+        !RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+#endif
+
+    public bool IsWebViewSupported => WebViewSupported;
+
     private WebView? _web;
     private bool _didInitialNavigate;
 
@@ -63,6 +76,16 @@ public sealed partial class BrowserTabViewModel : TabViewModel
             return _web;
         }
     }
+
+    /// <summary>What the tab view hosts: the live web view where supported, otherwise null
+    /// so the native control is never created on an OS that can't render it. The view shows a
+    /// fallback panel with an "open in system browser" action instead.</summary>
+    public object? MountedWeb =>
+#if LINUX_CEF
+        IsWebViewSupported ? CreateLinuxBrowser() : null;
+#else
+        IsWebViewSupported ? Web : null;
+#endif
 
     public BrowserTabViewModel(string url, string? title = null)
     {
@@ -207,6 +230,16 @@ public sealed partial class BrowserTabViewModel : TabViewModel
         NavigateTo(target);
     }
 
+    /// <summary>Open the current address in the operating system's default browser. Used by
+    /// the Linux fallback panel, where there is no embedded engine to render pages.</summary>
+    [RelayCommand]
+    private void OpenExternally()
+    {
+        var target = string.IsNullOrWhiteSpace(_currentUrl) ? Normalize(AddressText) : _currentUrl!;
+        if (!string.IsNullOrWhiteSpace(target) && target != "about:blank")
+            RemoteStuff.Services.SystemOpen.Open(target);
+    }
+
     [RelayCommand(CanExecute = nameof(CanGoBack))]
     private void GoBack()
     {
@@ -236,25 +269,37 @@ public sealed partial class BrowserTabViewModel : TabViewModel
     [RelayCommand]
     private void Stop()
     {
+#if LINUX_CEF
+        LinuxStop();
+#else
         try { _web?.Stop(); } catch { /* not all backends support stop */ }
+#endif
     }
 
     [RelayCommand]
     private void Reload()
     {
+#if LINUX_CEF
+        LinuxReload();
+#else
         // Re-assigning Url reloads the page (the control has no Reload on all backends).
         if (_web?.Url is { } current)
             _web.Url = current;
+#endif
     }
 
     [RelayCommand]
     private void OpenDevTools()
     {
+#if LINUX_CEF
+        LinuxOpenDevTools();
+#else
         // On Windows/WebView2 this pops the DevTools window directly. On macOS the
         // library's OpenDevToolsWindow is a no-op, so reach the native WKWebView and
         // open its Web Inspector ourselves (developer extras were enabled at creation).
         if (TryOpenNativeInspector()) return;
         try { _web?.OpenDevToolsWindow(); } catch { /* backend without dev tools */ }
+#endif
     }
 
     /// <summary>
@@ -465,9 +510,20 @@ public sealed partial class BrowserTabViewModel : TabViewModel
 
     private void NavigateTo(string url)
     {
+        if (!IsWebViewSupported)
+        {
+            // No embedded engine on this OS: hand the URL to the system browser.
+            if (!string.IsNullOrWhiteSpace(url) && url != "about:blank")
+                RemoteStuff.Services.SystemOpen.Open(url);
+            return;
+        }
+#if LINUX_CEF
+        LinuxNavigateTo(url);
+#else
         if (_web is null) return;
         if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
             _web.Url = uri;
+#endif
     }
 
     private void OnNavigationStarting(object? sender, EventArgs e)
@@ -560,6 +616,9 @@ public sealed partial class BrowserTabViewModel : TabViewModel
 
     public override void Dispose()
     {
+#if LINUX_CEF
+        DisposePlatformBrowserImpl();
+#endif
         if (_web is not null)
         {
             _web.WebViewCreated -= OnWebViewCreated;
