@@ -2232,6 +2232,50 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             : null;
     }
 
+    /// <summary>Build a fresh remote profile from the first ad-hoc remote tab in a
+    /// workspace (ssh/sftp/vnc/mqtt/redis) when no saved profile backs it, so a
+    /// "Save as Profile" of an all-ad-hoc workspace still points at the right host.
+    /// Mirrors the Swift app's <c>connectionSeed</c>. Returns null if nothing is remote;
+    /// <paramref name="secretSourceId"/> is the id under which the seed tab's password is
+    /// stored (for ssh/sftp/vnc tabs), so the launcher can carry it forward.</summary>
+    private SshProfile? ConnectionSeed(WorkspaceViewModel ws, out Guid? secretSourceId)
+    {
+        secretSourceId = null;
+        foreach (var t in Tabs.Where(t => t.WorkspaceId == ws.Id))
+        {
+            if (t.CreateSnapshot() is not { } snap) continue;
+            var host = snap.Host?.Trim();
+            if (string.IsNullOrEmpty(host)) continue;
+            if (snap.Kind is "ssh" or "sftp" or "vnc" or "vnc-tunnel" or "mqtt" or "redis")
+            {
+                if (snap.Kind is "ssh" or "sftp" or "vnc" or "vnc-tunnel")
+                    secretSourceId = snap.ProfileId;
+                return new SshProfile
+                {
+                    Host = host,
+                    Username = snap.Username ?? "",
+                    Port = snap.Port > 0 ? snap.Port.ToString() : "22",
+                };
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Give a cloned profile's forwards fresh ids and copy each forward's
+    /// stored service secret to the new id, so the launcher's MQTT/Redis credentials
+    /// are independent of the source profile (mirrors Swift's cloneConnection).</summary>
+    private void ReassignForwardSecrets(SshProfile source, SshProfile clone)
+    {
+        for (var i = 0; i < clone.Forwards.Count && i < source.Forwards.Count; i++)
+        {
+            var oldId = source.Forwards[i].Id;
+            var newId = Guid.NewGuid();
+            clone.Forwards[i].Id = newId;
+            if (_secrets.Get(oldId) is { } s && !string.IsNullOrEmpty(s))
+                _secrets.Set(newId, s);
+        }
+    }
+
     /// <summary>Turn a workspace into a one-click launcher profile in the sidebar.
     /// Clones the workspace's primary SSH connection into a new profile that opens
     /// its own dedicated workspace, so re-connecting reopens the workspace and any
@@ -2246,9 +2290,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var source = WorkspacePrimaryProfile(ws);
 
         // Clone the primary connection so the launcher reconnects to the same
-        // host / port / user; fall back to a local launcher when there's no
-        // remote tab to seed from.
-        var profile = source is { IsLocal: false } ? source.Clone() : new SshProfile { IsLocal = true };
+        // host / port / user. When no profile-backed remote tab exists, seed the
+        // launcher from the first ad-hoc remote tab (ssh/sftp/vnc/mqtt/redis) so
+        // the launcher still points at the right host — mirrors the Swift app's
+        // connectionSeed. Only fall back to a local launcher when nothing is remote.
+        SshProfile profile;
+        Guid? secretSourceId = null;
+        if (source is { IsLocal: false })
+        {
+            profile = source.Clone();
+            ReassignForwardSecrets(source, profile);
+            secretSourceId = source.Id;
+        }
+        else if (ConnectionSeed(ws, out var seedSecretId) is { } seed)
+        {
+            profile = seed;
+            secretSourceId = seedSecretId;
+        }
+        else
+        {
+            profile = new SshProfile { IsLocal = true };
+        }
 
         profile.Id = Guid.NewGuid();
         profile.Name = _store.UniqueName(name);
@@ -2260,7 +2322,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         profile.AutoConnectOnLaunch = false;
 
         // Carry the saved password across so the launcher can authenticate.
-        if (source is not null && _secrets.Get(source.Id) is { } pw && !string.IsNullOrEmpty(pw))
+        if (secretSourceId is { } sid && _secrets.Get(sid) is { } pw && !string.IsNullOrEmpty(pw))
             _secrets.Set(profile.Id, pw);
 
         _store.Add(profile);

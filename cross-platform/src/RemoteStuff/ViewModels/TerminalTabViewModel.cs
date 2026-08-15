@@ -142,9 +142,16 @@ public sealed partial class TerminalTabViewModel : TabViewModel
         Terminal.Exited += _ => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             IsRunning = false;
+            Health = ConnectionHealth.Unknown;
             Title = EffectiveBaseTitle + (IsPaused ? " — suspended" : " — disconnected");
-            if (Profile?.AutoReconnect == true && !IsPaused)
+            if (Profile?.AutoReconnect == true && !IsPaused && !_userStopped)
+            {
+                // A connection that stayed up a while counts as a success: restart the
+                // backoff sequence from the bottom (matches the Swift app's reset-on-connect).
+                if ((System.DateTime.UtcNow - _lastConnectAt).TotalSeconds > 20)
+                    _reconnectAttempts = 0;
                 ScheduleAutoReconnect();
+            }
         });
 
         Terminal.LineEntered += line => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -162,6 +169,7 @@ public sealed partial class TerminalTabViewModel : TabViewModel
             Avalonia.Threading.Dispatcher.UIThread.Post(() => BadKeyPermissionsDetected = true);
 
         Terminal.StartDeferred(executable, args, env, workingDirectory, runOnConnect);
+        if (SupportsConnection) StartHealthProbe();
     }
 
     [RelayCommand]
@@ -287,19 +295,44 @@ public sealed partial class TerminalTabViewModel : TabViewModel
             RemoteStuff.Services.SystemOpen.Reveal(SessionLogPath!);
     }
 
+    /// <summary>True when the user deliberately stopped this session (Disconnect), so a
+    /// dropped-connection event must NOT trigger auto-reconnect. Cleared on manual Reconnect.
+    /// Mirrors the Swift app's <c>userInitiatedStop</c> flag.</summary>
+    private bool _userStopped;
+
+    /// <summary>Consecutive failed/dropped connection count, driving the reconnect backoff.
+    /// Reset to 0 on a manual reconnect or after a connection stays up long enough to count
+    /// as a success.</summary>
+    private int _reconnectAttempts;
+
+    /// <summary>Cancels a pending auto-reconnect (e.g. when the user reconnects/disconnects
+    /// manually before the timer fires), preventing a double launch.</summary>
+    private System.Threading.CancellationTokenSource? _reconnectCts;
+
+    /// <summary>When the current connection was (re)launched, used to decide whether a drop
+    /// followed a real session (reset backoff) or a fast connect failure (grow backoff).</summary>
+    private System.DateTime _lastConnectAt = System.DateTime.UtcNow;
+
     [RelayCommand]
     private void Disconnect()
     {
+        _userStopped = true;
+        _reconnectCts?.Cancel();
         IsPaused = false;
         Terminal.Terminate();
         IsRunning = false;
+        Health = ConnectionHealth.Unknown;
         Title = EffectiveBaseTitle + " — disconnected";
     }
 
     [RelayCommand]
     private void Reconnect()
     {
+        _userStopped = false;
+        _reconnectAttempts = 0;
+        _reconnectCts?.Cancel();
         IsPaused = false;
+        _lastConnectAt = System.DateTime.UtcNow;
         Terminal.Restart();
         IsRunning = true;
         Title = EffectiveBaseTitle;
@@ -307,16 +340,99 @@ public sealed partial class TerminalTabViewModel : TabViewModel
 
     private async void ScheduleAutoReconnect()
     {
-        await System.Threading.Tasks.Task.Delay(5000);
+        _reconnectCts?.Cancel();
+        var cts = _reconnectCts = new System.Threading.CancellationTokenSource();
+        // Exponential backoff 2,4,8,16,32 → capped at 30s (matches the Swift app).
+        var attempt = System.Math.Min(++_reconnectAttempts, 5);
+        var delay = System.TimeSpan.FromSeconds(System.Math.Min(30.0, System.Math.Pow(2, attempt)));
+        try { await System.Threading.Tasks.Task.Delay(delay, cts.Token); }
+        catch (System.OperationCanceledException) { return; }
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
-            if (!IsRunning && !IsPaused)
+            if (cts.IsCancellationRequested) return;
+            if (!IsRunning && !IsPaused && !_userStopped)
             {
+                _lastConnectAt = System.DateTime.UtcNow;
                 Terminal.Restart();
                 IsRunning = true;
                 Title = EffectiveBaseTitle;
             }
         });
+    }
+
+    // ---- Live connection health (TCP reachability probe, mirrors Swift tunnelHealth) ----
+
+    /// <summary>Live reachability of this session's endpoint: Unknown until first probed,
+    /// Healthy when the host/port accepts a TCP connection, Degraded when it refuses or
+    /// times out. Mirrors the Swift app's per-session <c>tunnelHealth</c>.</summary>
+    [ObservableProperty] private ConnectionHealth _health = ConnectionHealth.Unknown;
+
+    private System.Timers.Timer? _healthTimer;
+    private int _healthProbing;   // 0/1 guard so a slow probe never overlaps the next tick
+
+    /// <summary>Whether to show the health dot: a remote tab that has a network endpoint.</summary>
+    public bool ShowHealth => SupportsConnection && ConnectionEndpoint is not null;
+
+    partial void OnHealthChanged(ConnectionHealth value)
+    {
+        OnPropertyChanged(nameof(HealthBrush));
+        OnPropertyChanged(nameof(HealthTooltip));
+    }
+
+    /// <summary>Dot colour for the tab header: green healthy, amber degraded, grey unknown.</summary>
+    public Avalonia.Media.IBrush HealthBrush => Health switch
+    {
+        ConnectionHealth.Healthy => new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#3FB950")),
+        ConnectionHealth.Degraded => new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#D29922")),
+        _ => new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#6E7681")),
+    };
+
+    public string HealthTooltip => Health switch
+    {
+        ConnectionHealth.Healthy => "Connected — endpoint reachable",
+        ConnectionHealth.Degraded => "Degraded — endpoint not responding",
+        _ => "Connection status unknown",
+    };
+
+    private void StartHealthProbe()
+    {
+        _healthTimer = new System.Timers.Timer(5000) { AutoReset = true };
+        _healthTimer.Elapsed += (_, _) => _ = ProbeHealthAsync();
+        _healthTimer.Start();
+    }
+
+    private async System.Threading.Tasks.Task ProbeHealthAsync()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _healthProbing, 1) == 1) return;
+        try
+        {
+            if (!IsRunning || IsPaused || ConnectionEndpoint is not { } ep)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+                    () => Health = ConnectionHealth.Unknown);
+                return;
+            }
+            var ok = await ProbeTcpAsync(ep.Host, ep.Port);
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (IsRunning && !IsPaused)
+                    Health = ok ? ConnectionHealth.Healthy : ConnectionHealth.Degraded;
+            });
+        }
+        finally { System.Threading.Interlocked.Exchange(ref _healthProbing, 0); }
+    }
+
+    private static async System.Threading.Tasks.Task<bool> ProbeTcpAsync(string host, int port)
+    {
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            var connect = client.ConnectAsync(host, port);
+            var done = await System.Threading.Tasks.Task.WhenAny(
+                connect, System.Threading.Tasks.Task.Delay(2500));
+            return done == connect && !connect.IsFaulted && client.Connected;
+        }
+        catch { return false; }
     }
 
     // ---- Workspace pause / resume ----
@@ -334,9 +450,11 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     public void PauseSession()
     {
         if (!IsRunning) return;
+        _reconnectCts?.Cancel();
         IsPaused = true;
         Terminal.Terminate();
         IsRunning = false;
+        Health = ConnectionHealth.Unknown;
         Title = EffectiveBaseTitle + " — suspended";
     }
 
@@ -345,6 +463,7 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     {
         if (!IsPaused) return;
         IsPaused = false;
+        _lastConnectAt = System.DateTime.UtcNow;
         Terminal.Restart();
         IsRunning = true;
         Title = EffectiveBaseTitle;
@@ -450,9 +569,21 @@ public sealed partial class TerminalTabViewModel : TabViewModel
 
     protected override void Close()
     {
+        _reconnectCts?.Cancel();
+        _healthTimer?.Stop();
+        _healthTimer?.Dispose();
         Terminal.DisposeSession();
         base.Close();
     }
 
-    public override void Dispose() => Terminal.DisposeSession();
+    public override void Dispose()
+    {
+        _reconnectCts?.Cancel();
+        _healthTimer?.Stop();
+        _healthTimer?.Dispose();
+        Terminal.DisposeSession();
+    }
 }
+
+/// <summary>Live reachability state of a session's endpoint, shown as the tab health dot.</summary>
+public enum ConnectionHealth { Unknown, Healthy, Degraded }

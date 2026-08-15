@@ -46,6 +46,9 @@
                                 <Border Width="4" Height="14" CornerRadius="2" VerticalAlignment="Center"
                                         Background="{Binding TabColorBrush}" IsVisible="{Binding HasTabColor}" />
                                 <controls:LineIcon Kind="{Binding Glyph}" Foreground="#7FB0DE" Width="15" Height="15" VerticalAlignment="Center" />
+                                <Border Width="8" Height="8" CornerRadius="4" VerticalAlignment="Center"
+                                        x:CompileBindings="False" Background="{Binding HealthBrush}"
+                                        IsVisible="{Binding ShowHealth}" ToolTip.Tip="{Binding HealthTooltip}" />
                                 <TextBlock Text="⏺" VerticalAlignment="Center" FontSize="10" Foreground="#E0533D"
                                            x:CompileBindings="False" IsVisible="{Binding ShowStopLog}"
                                            ToolTip.Tip="Session logging is on" />
@@ -896,6 +899,9 @@
                                         <Border Width="4" Height="14" CornerRadius="2" VerticalAlignment="Center"
                                                 Background="{Binding TabColorBrush}" IsVisible="{Binding HasTabColor}" />
                                         <controls:LineIcon Kind="{Binding Glyph}" Width="15" Height="15" VerticalAlignment="Center" Foreground="#7FB0DE" />
+                                        <Border Width="8" Height="8" CornerRadius="4" VerticalAlignment="Center"
+                                                x:CompileBindings="False" Background="{Binding HealthBrush}"
+                                                IsVisible="{Binding ShowHealth}" ToolTip.Tip="{Binding HealthTooltip}" />
                                         <TextBlock Text="📢" VerticalAlignment="Center" FontSize="10"
                                                    ToolTip.Tip="Broadcast input is on">
                                             <TextBlock.IsVisible>
