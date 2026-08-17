@@ -30,6 +30,9 @@
                             ContextRequested="OnDockHeaderContextRequested">
                         <Border.ContextMenu>
                             <ContextMenu>
+                                <MenuItem Header="Reconnect" IsVisible="{Binding CanReconnect}"
+                                          x:CompileBindings="False" Command="{Binding ReconnectCommand}" />
+                                <Separator IsVisible="{Binding CanReconnect}" x:CompileBindings="False" />
                                 <MenuItem Header="Log Session Output" IsVisible="{Binding ShowStartLog}"
                                           x:CompileBindings="False" Command="{Binding StartLogCommand}" />
                                 <MenuItem Header="Stop Logging Output" IsVisible="{Binding ShowStopLog}"
@@ -191,6 +194,9 @@
                                         ToolTip.Tip="Dock…">
                                     <Button.Flyout>
                                         <MenuFlyout>
+                                            <MenuItem Header="Reconnect" IsVisible="{Binding CanReconnect}"
+                                                      x:CompileBindings="False" Command="{Binding ReconnectCommand}" />
+                                            <Separator IsVisible="{Binding CanReconnect}" x:CompileBindings="False" />
                                             <MenuItem Header="Move to Center" Command="{Binding DockCenterCommand}" />
                                             <MenuItem Header="Dock Left" Command="{Binding DockLeftCommand}" />
                                             <MenuItem Header="Dock Right" Command="{Binding DockRightCommand}" />
@@ -380,6 +386,7 @@
                         <Separator />
                         <MenuItem Header="Developer Tools…" Command="{Binding OpenDeveloperToolsCommand}" />
                         <MenuItem Header="Check for Updates…" Command="{Binding CheckForUpdatesCommand}" />
+                        <MenuItem Header="Install an Older Version…" Command="{Binding ShowOlderVersionsCommand}" />
                         <MenuItem Header="Repair / Reinstall…" Command="{Binding RepairInstallCommand}" />
                         <MenuItem Header="Help…" Command="{Binding OpenHelpCommand}" />
                     </MenuItem>
@@ -820,6 +827,8 @@
                                                 <MenuItem Header="Disconnect" IsVisible="{Binding ShowDisconnectAction}"
                                                           Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).DisconnectTabCommand}"
                                                           CommandParameter="{Binding}" />
+                                                <MenuItem Header="Reconnect" IsVisible="{Binding CanReconnect}"
+                                                          x:CompileBindings="False" Command="{Binding ReconnectCommand}" />
                                                 <MenuItem Header="Edit Connection Settings…" IsVisible="{Binding SupportsEditConnection}"
                                                           Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).EditTabConnectionCommand}"
                                                           CommandParameter="{Binding}" />

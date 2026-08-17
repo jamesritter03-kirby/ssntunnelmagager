@@ -1614,6 +1614,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     private readonly UpdateService _updates = new();
 
+    /// <summary>Raised to open the "Install an Older Version" window (Tools menu).</summary>
+    public event Action<OlderVersionsViewModel>? OlderVersionsRequested;
+
+    /// <summary>Open the version-rollback window, listing every build on this platform's
+    /// update feed so the user can reinstall an earlier one (macOS-app parity).</summary>
+    [RelayCommand]
+    private void ShowOlderVersions()
+        => OlderVersionsRequested?.Invoke(
+            new OlderVersionsViewModel(_updates, () => RunUpdateCheck(interactive: true), SetStatus));
+
     /// <summary>Manually check for a newer release from the Tools menu. Gives the user
     /// feedback whether an update is available, they're up to date, or (in a dev build)
     /// auto-update isn't active.</summary>

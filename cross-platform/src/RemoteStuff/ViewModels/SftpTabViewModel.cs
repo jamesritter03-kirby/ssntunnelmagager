@@ -60,6 +60,9 @@ public sealed partial class SftpTabViewModel : TabViewModel
 
     public override string Glyph => "folder";
 
+    /// <summary>Enables the "Reconnect" item in this tab's right-click / docked menu.</summary>
+    public override bool CanReconnect => true;
+
     public override (string Host, int Port)? ConnectionEndpoint =>
         _profile is { IsLocal: false, Host: { Length: > 0 } h }
             ? (h, int.TryParse(_profile.Port, out var pt) && pt > 0 ? pt : 22)

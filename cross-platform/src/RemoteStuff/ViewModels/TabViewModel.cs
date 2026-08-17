@@ -29,6 +29,10 @@ public abstract partial class TabViewModel : ViewModelBase
     /// enabling Connect / Disconnect / Edit / Copy IP on the tab's right-click menu.</summary>
     public virtual bool SupportsConnection => false;
 
+    /// <summary>True for tabs that expose a "Reconnect" action in their right-click / docked
+    /// menu (an SFTP tab, whose <c>ReconnectCommand</c> re-establishes its SSH.NET session).</summary>
+    public virtual bool CanReconnect => false;
+
     /// <summary>True for tabs that expose an "Edit Connection Settings…" action.
     /// Defaults to <see cref="SupportsConnection"/> (ssh terminals); MQTT/Redis tabs
     /// override it so they can be re-pointed without the Connect/Disconnect/Copy-IP actions.</summary>

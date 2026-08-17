@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Velopack;
+using Velopack.Logging;
 using Velopack.Sources;
 
 namespace RemoteStuff.Services;
@@ -25,12 +28,17 @@ public sealed class UpdateService
     private const string RepoUrl = "https://github.com/jamesritter03-kirby/ssntunnelmagager";
     private const string ReleaseTag = "desktop-updates";
 
+    private readonly GithubSource _source;
     private readonly UpdateManager _mgr;
 
     public UpdateService()
     {
-        _mgr = new UpdateManager(new GithubSource(RepoUrl, accessToken: null, prerelease: false));
+        _source = new GithubSource(RepoUrl, accessToken: null, prerelease: false);
+        _mgr = new UpdateManager(_source);
     }
+
+    /// <summary>The public GitHub releases page, where every published build is listed.</summary>
+    public static string ReleasesPageUrl => $"{RepoUrl}/releases";
 
     /// <summary>True only when running as an installed Velopack app.</summary>
     public bool IsInstalled => _mgr.IsInstalled;
@@ -82,6 +90,81 @@ public sealed class UpdateService
         await _mgr.DownloadUpdatesAsync(info);
         Log($"apply: download complete -> {target}; applying and restarting");
         _mgr.ApplyUpdatesAndRestart(info); // exits the process; nothing after this runs
+    }
+
+    /// <summary>The Velopack channel this build installs from — one per runtime, named after
+    /// the RID (matches velopack.sh <c>CHANNEL=$RID</c>), e.g. win-x64 / osx-arm64.</summary>
+    private static string Channel()
+    {
+        var os = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "win"
+               : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "osx"
+               : "linux";
+        var arch = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64";
+        return $"{os}-{arch}";
+    }
+
+    /// <summary>Every full release available on this platform's update feed, newest first,
+    /// excluding the running one — the versions the user can roll back to (or forward to).
+    /// Empty when not an installed build or the feed can't be read.</summary>
+    public async Task<IReadOnlyList<string>> GetAvailableVersionsAsync()
+    {
+        if (!_mgr.IsInstalled) return Array.Empty<string>();
+        try
+        {
+            var feed = await _source.GetReleaseFeed(NullVelopackLogger.Instance, _mgr.AppId, Channel());
+            var current = _mgr.CurrentVersion?.ToString();
+            var versions = feed.Assets
+                .Where(a => a.Type == VelopackAssetType.Full)
+                .OrderByDescending(a => a.Version)
+                .Select(a => a.Version.ToString())
+                .Distinct()
+                .Where(v => v != current)
+                .ToList();
+            Log($"versions: {versions.Count} available on channel {Channel()}");
+            return versions;
+        }
+        catch (Exception ex)
+        {
+            Log("versions: failed — " + ex.Message);
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>Install a specific published version in place (a downgrade or re-install),
+    /// then restart the app. Returns false without restarting when it can't be done
+    /// (dev build, version not on the feed, or download failed).</summary>
+    public async Task<bool> InstallVersionAsync(string version)
+    {
+        if (!_mgr.IsInstalled)
+        {
+            Log($"install {version}: skipped — not an installed build");
+            return false;
+        }
+        try
+        {
+            var feed = await _source.GetReleaseFeed(NullVelopackLogger.Instance, _mgr.AppId, Channel());
+            var asset = feed.Assets.FirstOrDefault(
+                a => a.Type == VelopackAssetType.Full && a.Version.ToString() == version);
+            if (asset is null)
+            {
+                Log($"install {version}: not found on feed");
+                return false;
+            }
+            var isDowngrade = _mgr.CurrentVersion is { } cur && asset.Version < cur;
+            // A dedicated manager that permits going backwards; the default one refuses.
+            var mgr = new UpdateManager(_source, new UpdateOptions { AllowVersionDowngrade = true });
+            var info = new UpdateInfo(asset, isDowngrade);
+            Log($"install {version}: downloading (downgrade={isDowngrade}, from {CurrentVersion})");
+            await mgr.DownloadUpdatesAsync(info);
+            Log($"install {version}: applying and restarting");
+            mgr.ApplyUpdatesAndRestart(info); // exits the process; nothing after this runs
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log($"install {version}: failed — " + ex.Message);
+            return false;
+        }
     }
 
     /// <summary>Download the current platform's full installer to a temp file for a
