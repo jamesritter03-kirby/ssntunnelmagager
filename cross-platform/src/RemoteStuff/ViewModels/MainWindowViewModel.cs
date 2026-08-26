@@ -2778,8 +2778,40 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         var mt = new MikroTikTabViewModel(_mikroTikRouters);
         mt.CloseRequested += CloseTab;
+        mt.MacTelnetRequested += OpenMacTelnetTab;
         Tabs.Add(mt);
         SelectedTab = mt;
+    }
+
+    /// <summary>Open a WinBox-style MAC-Telnet terminal to a device discovered on the
+    /// LAN. Prompts for credentials, then drives the terminal over the MAC-Telnet
+    /// transport (UDP broadcast, no IP required on the device).</summary>
+    private async void OpenMacTelnetTab(Services.DiscoveredRouter device)
+    {
+        var creds = await DialogService.PromptCredentialsAsync(
+            "Connect via MAC",
+            $"Log in to {device.DisplayName}\n{device.MacAddress}",
+            "admin");
+        if (creds is not { } c) return;
+
+        var theme = TerminalTheme.ById(Settings.DefaultTerminalTheme);
+        var label = string.IsNullOrEmpty(device.Identity) ? device.MacAddress : device.Identity!;
+        var tab = new TerminalTabViewModel(
+            title: "MAC · " + label,
+            executable: "mac-telnet",
+            args: Array.Empty<string>(),
+            env: null,
+            workingDirectory: null,
+            runOnConnect: null,
+            fontSize: Settings.DefaultTerminalFontSize,
+            theme: theme,
+            snippets: null,
+            autoPassword: null);
+        tab.Terminal.PtyFactory = () =>
+            new Services.Terminal.MacTelnetPtyProcess(device.MacAddress, c.User, c.Password, device.Ipv4);
+        tab.CloseRequested += CloseTab;
+        Tabs.Add(tab);
+        SelectedTab = tab;
     }
 
     // ---- Service launchers (MQTT / Redis / web) ----

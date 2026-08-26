@@ -60,11 +60,19 @@
                                             <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="12" />
                                             <TextBlock Text="{Binding Ipv4}" FontSize="11"
                                                        Foreground="{DynamicResource AppMutedTextBrush}" />
+                                            <TextBlock Text="{Binding MacAddress}" FontSize="11"
+                                                       Foreground="{DynamicResource AppMutedTextBrush}" />
                                             <TextBlock Text="{Binding Board}" FontSize="11"
                                                        Foreground="{DynamicResource AppMutedTextBrush}" />
-                                            <Button Content="Add router" FontSize="11" Padding="6,1" Margin="0,2,0,0"
-                                                    Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).AddDiscoveredCommand}"
-                                                    CommandParameter="{Binding}" />
+                                            <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,2,0,0">
+                                                <Button Content="Add router" FontSize="11" Padding="6,1"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).AddDiscoveredCommand}"
+                                                        CommandParameter="{Binding}" />
+                                                <Button Content="MAC console" FontSize="11" Padding="6,1"
+                                                        ToolTip.Tip="Open a WinBox-style terminal over MAC-Telnet (works even with no IP)"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MikroTikTabViewModel)DataContext).ConnectViaMacCommand}"
+                                                        CommandParameter="{Binding}" />
+                                            </StackPanel>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>

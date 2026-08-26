@@ -358,6 +358,18 @@ public sealed partial class MikroTikTabViewModel : TabViewModel
         IsEditingRouter = true;
     }
 
+    /// <summary>Raised when the user asks to open a WinBox-style MAC-Telnet terminal
+    /// to a device found on the LAN. The main window handles it (prompts for
+    /// credentials and opens a terminal tab).</summary>
+    public event Action<DiscoveredRouter>? MacTelnetRequested;
+
+    [RelayCommand]
+    private void ConnectViaMac(DiscoveredRouter? device)
+    {
+        if (device is null || string.IsNullOrWhiteSpace(device.MacAddress)) return;
+        MacTelnetRequested?.Invoke(device);
+    }
+
     // ------------------------------------------------------------------
     // Config explorer (WinBox-style)
     // ------------------------------------------------------------------

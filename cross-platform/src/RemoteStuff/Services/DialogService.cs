@@ -183,6 +183,55 @@ public static class DialogService
         return await dlg.ShowDialog<string?>(owner);
     }
 
+    /// <summary>Prompt for a username + password pair (password masked). Returns the
+    /// entered pair, or null if cancelled.</summary>
+    public static async Task<(string User, string Password)?> PromptCredentialsAsync(
+        string title, string prompt, string defaultUser = "admin")
+    {
+        if (Top is not Window owner) return null;
+
+        var userBox = new TextBox { Text = defaultUser, MinWidth = 340, Watermark = "Username" };
+        var passBox = new TextBox { MinWidth = 340, PasswordChar = '\u2022', Watermark = "Password", AcceptsReturn = false };
+
+        var ok = new Button { Content = "Connect", IsDefault = true, MinWidth = 72 };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 72 };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+
+        var panel = new StackPanel { Margin = new Thickness(16), Spacing = 8 };
+        panel.Children.Add(new TextBlock { Text = prompt, MaxWidth = 360, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        panel.Children.Add(userBox);
+        panel.Children.Add(passBox);
+        panel.Children.Add(buttons);
+
+        var dlg = new Window
+        {
+            Title = title,
+            Content = panel,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false
+        };
+
+        (string, string)? result = null;
+        ok.Click += (_, _) => { result = (userBox.Text ?? "", passBox.Text ?? ""); dlg.Close(); };
+        cancel.Click += (_, _) => { result = null; dlg.Close(); };
+
+        userBox.Focus();
+        userBox.SelectAll();
+        await dlg.ShowDialog(owner);
+        return result;
+    }
+
     /// <summary>Prompt for a custom command's name + command text. Returns the entered
     /// pair, or null if cancelled.</summary>
     public static async Task<(string Name, string Command)?> PromptCustomCommandAsync(

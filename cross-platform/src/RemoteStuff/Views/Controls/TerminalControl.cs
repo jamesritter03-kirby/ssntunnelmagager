@@ -103,6 +103,11 @@ public sealed class TerminalControl : Control
 
     public IBrush? Background { get; set; }
 
+    /// <summary>Optional transport override. When set, the terminal drives this
+    /// <see cref="IPtyProcess"/> instead of spawning a local child process — used to
+    /// host non-process sessions such as MAC-Telnet. Set before the first layout.</summary>
+    public Func<IPtyProcess>? PtyFactory { get; set; }
+
     private void MeasureFont()
     {
         var ft = new FormattedText("M", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
@@ -246,9 +251,10 @@ public sealed class TerminalControl : Control
         };
         var allEnv = env == null ? baseEnv : Combine(baseEnv, env);
 
-        _pty = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? new WindowsPtyProcess()
-            : new UnixPtyProcess();
+        _pty = PtyFactory?.Invoke()
+            ?? (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                ? new WindowsPtyProcess()
+                : new UnixPtyProcess());
         try
         {
             _pty.Start(executable, args, (ushort)cols, (ushort)rows, allEnv, workingDirectory);

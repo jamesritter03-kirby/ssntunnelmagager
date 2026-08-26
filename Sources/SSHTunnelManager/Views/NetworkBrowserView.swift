@@ -31,6 +31,8 @@ struct NetworkBrowserView: View {
     @State private var editingPassword = ""
     @State private var isNewRouter = false
     @State private var routerPendingDelete: MikroTikRouter?
+    /// Discovered device for which to open a WinBox-style MAC-Telnet console.
+    @State private var macConsoleDevice: DiscoveredRouter?
 
     var body: some View {
         NavigationSplitView {
@@ -45,6 +47,9 @@ struct NetworkBrowserView: View {
         .task { await net.refresh() }
         .task { await mikro.discover() }
         .sheet(item: $editingRouter) { _ in routerForm }
+        .sheet(item: $macConsoleDevice) { device in
+            MacTelnetConsoleView(device: device)
+        }
         .confirmationDialog(
             routerPendingDelete.map { "Remove “\($0.displayName)”?" } ?? "Remove router?",
             isPresented: Binding(get: { routerPendingDelete != nil },
@@ -140,6 +145,13 @@ struct NetworkBrowserView: View {
             }
             Spacer()
             Button {
+                macConsoleDevice = device
+            } label: {
+                Image(systemName: "terminal")
+            }
+            .buttonStyle(.borderless)
+            .help("Open a WinBox-style MAC-Telnet console (works with no IP)")
+            Button {
                 beginAdd(from: device)
             } label: {
                 Image(systemName: "plus.circle.fill")
@@ -149,6 +161,7 @@ struct NetworkBrowserView: View {
         }
         .contextMenu {
             Button("Add Router…") { beginAdd(from: device) }
+            Button("MAC Console…") { macConsoleDevice = device }
         }
     }
 
