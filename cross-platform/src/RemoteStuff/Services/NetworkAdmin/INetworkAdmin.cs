@@ -35,6 +35,9 @@ public sealed class AdminResult
 {
     public bool Ok { get; init; }
     public string Message { get; init; } = "";
+    /// <summary>Which sharing mechanism actually ran, e.g. "winnat" or "ics". Empty for
+    /// non-sharing operations.</summary>
+    public string Mode { get; init; } = "";
 
     public static AdminResult Success(string message = "Done") => new() { Ok = true, Message = message };
     public static AdminResult Fail(string message) => new() { Ok = false, Message = message };

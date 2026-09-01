@@ -58,6 +58,36 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return true;
     }
 
+    /// <summary>A profile launched into a saved workspace that doesn't exist on this
+    /// computer (typically an imported profile). Ask the user how to proceed instead of
+    /// silently opening an empty workspace, keeping the profile's reference intact.</summary>
+    private async Task PromptMissingWorkspaceAsync(SshProfile profile, string refName,
+        string? adHocPassword, string? runOnConnectOverride, string? themeOverride, double? fontOverride)
+    {
+        var choice = await Services.DialogService.ChooseAsync(
+            "Saved workspace not found",
+            $"“{profile.Name}” is set to recreate the saved workspace “{refName}”, but no workspace with that "
+            + "name exists on this computer — it was likely imported from another machine.\n\n"
+            + "What would you like to do?",
+            new[] { $"Create “{refName}”", "Open in current workspace", "Cancel" });
+
+        switch (choice)
+        {
+            case 0:
+                // Create the (empty) template so the reference resolves now and on later launches.
+                CreateEmptyWorkspaceTemplate(refName);
+                OpenSession(profile, adHocPassword, runOnConnectOverride, themeOverride, fontOverride);
+                break;
+            case 1:
+                // Launch here just this once; the profile's saved reference is left untouched.
+                OpenSession(profile, adHocPassword, runOnConnectOverride, themeOverride, fontOverride,
+                    launchOverride: WorkspaceLaunch.Current);
+                break;
+            default:
+                break; // Cancel: do nothing, reference preserved.
+        }
+    }
+
     /// <summary>Repopulate <see cref="SavedWorkspaces"/> from the store (after a
     /// save / delete) so the Workspace menu stays current.</summary>
     private void RefreshSavedWorkspaces()
@@ -1019,17 +1049,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     public void OpenSession(SshProfile profile, string? adHocPassword = null, string? runOnConnectOverride = null,
-        string? themeOverride = null, double? fontOverride = null)
+        string? themeOverride = null, double? fontOverride = null, WorkspaceLaunch? launchOverride = null)
     {
         // Keep an ad-hoc connection's password in the encrypted secret store, keyed
         // by its (stable) profile id, so it survives workspace save/restore and is
         // available when a workspace is saved as a launcher profile.
         if (!string.IsNullOrEmpty(adHocPassword))
             _secrets.Set(profile.Id, adHocPassword);
+
+        // A profile imported from another machine may reference a saved workspace that
+        // doesn't exist here. Rather than silently opening an empty/current workspace,
+        // ask the user what to do — while keeping the profile's reference intact.
+        if (launchOverride is null && !_suppressWorkspaceRouting
+            && profile.WorkspaceLaunch == WorkspaceLaunch.NewWorkspace
+            && !Workspaces.Any(w => w.SourceProfileId == profile.Id))
+        {
+            var refName = !string.IsNullOrWhiteSpace(profile.WorkspaceTemplateName)
+                ? profile.WorkspaceTemplateName
+                : profile.WorkspaceName;
+            if (!string.IsNullOrWhiteSpace(refName)
+                && !_store.WorkspaceTemplates.Any(t => t.Name.Equals(refName, StringComparison.OrdinalIgnoreCase)))
+            {
+                _ = PromptMissingWorkspaceAsync(profile, refName, adHocPassword, runOnConnectOverride, themeOverride, fontOverride);
+                return;
+            }
+        }
+
+        var launch = launchOverride ?? profile.WorkspaceLaunch;
         // A profile can request its own dedicated workspace. Reuse an existing one
         // tied to the same profile, otherwise spin up a fresh workspace. Suppressed
         // while a workspace template is being rebuilt so its tabs stay together.
-        if (!_suppressWorkspaceRouting && profile.WorkspaceLaunch == WorkspaceLaunch.NewWorkspace)
+        if (!_suppressWorkspaceRouting && launch == WorkspaceLaunch.NewWorkspace)
         {
             var existing = Workspaces.FirstOrDefault(w => w.SourceProfileId == profile.Id);
             if (existing is not null)

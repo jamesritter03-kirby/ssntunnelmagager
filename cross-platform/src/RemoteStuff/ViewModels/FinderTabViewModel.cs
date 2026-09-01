@@ -288,6 +288,12 @@ public sealed partial class FinderTabViewModel : TabViewModel
     [RelayCommand]
     private void ToggleSortDirection() => SortAscending = !SortAscending;
 
+    [RelayCommand] private void SetSortName() => SortMode = FinderSort.Name;
+    [RelayCommand] private void SetSortSize() => SortMode = FinderSort.Size;
+    [RelayCommand] private void SetSortModified() => SortMode = FinderSort.Modified;
+    [RelayCommand] private void SetSortKind() => SortMode = FinderSort.Kind;
+    [RelayCommand] private void ToggleShowHidden() => ShowHidden = !ShowHidden;
+
     [RelayCommand]
     private void GoUp()
     {
@@ -300,13 +306,14 @@ public sealed partial class FinderTabViewModel : TabViewModel
         LoadDirectory(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 
     [RelayCommand]
-    private void RevealInFinder()
+    private void RevealInFinder(LocalEntryViewModel? entry)
     {
-        var target = SelectedEntry?.FullPath ?? CurrentPath;
+        var target = (entry ?? SelectedEntry)?.FullPath ?? CurrentPath;
+        var isItem = (entry ?? SelectedEntry) is not null;
         try
         {
             if (OperatingSystem.IsMacOS())
-                Process.Start("open", SelectedEntry is null ? new[] { target } : new[] { "-R", target });
+                Process.Start("open", isItem ? new[] { "-R", target } : new[] { target });
             else if (OperatingSystem.IsWindows())
                 Process.Start("explorer", $"/select,\"{target}\"");
             else
@@ -350,9 +357,9 @@ public sealed partial class FinderTabViewModel : TabViewModel
 
     /// <summary>Copy the selected item's full path to the clipboard via the dialog top-level.</summary>
     [RelayCommand]
-    private async Task CopyPath()
+    private async Task CopyPath(LocalEntryViewModel? entry)
     {
-        var path = SelectedEntry?.FullPath ?? CurrentPath;
+        var path = (entry ?? SelectedEntry)?.FullPath ?? CurrentPath;
         if (DialogService.Top?.Clipboard is { } cb)
             await cb.SetTextAsync(path);
         StatusText = "Copied path";

@@ -15,7 +15,6 @@ namespace RemoteStuff.Services;
 public sealed class ProfileStore
 {
     private readonly string _fileURL;
-    private readonly string _seededFlagPath;
     private readonly string _workspacesURL;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -40,7 +39,6 @@ public sealed class ProfileStore
         var dir = Path.Combine(baseDir, "RemoteStuff");
         Directory.CreateDirectory(dir);
         _fileURL = Path.Combine(dir, "profiles.json");
-        _seededFlagPath = Path.Combine(dir, ".seeded");
         _workspacesURL = Path.Combine(dir, "workspaces.json");
 
         Load();
@@ -71,14 +69,9 @@ public sealed class ProfileStore
             Profiles = new List<SshProfile>();
         }
 
-        // On the very first launch (no saved profiles, never seeded) add examples.
-        if (Profiles.Count == 0 && !File.Exists(_seededFlagPath))
-        {
-            Profiles = ExampleProfiles.All();
-            try { File.WriteAllText(_seededFlagPath, DateTime.UtcNow.ToString("o")); } catch { /* ignore */ }
-            Save();
-        }
-        else if (needsMigration)
+        // A fresh install starts with no profiles; only re-save to migrate an
+        // older on-disk format to the current one.
+        if (needsMigration)
         {
             Save();
         }

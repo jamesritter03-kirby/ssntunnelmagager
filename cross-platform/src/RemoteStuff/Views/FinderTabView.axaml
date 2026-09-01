@@ -13,7 +13,12 @@
 
         <!-- Toolbar -->
         <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
-            <StackPanel Orientation="Horizontal" Spacing="3">
+            <WrapPanel Orientation="Horizontal">
+                <WrapPanel.Styles>
+                    <Style Selector="WrapPanel > :is(Control)">
+                        <Setter Property="Margin" Value="0,2,3,2" />
+                    </Style>
+                </WrapPanel.Styles>
                 <Button Content="{controls:Icon chevron-up}" FontSize="14" Padding="8,3" ToolTip.Tip="Up one folder" Command="{Binding GoUpCommand}" />
                 <Button Content="{controls:Icon house}" FontSize="14" Padding="8,3" ToolTip.Tip="Home" Command="{Binding GoHomeCommand}" />
                 <Button Content="{controls:Icon refresh-cw}" FontSize="14" Padding="8,3" ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}" />
@@ -58,12 +63,17 @@
                 <Button Content="{controls:Icon trash-2}" FontSize="14" Padding="8,3" ToolTip.Tip="Delete" Command="{Binding DeleteCommand}" />
                 <ProgressBar IsIndeterminate="True" Width="80" Height="6"
                              IsVisible="{Binding IsBusy}" VerticalAlignment="Center" Margin="8,0,0,0" />
-            </StackPanel>
+            </WrapPanel>
         </Border>
 
         <!-- Path + sort/filter bar -->
         <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
-            <StackPanel Orientation="Horizontal" Spacing="6">
+            <WrapPanel Orientation="Horizontal">
+                <WrapPanel.Styles>
+                    <Style Selector="WrapPanel > :is(Control)">
+                        <Setter Property="Margin" Value="0,2,6,2" />
+                    </Style>
+                </WrapPanel.Styles>
                 <TextBox Text="{Binding PathInput}" Watermark="Path…" Width="260"
                          KeyDown="OnPathKeyDown" />
                 <Button Content="Go" Command="{Binding GoToPathCommand}" />
@@ -75,12 +85,13 @@
                 <CheckBox Content="Hidden" IsChecked="{Binding ShowHidden}" VerticalAlignment="Center"
                           ToolTip.Tip="Show hidden files" />
                 <TextBox Text="{Binding FilterText}" Watermark="Filter…" Width="160" />
-            </StackPanel>
+            </WrapPanel>
         </Border>
 
         <!-- Listing -->
         <ListBox Grid.Row="2" x:Name="EntryList" ItemsSource="{Binding Entries}"
                  SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
+                 SelectionMode="Multiple"
                  DoubleTapped="OnRowDoubleTapped" Background="{DynamicResource AppSurfaceBrush}"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemTemplate>
@@ -92,6 +103,51 @@
                             <ColumnDefinition Width="110" />
                             <ColumnDefinition Width="170" />
                         </Grid.ColumnDefinitions>
+                        <Grid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Open"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).OpenCommand}"
+                                          CommandParameter="{Binding}" />
+                                <MenuItem Header="Open with Default App"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).OpenExternallyCommand}"
+                                          CommandParameter="{Binding}" />
+                                <MenuItem Header="Reveal in File Manager"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).RevealInFinderCommand}"
+                                          CommandParameter="{Binding}" />
+                                <MenuItem Header="Copy Path"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).CopyPathCommand}"
+                                          CommandParameter="{Binding}" />
+                                <Separator />
+                                <MenuItem Header="New Folder…"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).NewFolderCommand}" />
+                                <MenuItem Header="Delete"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).DeleteCommand}"
+                                          CommandParameter="{Binding}" />
+                                <Separator />
+                                <MenuItem Header="Go Up"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).GoUpCommand}" />
+                                <MenuItem Header="Home Folder"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).GoHomeCommand}" />
+                                <MenuItem Header="Refresh"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).RefreshCommand}" />
+                                <Separator />
+                                <MenuItem Header="Sort By">
+                                    <MenuItem Header="Name"
+                                              Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).SetSortNameCommand}" />
+                                    <MenuItem Header="Size"
+                                              Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).SetSortSizeCommand}" />
+                                    <MenuItem Header="Date Modified"
+                                              Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).SetSortModifiedCommand}" />
+                                    <MenuItem Header="Kind"
+                                              Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).SetSortKindCommand}" />
+                                    <Separator />
+                                    <MenuItem Header="Reverse Order"
+                                              Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).ToggleSortDirectionCommand}" />
+                                </MenuItem>
+                                <MenuItem Header="Show Hidden Files"
+                                          Command="{Binding $parent[ListBox].((vm:FinderTabViewModel)DataContext).ToggleShowHiddenCommand}" />
+                            </ContextMenu>
+                        </Grid.ContextMenu>
                         <controls:LineIcon Grid.Column="0" Kind="{Binding Glyph}" Width="16" Height="16" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                         <TextBlock Grid.Column="2" Text="{Binding SizeText}" Foreground="{DynamicResource AppSecondaryTextBrush}" HorizontalAlignment="Right" Margin="0,0,12,0" />

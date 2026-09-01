@@ -9,11 +9,16 @@
              x:Class="RemoteStuff.Views.SftpTabView"
              x:DataType="vm:SftpTabViewModel">
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
 
         <!-- Toolbar -->
         <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
-            <StackPanel Orientation="Horizontal" Spacing="3">
+            <WrapPanel Orientation="Horizontal">
+                <WrapPanel.Styles>
+                    <Style Selector="WrapPanel > :is(Control)">
+                        <Setter Property="Margin" Value="0,2,3,2" />
+                    </Style>
+                </WrapPanel.Styles>
                 <Button Content="{controls:Icon chevron-up}" FontSize="14" Padding="8,3" ToolTip.Tip="Up one folder" Command="{Binding GoUpCommand}" />
                 <Button Content="{controls:Icon refresh-cw}" FontSize="14" Padding="8,3" ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}" />
                 <Button Content="{controls:Icon bookmark}" FontSize="14" Padding="8,3" ToolTip.Tip="Saved paths" IsVisible="{Binding CanBookmark}">
@@ -82,7 +87,7 @@
                            ToolTip.Tip="{Binding MountStatus}" IsVisible="{Binding CanMount}" />
                 <ProgressBar IsIndeterminate="True" Width="80" Height="6"
                              IsVisible="{Binding IsBusy}" VerticalAlignment="Center" Margin="8,0,0,0" />
-            </StackPanel>
+            </WrapPanel>
         </Border>
 
         <!-- Breadcrumb + editable path -->
@@ -112,8 +117,24 @@
             </StackPanel>
         </Border>
 
+        <!-- Sort / filter bar -->
+        <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+            <WrapPanel Orientation="Horizontal">
+                <WrapPanel.Styles>
+                    <Style Selector="WrapPanel > :is(Control)">
+                        <Setter Property="Margin" Value="0,2,6,2" />
+                    </Style>
+                </WrapPanel.Styles>
+                <TextBlock Text="Sort:" Foreground="{DynamicResource AppMutedTextBrush}" VerticalAlignment="Center" />
+                <ComboBox MinWidth="110" ItemsSource="{Binding SortModes}"
+                          SelectedItem="{Binding SortMode, Mode=TwoWay}" />
+                <Button Content="{controls:Icon arrow-up-down}" Command="{Binding ToggleSortDirectionCommand}" ToolTip.Tip="Toggle sort direction" />
+                <TextBox Text="{Binding FilterText}" Watermark="Filter…" Width="160" />
+            </WrapPanel>
+        </Border>
+
         <!-- Reconnect / authentication bar (shown when the connection is down) -->
-        <Border Grid.Row="2" Background="#2A1F1F" BorderBrush="#5A3A3A" BorderThickness="1"
+        <Border Grid.Row="3" Background="#2A1F1F" BorderBrush="#5A3A3A" BorderThickness="1"
                 CornerRadius="6" Padding="14" Margin="16"
                 VerticalAlignment="Top" HorizontalAlignment="Stretch"
                 IsVisible="{Binding ShowReconnect}" ZIndex="10">
@@ -147,8 +168,9 @@
         </Border>
 
         <!-- Listing -->
-        <ListBox Grid.Row="2" x:Name="EntryList" ItemsSource="{Binding Entries}"
+        <ListBox Grid.Row="3" x:Name="EntryList" ItemsSource="{Binding Entries}"
                  SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
+                 SelectionMode="Multiple"
                  DoubleTapped="OnRowDoubleTapped" Background="{DynamicResource AppSurfaceBrush}"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemTemplate>
@@ -184,6 +206,30 @@
                                 <MenuItem Header="Delete"
                                           Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).DeleteCommand}"
                                           CommandParameter="{Binding}" />
+                                <Separator />
+                                <MenuItem Header="Go Up"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).GoUpCommand}" />
+                                <MenuItem Header="Refresh"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).RefreshCommand}" />
+                                <MenuItem Header="Upload…"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).UploadCommand}" />
+                                <MenuItem Header="Mount / Unmount Drive"
+                                          IsVisible="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).CanMount}"
+                                          Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).ToggleMountCommand}" />
+                                <Separator />
+                                <MenuItem Header="Sort By">
+                                    <MenuItem Header="Name"
+                                              Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).SetSortNameCommand}" />
+                                    <MenuItem Header="Size"
+                                              Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).SetSortSizeCommand}" />
+                                    <MenuItem Header="Date Modified"
+                                              Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).SetSortModifiedCommand}" />
+                                    <MenuItem Header="Kind"
+                                              Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).SetSortKindCommand}" />
+                                    <Separator />
+                                    <MenuItem Header="Reverse Order"
+                                              Command="{Binding $parent[ListBox].((vm:SftpTabViewModel)DataContext).ToggleSortDirectionCommand}" />
+                                </MenuItem>
                             </ContextMenu>
                         </Grid.ContextMenu>
                         <controls:LineIcon Grid.Column="0" Kind="{Binding Glyph}" Width="16" Height="16" VerticalAlignment="Center" />
@@ -198,7 +244,7 @@
         </ListBox>
 
         <!-- Status -->
-        <Border Grid.Row="3" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="10,4">
+        <Border Grid.Row="4" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0" Padding="10,4">
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <TextBlock Text="{Binding CurrentPath}" Foreground="#9FD3A0" FontFamily="Menlo, Consolas, monospace" />
                 <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource AppSecondaryTextBrush}" />

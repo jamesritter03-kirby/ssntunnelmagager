@@ -113,6 +113,10 @@ public sealed partial class NetworkTabViewModel : TabViewModel
     private readonly INetworkAdmin _admin;
     private readonly RemoteStuff.Services.AppSettings? _settings;
     private Services.DhcpServer? _dhcp;
+    private Services.RouterStatusServer? _statusServer;
+    // True while sharing is running via Windows ICS (the NetNat fallback), which fixes the
+    // LAN to 192.168.137.0/24 and provides its own DHCP + DNS.
+    private bool _icsActive;
 
     // Set while adapter selections are being restored from settings so that
     // reselecting an adapter doesn't clobber the remembered DNS / gateway text.
@@ -328,22 +332,99 @@ public sealed partial class NetworkTabViewModel : TabViewModel
         var down = DownstreamAdapter;
         var wasSharing = IsSharing;
         var prefix = MaskToPrefix(RouterSubnet.Trim());
-        var ok = await RunAdminAsync(() => wasSharing
+        var result = await RunAdminAsync(() => wasSharing
             ? _admin.StopSharingAsync(up, down)
             : _admin.StartSharingAsync(up, down, RouterIp.Trim(), prefix));
-        if (ok)
+        if (result.Ok)
         {
             IsSharing = !wasSharing;
-            // Publish active router state so the ZeroTier IP picker can show NAT clients.
-            ActiveRouter = IsSharing
-                ? new RouterState(RouterIp.Trim(), prefix)
-                : null;
-
             if (IsSharing)
-                StartDhcp(up, down);
+            {
+                _icsActive = result.Mode == "ics";
+                // Publish active router state so the ZeroTier IP picker can show NAT clients.
+                var effIp = _icsActive ? "192.168.137.1" : RouterIp.Trim();
+                var effPrefix = _icsActive ? 24 : prefix;
+                ActiveRouter = new RouterState(effIp, effPrefix);
+                // ICS runs its own DHCP + DNS; only start our DHCP for the WinNAT path.
+                if (!_icsActive)
+                    StartDhcp(up, down);
+                StartStatusServer();
+            }
             else
+            {
+                _icsActive = false;
+                ActiveRouter = null;
                 StopDhcp();
+                StopStatusServer();
+            }
         }
+    }
+
+    // Host a small localhost web page describing this computer's router role so the
+    // user can inspect the NAT config, DHCP state and connected clients in a browser.
+    private void StartStatusServer()
+    {
+        try
+        {
+            _statusServer?.Dispose();
+            _statusServer = new Services.RouterStatusServer();
+            _statusServer.Start(BuildStatusSnapshot);
+            AdminStatus = $"{AdminStatus}  •  Router status page: {_statusServer.Url}".Trim();
+        }
+        catch (Exception ex)
+        {
+            AdminStatus = $"Router active, but the status page failed to start ({ex.Message}).";
+        }
+    }
+
+    private void StopStatusServer()
+    {
+        try { _statusServer?.Dispose(); } catch { }
+        _statusServer = null;
+    }
+
+    private Services.RouterStatusSnapshot BuildStatusSnapshot()
+    {
+        var leases = _dhcp?.GetLeases() ?? new List<Services.DhcpServer.Lease>();
+        var clients = leases.Select(l => new Services.RouterClientRow(
+            l.Ip,
+            l.Mac,
+            string.IsNullOrWhiteSpace(l.Hostname) ? "—" : l.Hostname,
+            l.Expiry == default ? "—" : l.Expiry.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))).ToList();
+
+        var dns = ParseServers(DnsEditText).ToList();
+        if (dns.Count == 0 && UpstreamAdapter is { } up)
+            dns = UpstreamDnsServers(up);
+        // Under ICS the LAN is fixed to 192.168.137.0/24 and ICS supplies DHCP + DNS.
+        if (_icsActive)
+            return new Services.RouterStatusSnapshot
+            {
+                Running = IsSharing,
+                HostName = HostName,
+                Platform = AdminPlatform + " (ICS)",
+                RouterIp = "192.168.137.1",
+                Subnet = "255.255.255.0",
+                DhcpRange = "192.168.137.x (ICS-managed)",
+                UpstreamAdapter = UpstreamAdapter?.DisplayName ?? "\u2014",
+                DownstreamAdapter = DownstreamAdapter?.DisplayName ?? "\u2014",
+                DnsServers = "ICS-managed",
+                DhcpRunning = true,
+                Clients = clients
+            };
+        return new Services.RouterStatusSnapshot
+        {
+            Running = IsSharing,
+            HostName = HostName,
+            Platform = AdminPlatform,
+            RouterIp = RouterIp.Trim(),
+            Subnet = RouterSubnet.Trim(),
+            DhcpRange = $"{DhcpStart.Trim()} – {DhcpEnd.Trim()}",
+            UpstreamAdapter = UpstreamAdapter?.DisplayName ?? "—",
+            DownstreamAdapter = DownstreamAdapter?.DisplayName ?? "—",
+            DnsServers = dns.Count > 0 ? string.Join(", ", dns) : "—",
+            DhcpRunning = _dhcp?.IsRunning ?? false,
+            Clients = clients
+        };
     }
 
     // WinNAT sets the downstream interface to DHCP-Disabled and the gateway is not a
@@ -418,21 +499,21 @@ public sealed partial class NetworkTabViewModel : TabViewModel
         return 0;
     }
 
-    private async Task<bool> RunAdminAsync(Func<Task<AdminResult>> op)
+    private async Task<AdminResult> RunAdminAsync(Func<Task<AdminResult>> op)
     {
-        if (IsAdminBusy) return false;
+        if (IsAdminBusy) return AdminResult.Fail("Another privileged operation is in progress.");
         IsAdminBusy = true;
         AdminStatus = "Waiting for administrator authorization…";
         try
         {
             var result = await op();
             AdminStatus = result.Message;
-            return result.Ok;
+            return result;
         }
         catch (Exception ex)
         {
             AdminStatus = ex.Message;
-            return false;
+            return AdminResult.Fail(ex.Message);
         }
         finally
         {
@@ -669,6 +750,7 @@ public sealed partial class NetworkTabViewModel : TabViewModel
     public override void Dispose()
     {
         StopDhcp();
+        StopStatusServer();
         base.Dispose();
     }
 

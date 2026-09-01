@@ -104,7 +104,7 @@ struct SFTPBrowserView: View {
     // MARK: - Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 10) {
+        FlowLayout(horizontalSpacing: 10, verticalSpacing: 6) {
             Button { client.goUp() } label: { Image(systemName: "chevron.up") }
                 .help("Go up one folder")
                 .disabled(!client.isConnected)
@@ -113,7 +113,10 @@ struct SFTPBrowserView: View {
 
             bookmarksMenu
 
-            Spacer(minLength: 8)
+            filterField
+            viewOptionsMenu
+
+            toolbarSeparator
 
             Button { client.refresh() } label: { Image(systemName: "arrow.clockwise") }
                 .help("Refresh").disabled(!client.isConnected)
@@ -132,7 +135,7 @@ struct SFTPBrowserView: View {
             Button(role: .destructive) { confirmDelete(selectedEntries) } label: { Image(systemName: "trash") }
                 .help("Delete selected").disabled(selectedEntries.isEmpty)
 
-            Divider().frame(height: 16)
+            toolbarSeparator
             mountButton
 
             if client.isBusy {
@@ -143,6 +146,132 @@ struct SFTPBrowserView: View {
         .padding(.vertical, 6)
         .buttonStyle(.borderless)
         .background(.bar)
+    }
+
+    /// A short vertical rule used between toolbar clusters (a plain `Divider`
+    /// has no intrinsic width, so it can't be placed by `FlowLayout`).
+    private var toolbarSeparator: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.3))
+            .frame(width: 1, height: 16)
+    }
+
+    /// Inline name filter. Typing narrows the listing live; the x clears it.
+    private var filterField: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.caption)
+                .foregroundStyle(client.hasActiveFilter ? Color.accentColor : Color.secondary)
+            TextField("Filter", text: $client.filterText)
+                .textFieldStyle(.plain)
+                .frame(width: 92)
+            if !client.filterText.isEmpty {
+                Button { client.filterText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Clear filter")
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.55), in: Capsule())
+        .overlay(Capsule().strokeBorder(.secondary.opacity(0.25)))
+        .help("Filter items in this folder by name")
+        .disabled(!client.isConnected)
+    }
+
+    /// Sort field/direction plus a kind filter, all in one popover menu.
+    private var viewOptionsMenu: some View {
+        Menu {
+            sortFilterMenuContent
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Sort and filter")
+        .disabled(!client.isConnected)
+    }
+
+    /// The shared sort/filter controls, reused by the toolbar menu and the
+    /// right-click menus so both offer the same options.
+    @ViewBuilder
+    private var sortFilterMenuContent: some View {
+        Section("Sort By") {
+            Picker("Sort By", selection: $client.sortField) {
+                ForEach(FileSortField.allCases) { field in
+                    Label(field.title, systemImage: field.systemImage).tag(field)
+                }
+            }
+            .pickerStyle(.inline)
+            Picker("Order", selection: $client.sortAscending) {
+                Label("Ascending", systemImage: "arrow.up").tag(true)
+                Label("Descending", systemImage: "arrow.down").tag(false)
+            }
+            .pickerStyle(.inline)
+            Toggle("Keep Folders on Top", isOn: $client.foldersFirst)
+        }
+        Section("Show") {
+            Picker("Show", selection: $client.kindFilter) {
+                ForEach(FileKindFilter.allCases) { f in
+                    Label(f.title, systemImage: f.systemImage).tag(f)
+                }
+            }
+            .pickerStyle(.inline)
+        }
+        if client.hasActiveFilter {
+            Divider()
+            Button { client.clearFilter() } label: {
+                Label("Clear Filter", systemImage: "xmark.circle")
+            }
+        }
+    }
+
+    /// Clickable column header. Clicking a column sorts by it; clicking the
+    /// active column again flips the direction. Widths match `SFTPRow`.
+    private var listHeader: some View {
+        HStack(spacing: 10) {
+            Color.clear.frame(width: 18, height: 1)
+            sortHeader("Name", field: .name, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            sortHeader("Size", field: .size, alignment: .trailing)
+                .frame(width: 76)
+            sortHeader("Modified", field: .modified, alignment: .trailing)
+                .frame(width: 116)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .background(.bar)
+    }
+
+    private func sortHeader(_ title: String, field: FileSortField,
+                            alignment: Alignment) -> some View {
+        Button {
+            if client.sortField == field {
+                client.sortAscending.toggle()
+            } else {
+                client.sortField = field
+                client.sortAscending = true
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text(title)
+                Image(systemName: client.sortAscending ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .opacity(client.sortField == field ? 1 : 0)
+            }
+            .frame(maxWidth: .infinity, alignment: alignment)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Sort by \(title.lowercased())")
+        .disabled(!client.isConnected)
     }
 
     private var pathMenu: some View {
@@ -158,7 +287,9 @@ struct SFTPBrowserView: View {
             }
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
+        // Capped (not fixedSize) so a long path truncates and the flow toolbar
+        // can wrap it instead of it forcing the whole bar wider than the panel.
+        .frame(maxWidth: 260)
         .help("Jump to a parent folder")
         .disabled(!client.isConnected)
     }
@@ -306,36 +437,53 @@ struct SFTPBrowserView: View {
             onFiles: { urls, point in handleDroppedFiles(urls, at: point) },
             onHover: { point in updateDropHighlight(point) }
         ) {
-            ZStack {
-                List(selection: $selection) {
-                    ForEach(client.entries) { entry in
-                        entryRow(entry)
+            // Header + list share one coordinate space so a drop point (reported
+            // by the AppKit container in its own top‑left coords) still maps to
+            // the right folder row once the header shifts the list down.
+            VStack(spacing: 0) {
+                listHeader
+                Divider()
+                ZStack {
+                    List(selection: $selection) {
+                        ForEach(client.entries) { entry in
+                            entryRow(entry)
+                        }
                     }
-                }
-                .listStyle(.inset)
-                // Let the Delete key remove whatever is selected (one row or many).
-                .onDeleteCommand { confirmDelete(selectedEntries) }
-                // Right-click in empty space → folder-wide actions (incl. Refresh).
-                .contextMenu { listBackgroundMenu }
+                    .listStyle(.inset)
+                    // Let the Delete key remove whatever is selected (one row or many).
+                    .onDeleteCommand { confirmDelete(selectedEntries) }
+                    // Right-click in empty space → folder-wide actions (incl. Refresh).
+                    .contextMenu { listBackgroundMenu }
 
-                if client.entries.isEmpty && !client.isBusy {
-                    EmptyStateView(icon: "folder",
-                                   title: "This folder is empty",
-                                   message: "Drag files here to upload")
-                }
+                    if client.entries.isEmpty && !client.isBusy {
+                        EmptyStateView(icon: client.hasActiveFilter
+                                       ? "line.3.horizontal.decrease.circle"
+                                       : "folder",
+                                       title: client.hasActiveFilter
+                                       ? "No items match your filter"
+                                       : "This folder is empty",
+                                       message: client.hasActiveFilter
+                                       ? nil : "Drag files here to upload") {
+                            if client.hasActiveFilter {
+                                Button("Clear Filter") { client.clearFilter() }
+                                    .buttonStyle(.link)
+                            }
+                        }
+                    }
 
-                if isDropTargeted {
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(Color.accentColor, lineWidth: 3)
-                        .background(Color.accentColor.opacity(0.08).clipShape(RoundedRectangle(cornerRadius: 10)))
-                        .overlay(
-                            Label("Drop to upload to \(client.currentPath)", systemImage: "arrow.down.doc.fill")
-                                .font(.title3.weight(.semibold))
-                                .padding(14)
-                                .background(.regularMaterial, in: Capsule())
-                        )
-                        .padding(6)
-                        .allowsHitTesting(false)
+                    if isDropTargeted {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(Color.accentColor, lineWidth: 3)
+                            .background(Color.accentColor.opacity(0.08).clipShape(RoundedRectangle(cornerRadius: 10)))
+                            .overlay(
+                                Label("Drop to upload to \(client.currentPath)", systemImage: "arrow.down.doc.fill")
+                                    .font(.title3.weight(.semibold))
+                                    .padding(14)
+                                    .background(.regularMaterial, in: Capsule())
+                            )
+                            .padding(6)
+                            .allowsHitTesting(false)
+                    }
                 }
             }
             .coordinateSpace(name: Self.dropSpace)
@@ -417,9 +565,12 @@ struct SFTPBrowserView: View {
             Label(targets.count > 1 ? "Delete \(targets.count) Items" : "Delete", systemImage: "trash")
         }
         Divider()
-        Button { newFileName = ""; showNewFile = true } label: { Label("New File…", systemImage: "doc.badge.plus") }
-        Button { newFolderName = ""; showNewFolder = true } label: { Label("New Folder…", systemImage: "folder.badge.plus") }
-        Button { client.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+        sftpCommandButtons
+        Menu {
+            sortFilterMenuContent
+        } label: {
+            Label("Sort & Filter", systemImage: "slider.horizontal.3")
+        }
     }
 
     // MARK: - State screens
@@ -553,18 +704,36 @@ struct SFTPBrowserView: View {
     /// Folder-wide actions for the empty-area right-click menu.
     @ViewBuilder
     private var listBackgroundMenu: some View {
-        Button { client.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+        sftpCommandButtons
+        Divider()
+        Menu {
+            sortFilterMenuContent
+        } label: {
+            Label("Sort & Filter", systemImage: "slider.horizontal.3")
+        }
+    }
+
+    /// The folder-wide toolbar actions, inlined into both the row menu and the
+    /// empty-area background menu so every toolbar option is right-clickable.
+    @ViewBuilder
+    private var sftpCommandButtons: some View {
+        Button { client.goUp() } label: { Label("Go Up", systemImage: "chevron.up") }
             .disabled(!client.isConnected)
-        Button { newFileName = ""; showNewFile = true } label: { Label("New File", systemImage: "doc.badge.plus") }
+        Divider()
+        Button { newFileName = ""; showNewFile = true } label: { Label("New File…", systemImage: "doc.badge.plus") }
             .disabled(!client.isConnected)
-        Button { newFolderName = ""; showNewFolder = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
+        Button { newFolderName = ""; showNewFolder = true } label: { Label("New Folder…", systemImage: "folder.badge.plus") }
             .disabled(!client.isConnected)
         Button { chooseAndUpload() } label: { Label("Upload…", systemImage: "arrow.up.doc") }
+            .disabled(!client.isConnected)
+        Button { client.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
             .disabled(!client.isConnected)
         if mounter.canMount {
             Divider()
             mountMenuItem
         }
+        Divider()
+        Button { showLog = true } label: { Label("Show Log", systemImage: "doc.plaintext") }
     }
 
     /// An invisible button binding F5 to Refresh, active only on the selected tab

@@ -106,8 +106,19 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
     }
 
     @Published private(set) var phase: Phase = .idle
+    /// The full, unfiltered listing of the current folder (the raw `ls -la` parse).
+    @Published private(set) var allEntries: [SFTPEntry] = []
+    /// The rows actually shown: `allEntries` after the active filter, then sort.
     @Published private(set) var entries: [SFTPEntry] = []
     @Published private(set) var currentPath: String = ""
+
+    // Sort + filter options. Changing any of these re-derives `entries` from the
+    // already-loaded `allEntries`, so no extra server round-trip is needed.
+    @Published var sortField: FileSortField = .name { didSet { applyView() } }
+    @Published var sortAscending = true { didSet { applyView() } }
+    @Published var foldersFirst = true { didSet { applyView() } }
+    @Published var kindFilter: FileKindFilter = .all { didSet { applyView() } }
+    @Published var filterText = "" { didSet { applyView() } }
     @Published private(set) var transcript: String = ""
     @Published var statusMessage: String = ""
     @Published var errorMessage: String?
@@ -193,6 +204,7 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         didAutofillPassword = false
         handlingAuthPrompt = false
         entries = []
+        allEntries = []
         errorMessage = nil
         phase = .connecting
         statusMessage = "Connecting…"
@@ -403,8 +415,72 @@ final class SFTPClient: NSObject, ObservableObject, LocalProcessDelegate {
         }
         runCommand("ls -la") { [weak self] out in
             guard let self else { return }
-            self.entries = SFTPClient.parseListing(out)
+            self.allEntries = SFTPClient.parseListing(out)
+            self.applyView()
             self.statusMessage = self.defaultStatus()
+        }
+    }
+
+    // MARK: - View options
+
+    /// Whether a name or kind filter is currently narrowing the listing.
+    var hasActiveFilter: Bool {
+        kindFilter != .all || !filterText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Reset both the text and kind filters (keeps the chosen sort).
+    func clearFilter() {
+        filterText = ""
+        kindFilter = .all
+    }
+
+    /// Re-derive the visible `entries` by applying the active filter and sort to
+    /// `allEntries`. Purely in-memory, so it runs on every view-option change
+    /// without another server round-trip.
+    private func applyView() {
+        var result = allEntries
+
+        switch kindFilter {
+        case .all:     break
+        case .folders: result = result.filter { $0.isDirectory }
+        case .files:   result = result.filter { !$0.isDirectory }
+        }
+
+        let needle = filterText.trimmingCharacters(in: .whitespaces)
+        if !needle.isEmpty {
+            result = result.filter { $0.name.localizedCaseInsensitiveContains(needle) }
+        }
+
+        result.sort { a, b in
+            // Keep folders grouped above files when asked, regardless of direction.
+            if foldersFirst && a.isDirectory != b.isDirectory { return a.isDirectory }
+            return sortAscending
+                ? SFTPClient.precedes(a, b, by: sortField)
+                : SFTPClient.precedes(b, a, by: sortField)
+        }
+        entries = result
+    }
+
+    /// Ascending ordering of two entries by a field; ties fall back to a natural
+    /// name compare so the order stays stable.
+    private static func precedes(_ a: SFTPEntry, _ b: SFTPEntry,
+                                 by field: FileSortField) -> Bool {
+        func byName() -> Bool {
+            a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+        switch field {
+        case .name:
+            return byName()
+        case .size:
+            return a.size == b.size ? byName() : a.size < b.size
+        case .modified:
+            let c = a.modified.localizedStandardCompare(b.modified)
+            return c == .orderedSame ? byName() : c == .orderedAscending
+        case .kind:
+            let ea = (a.name as NSString).pathExtension.lowercased()
+            let eb = (b.name as NSString).pathExtension.lowercased()
+            return ea == eb ? byName()
+                            : ea.localizedStandardCompare(eb) == .orderedAscending
         }
     }
 

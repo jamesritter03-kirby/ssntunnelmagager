@@ -87,6 +87,54 @@ public static class DialogService
         return await dlg.ShowDialog<bool>(owner);
     }
 
+    /// <summary>Show a modal message with several option buttons. Returns the index of the
+    /// clicked button; a closed/dismissed dialog resolves to the last option (treated as
+    /// Cancel). The first option is the default, the last is the Esc/close action.</summary>
+    public static async Task<int> ChooseAsync(string title, string prompt, IReadOnlyList<string> options)
+    {
+        if (Top is not Window owner || options.Count == 0) return options.Count - 1;
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+
+        Window? dlg = null;
+        for (int i = 0; i < options.Count; i++)
+        {
+            int idx = i;
+            var b = new Button
+            {
+                Content = options[i],
+                MinWidth = 72,
+                IsDefault = i == 0,
+                IsCancel = i == options.Count - 1
+            };
+            b.Click += (_, _) => dlg!.Close(idx);
+            buttons.Children.Add(b);
+        }
+
+        var panel = new StackPanel { Margin = new Thickness(16), Spacing = 8 };
+        panel.Children.Add(new TextBlock { Text = prompt, MaxWidth = 420, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        panel.Children.Add(buttons);
+
+        dlg = new Window
+        {
+            Title = title,
+            Content = panel,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false
+        };
+
+        var result = await dlg.ShowDialog<int?>(owner);
+        return result ?? options.Count - 1;
+    }
+
     /// <summary>Show a small modal text prompt. Returns the entered text, or null if cancelled.</summary>
     public static async Task<string?> PromptTextAsync(string title, string prompt, string initial = "")
     {

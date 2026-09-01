@@ -73,11 +73,18 @@ internal sealed class WindowsNetworkAdmin : INetworkAdmin
         var network = NetAdminUtil.NetworkAddress(routerIp, prefixLength);
         if (network is null)
             return Task.FromResult(AdminResult.Fail("Invalid router IP or prefix length."));
+        return StartSharingCoreAsync(upstream, downstream, routerIp, prefixLength, network);
+    }
+
+    private async Task<AdminResult> StartSharingCoreAsync(NetAdapter upstream, NetAdapter downstream,
+        string routerIp, int prefixLength, string network)
+    {
         var up = Ps(upstream.Device);
         var down = Ps(downstream.Device);
         var internalPrefix = $"{network}/{prefixLength}";
         // Ported from PC_Shared_Network_Manager/NatSharingService — handles ICS conflicts,
-        // APIPA cleanup and DAD disable that the simple version missed.
+        // APIPA cleanup and DAD disable that the simple version missed. Uses WinNAT when its
+        // WMI class is registered, else falls back to Windows ICS (which forces 192.168.137.0/24).
         var script = $@"
 $ErrorActionPreference = 'Stop'
 
@@ -95,45 +102,138 @@ try {{
     }}
 }} catch {{}}
 
-$priv = Get-NetAdapter -Name '{down}' -ErrorAction Stop
-$pub  = Get-NetAdapter -Name '{up}'  -ErrorAction Stop
+# 2. Choose the sharing mechanism: WinNAT if its WMI class is registered, else ICS.
+$hasNat = $true
+try {{ Get-NetNat -ErrorAction Stop | Out-Null }} catch {{ if ($_.Exception.Message -match 'Invalid class') {{ $hasNat = $false }} }}
 
-# 2. Assign a clean static gateway IP on the private adapter.
-Get-NetIPAddress -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-    ForEach-Object {{ Remove-NetIPAddress -IPAddress $_.IPAddress -InterfaceIndex $priv.ifIndex -Confirm:$false -ErrorAction SilentlyContinue }}
-Remove-NetRoute -InterfaceIndex $priv.ifIndex -Confirm:$false -ErrorAction SilentlyContinue
-Set-NetIPInterface -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -Dhcp Disabled -ErrorAction SilentlyContinue
-# Disable DAD so the gateway IP is never falsely marked Duplicate by L2-overlay reflections.
-Set-NetIPInterface -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -DadTransmits 0 -ErrorAction SilentlyContinue
-New-NetIPAddress -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -IPAddress '{Ps(routerIp)}' -PrefixLength {prefixLength} -ErrorAction Stop | Out-Null
-Get-NetIPAddress -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-    Where-Object {{ $_.IPAddress -like '169.254.*' }} |
-    ForEach-Object {{ Remove-NetIPAddress -IPAddress $_.IPAddress -InterfaceIndex $priv.ifIndex -Confirm:$false -ErrorAction SilentlyContinue }}
+if ($hasNat) {{
+    $priv = Get-NetAdapter -Name '{down}' -ErrorAction Stop
+    $pub  = Get-NetAdapter -Name '{up}'  -ErrorAction Stop
 
-# 3. Enable forwarding on both adapters.
-Set-NetIPInterface -InterfaceIndex $priv.ifIndex -Forwarding Enabled -ErrorAction SilentlyContinue
-Set-NetIPInterface -InterfaceIndex $pub.ifIndex  -Forwarding Enabled -ErrorAction SilentlyContinue
+    # Assign a clean static gateway IP on the private adapter.
+    Get-NetIPAddress -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        ForEach-Object {{ Remove-NetIPAddress -IPAddress $_.IPAddress -InterfaceIndex $priv.ifIndex -Confirm:$false -ErrorAction SilentlyContinue }}
+    Remove-NetRoute -InterfaceIndex $priv.ifIndex -Confirm:$false -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -Dhcp Disabled -ErrorAction SilentlyContinue
+    # Disable DAD so the gateway IP is never falsely marked Duplicate by L2-overlay reflections.
+    Set-NetIPInterface -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -DadTransmits 0 -ErrorAction SilentlyContinue
+    New-NetIPAddress -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -IPAddress '{Ps(routerIp)}' -PrefixLength {prefixLength} -ErrorAction Stop | Out-Null
+    Get-NetIPAddress -InterfaceIndex $priv.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object {{ $_.IPAddress -like '169.254.*' }} |
+        ForEach-Object {{ Remove-NetIPAddress -IPAddress $_.IPAddress -InterfaceIndex $priv.ifIndex -Confirm:$false -ErrorAction SilentlyContinue }}
 
-# 4. (Re)create the WinNAT instance.
-Get-NetNat -Name '{NatName}' -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
-New-NetNat -Name '{NatName}' -InternalIPInterfaceAddressPrefix '{internalPrefix}' -ErrorAction Stop | Out-Null
+    # Enable forwarding on both adapters.
+    Set-NetIPInterface -InterfaceIndex $priv.ifIndex -Forwarding Enabled -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceIndex $pub.ifIndex  -Forwarding Enabled -ErrorAction SilentlyContinue
 
-Write-Output 'NAT_OK'
+    # Ensure the WinNAT service is running so its MSFT_NetNat class is available.
+    try {{
+        Set-Service -Name WinNat -StartupType Manual -ErrorAction SilentlyContinue
+        Start-Service -Name WinNat -ErrorAction SilentlyContinue
+    }} catch {{}}
+
+    Get-NetNat -Name '{NatName}' -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
+    try {{
+        New-NetNat -Name '{NatName}' -InternalIPInterfaceAddressPrefix '{internalPrefix}' -ErrorAction Stop | Out-Null
+        Write-Output 'NAT_OK'
+    }} catch {{
+        Write-Output ('NAT_ERR:' + $_.Exception.Message)
+        exit 1
+    }}
+}} else {{
+    # WinNAT's WMI class isn't registered on this Windows install: fall back to ICS.
+    # ICS assigns 192.168.137.1/24 to the private adapter and runs its own DHCP + DNS.
+    try {{
+        Set-Service -Name SharedAccess -StartupType Manual -ErrorAction SilentlyContinue
+        Start-Service -Name SharedAccess -ErrorAction SilentlyContinue
+    }} catch {{}}
+    $m2 = New-Object -ComObject HNetCfg.HNetShare
+    $pubC = $null; $privC = $null
+    foreach ($c in $m2.EnumEveryConnection) {{
+        $p = $m2.NetConnectionProps($c)
+        if ($p.Name -eq '{up}')   {{ $pubC = $c }}
+        if ($p.Name -eq '{down}') {{ $privC = $c }}
+    }}
+    if (-not $pubC -or -not $privC) {{ Write-Output 'ICS_ERR:Could not find the selected adapters for ICS.'; exit 1 }}
+    try {{
+        # 0 = ICSSHARINGTYPE_PUBLIC (internet), 1 = ICSSHARINGTYPE_PRIVATE (LAN).
+        $m2.INetSharingConfigurationForINetConnection($pubC).EnableSharing(0)
+        $m2.INetSharingConfigurationForINetConnection($privC).EnableSharing(1)
+        Write-Output 'ICS_OK'
+    }} catch {{
+        Write-Output ('ICS_ERR:' + $_.Exception.Message)
+        exit 1
+    }}
+}}
 ";
-        return RunElevatedAsync(script, $"Router active: {routerIp}/{prefixLength} on {downstream.Device}.",
-            successToken: "NAT_OK");
+        var (ok, output) = await RunElevatedRawAsync(script);
+
+        if (output.Contains("NAT_OK", StringComparison.Ordinal))
+            return new AdminResult
+            {
+                Ok = true,
+                Mode = "winnat",
+                Message = $"Router active: {routerIp}/{prefixLength} on {downstream.Device}."
+            };
+        if (output.Contains("ICS_OK", StringComparison.Ordinal))
+            return new AdminResult
+            {
+                Ok = true,
+                Mode = "ics",
+                Message = $"Router active via Windows Internet Connection Sharing on {downstream.Device} "
+                          + "(NetNat unavailable — clients get 192.168.137.x)."
+            };
+
+        // Failure: give an accurate message for the missing-WMI-class case.
+        if (output.Contains("Invalid class", StringComparison.OrdinalIgnoreCase)
+            || output.Contains("MSFT_NetNat", StringComparison.OrdinalIgnoreCase))
+        {
+            return AdminResult.Fail(
+                "Windows NAT (WinNAT) isn't available on this PC — its 'MSFT_NetNat' WMI class isn't registered "
+                + "in the system — and the ICS fallback also failed. Repairing the OS may restore it:  "
+                + "DISM /Online /Cleanup-Image /RestoreHealth  then  sfc /scannow  (run elevated), then retry.");
+        }
+        return AdminResult.Fail(output.Length == 0 ? "Command failed." : output);
     }
 
     public Task<AdminResult> StopSharingAsync(NetAdapter upstream, NetAdapter downstream)
     {
+        var up = Ps(upstream.Device);
         var down = Ps(downstream.Device);
-        var script =
-            $"Remove-NetNat -Name '{NatName}' -Confirm:$false -ErrorAction SilentlyContinue; " +
-            $"Set-NetIPInterface -InterfaceAlias '{down}' -Forwarding Disabled -ErrorAction SilentlyContinue";
-        return RunElevatedAsync(script, "Sharing stopped.");
+        // Tear down whichever mechanism is active: remove the WinNAT instance (if any) and
+        // disable ICS on both adapters, then drop forwarding on the downstream side.
+        var script = $@"
+Remove-NetNat -Name '{NatName}' -Confirm:$false -ErrorAction SilentlyContinue
+try {{
+    $m = New-Object -ComObject HNetCfg.HNetShare
+    foreach ($c in $m.EnumEveryConnection) {{
+        try {{
+            $nm = $m.NetConnectionProps($c).Name
+            if ($nm -eq '{up}' -or $nm -eq '{down}') {{
+                $cf = $m.INetSharingConfigurationForINetConnection($c)
+                if ($cf.SharingEnabled) {{ $cf.DisableSharing() }}
+            }}
+        }} catch {{}}
+    }}
+}} catch {{}}
+Set-NetIPInterface -InterfaceAlias '{down}' -Forwarding Disabled -ErrorAction SilentlyContinue
+Write-Output 'STOP_OK'
+";
+        return RunElevatedAsync(script, "Sharing stopped.", successToken: "STOP_OK");
     }
 
     private static async Task<AdminResult> RunElevatedAsync(string psScript, string okMessage, string? successToken = null)
+    {
+        var (ok, output) = await RunElevatedRawAsync(psScript);
+        var success = successToken is null ? ok : output.Contains(successToken, StringComparison.Ordinal);
+        return success
+            ? AdminResult.Success(okMessage)
+            : AdminResult.Fail(output.Length == 0 ? "Command failed." : output);
+    }
+
+    /// <summary>Run a PowerShell script elevated (UAC) and return its success flag plus the
+    /// captured stdout+stderr, so callers can branch on tokens the script writes.</summary>
+    private static async Task<(bool Ok, string Output)> RunElevatedRawAsync(string psScript)
     {
         string scriptPath = Path.Combine(Path.GetTempPath(), $"remotestuff-{Guid.NewGuid():N}.ps1");
         string outPath = Path.Combine(Path.GetTempPath(), $"remotestuff-{Guid.NewGuid():N}.out");
@@ -149,23 +249,18 @@ Write-Output 'NAT_OK'
                 CreateNoWindow = true
             };
             using var proc = Process.Start(psi);
-            if (proc is null) return AdminResult.Fail("Could not start elevated process.");
+            if (proc is null) return (false, "Could not start elevated process.");
             await proc.WaitForExitAsync();
             var output = File.Exists(outPath) ? (await File.ReadAllTextAsync(outPath)).Trim() : "";
-            // A success token (e.g. "NAT_OK") is more reliable than the exit code, which some
-            // cmdlets leave non-zero even after the operation succeeded.
-            var ok = successToken is null ? proc.ExitCode == 0 : output.Contains(successToken, StringComparison.Ordinal);
-            return ok
-                ? AdminResult.Success(okMessage)
-                : AdminResult.Fail(output.Length == 0 ? "Command failed." : output);
+            return (proc.ExitCode == 0, output);
         }
         catch (Win32Exception)
         {
-            return AdminResult.Fail("Cancelled.");
+            return (false, "Cancelled.");
         }
         catch (Exception ex)
         {
-            return AdminResult.Fail(ex.Message);
+            return (false, ex.Message);
         }
         finally
         {

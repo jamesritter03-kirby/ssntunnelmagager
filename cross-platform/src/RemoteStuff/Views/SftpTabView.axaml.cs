@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -22,6 +24,7 @@ public partial class SftpTabView : UserControl
     private Point _pressPos;
     private bool _dragArmed;
     private SftpEntryViewModel? _pressEntry;
+    private readonly List<SftpEntryViewModel> _dragEntries = new();
 
     public SftpTabView()
     {
@@ -54,11 +57,27 @@ public partial class SftpTabView : UserControl
     private void OnListPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         var pt = e.GetCurrentPoint(sender as Visual);
-        if (!pt.Properties.IsLeftButtonPressed) { _dragArmed = false; return; }
+        if (!pt.Properties.IsLeftButtonPressed) { _dragArmed = false; _dragEntries.Clear(); return; }
         _pressEntry = (e.Source as Control)?.DataContext as SftpEntryViewModel
                       ?? FindEntry(e.Source as Visual);
         _pressPos = pt.Position;
-        _dragArmed = _pressEntry is { IsParent: false };
+
+        // Capture the selection now: this Tunnel handler runs before the ListBox updates
+        // its selection for this press, so grabbing a row that's part of a multi-selection
+        // still carries the whole set, while grabbing an unselected row drags just it.
+        _dragEntries.Clear();
+        if (_pressEntry is { IsParent: false })
+        {
+            var selected = (sender as ListBox)?.SelectedItems?
+                .OfType<SftpEntryViewModel>()
+                .Where(x => !x.IsParent)
+                .ToList() ?? new List<SftpEntryViewModel>();
+            if (selected.Count > 1 && selected.Contains(_pressEntry))
+                _dragEntries.AddRange(selected);
+            else
+                _dragEntries.Add(_pressEntry);
+        }
+        _dragArmed = _dragEntries.Count > 0;
     }
 
     private async void OnListPointerMoved(object? sender, PointerEventArgs e)
@@ -71,7 +90,7 @@ public partial class SftpTabView : UserControl
         _dragArmed = false;
 
         var data = new DataObject();
-        data.Set(SftpDragFormat, new SftpDragData(_vm, _pressEntry));
+        data.Set(SftpDragFormat, new SftpDragData(_vm, _dragEntries.ToList()));
         try { await DragDrop.DoDragDrop(e, data, DragDropEffects.Copy); }
         catch { /* drag cancelled */ }
     }
@@ -102,9 +121,10 @@ public partial class SftpTabView : UserControl
         // otherwise be unhandled and abort the whole process. Contain it here.
         try
         {
-            if (e.Data.Get(LocalPathFormat) is string localPath)
+            if (e.Data.Get(LocalPathFormat) is IEnumerable<string> localPaths)
             {
-                await vm.UploadLocalPathAsync(localPath);
+                foreach (var p in localPaths)
+                    await vm.UploadLocalPathAsync(p);
             }
             else if (e.Data.GetFiles() is { } files)
             {

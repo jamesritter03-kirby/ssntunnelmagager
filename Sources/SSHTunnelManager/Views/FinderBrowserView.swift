@@ -486,7 +486,7 @@ struct FinderBrowserView: View {
     // MARK: - Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 10) {
+        FlowLayout(horizontalSpacing: 10, verticalSpacing: 6) {
             Button { browser.goUp() } label: { Image(systemName: "chevron.up") }
                 .help("Go up one folder")
             Button { browser.goHome() } label: { Image(systemName: "house") }
@@ -496,12 +496,10 @@ struct FinderBrowserView: View {
 
             bookmarksMenu
 
-            Spacer(minLength: 8)
-
             filterField
             viewOptionsMenu
 
-            Divider().frame(height: 16)
+            toolbarSeparator
 
             Button { browser.reload() } label: { Image(systemName: "arrow.clockwise") }
                 .help("Refresh")
@@ -520,6 +518,14 @@ struct FinderBrowserView: View {
         .padding(.vertical, 6)
         .buttonStyle(.borderless)
         .background(.bar)
+    }
+
+    /// A short vertical rule used between toolbar clusters (a plain `Divider`
+    /// has no intrinsic width, so it can't be placed by `FlowLayout`).
+    private var toolbarSeparator: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.3))
+            .frame(width: 1, height: 16)
     }
 
     /// Inline name filter. Typing narrows the listing live; the x clears it.
@@ -551,28 +557,7 @@ struct FinderBrowserView: View {
     /// Sort field/direction plus a kind filter, all in one popover menu.
     private var viewOptionsMenu: some View {
         Menu {
-            Section("Sort By") {
-                Picker("Sort By", selection: $browser.sortField) {
-                    ForEach(FileSortField.allCases) { field in
-                        Label(field.title, systemImage: field.systemImage).tag(field)
-                    }
-                }
-                .pickerStyle(.inline)
-                Picker("Order", selection: $browser.sortAscending) {
-                    Label("Ascending", systemImage: "arrow.up").tag(true)
-                    Label("Descending", systemImage: "arrow.down").tag(false)
-                }
-                .pickerStyle(.inline)
-                Toggle("Keep Folders on Top", isOn: $browser.foldersFirst)
-            }
-            Section("Show") {
-                Picker("Show", selection: $browser.kindFilter) {
-                    ForEach(FileKindFilter.allCases) { f in
-                        Label(f.title, systemImage: f.systemImage).tag(f)
-                    }
-                }
-                .pickerStyle(.inline)
-            }
+            sortFilterMenuContent
         } label: {
             Image(systemName: "slider.horizontal.3")
         }
@@ -580,6 +565,80 @@ struct FinderBrowserView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Sort and filter")
+    }
+
+    /// The shared sort/filter controls, reused by the toolbar menu and the
+    /// right-click menus so both offer the same options.
+    @ViewBuilder
+    private var sortFilterMenuContent: some View {
+        Section("Sort By") {
+            Picker("Sort By", selection: $browser.sortField) {
+                ForEach(FileSortField.allCases) { field in
+                    Label(field.title, systemImage: field.systemImage).tag(field)
+                }
+            }
+            .pickerStyle(.inline)
+            Picker("Order", selection: $browser.sortAscending) {
+                Label("Ascending", systemImage: "arrow.up").tag(true)
+                Label("Descending", systemImage: "arrow.down").tag(false)
+            }
+            .pickerStyle(.inline)
+            Toggle("Keep Folders on Top", isOn: $browser.foldersFirst)
+        }
+        Section("Show") {
+            Picker("Show", selection: $browser.kindFilter) {
+                ForEach(FileKindFilter.allCases) { f in
+                    Label(f.title, systemImage: f.systemImage).tag(f)
+                }
+            }
+            .pickerStyle(.inline)
+        }
+        if browser.hasActiveFilter {
+            Divider()
+            Button { browser.clearFilter() } label: {
+                Label("Clear Filter", systemImage: "xmark.circle")
+            }
+        }
+    }
+
+    /// The folder-wide toolbar actions, inlined into both the row menu and the
+    /// empty-area background menu so every toolbar option is right-clickable.
+    @ViewBuilder
+    private var folderActionButtons: some View {
+        Button { browser.goUp() } label: { Label("Go Up", systemImage: "chevron.up") }
+        Button { browser.goHome() } label: { Label("Home Folder", systemImage: "house") }
+        Divider()
+        Button { showNewFolder = true } label: { Label("New Folder…", systemImage: "folder.badge.plus") }
+        Button { browser.reload() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+        Button { browser.showHidden.toggle() } label: {
+            Label(browser.showHidden ? "Hide Hidden Files" : "Show Hidden Files",
+                  systemImage: browser.showHidden ? "eye.slash" : "eye")
+        }
+        Divider()
+        Button { browser.revealInFinder([]) } label: {
+            Label("Reveal Folder in Finder", systemImage: "arrow.up.forward.app")
+        }
+        if bookmarks.contains(path: browser.currentPath) {
+            Button { bookmarks.remove(path: browser.currentPath) } label: {
+                Label("Remove Bookmark", systemImage: "bookmark.slash")
+            }
+        } else {
+            Button { bookmarks.add(path: browser.currentPath) } label: {
+                Label("Bookmark This Folder", systemImage: "bookmark")
+            }
+        }
+    }
+
+    /// Folder-wide actions for the empty-area right-click menu.
+    @ViewBuilder
+    private var listBackgroundMenu: some View {
+        folderActionButtons
+        Divider()
+        Menu {
+            sortFilterMenuContent
+        } label: {
+            Label("Sort & Filter", systemImage: "slider.horizontal.3")
+        }
     }
 
     private var pathMenu: some View {
@@ -595,7 +654,9 @@ struct FinderBrowserView: View {
             }
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
+        // Capped (not fixedSize) so a long path truncates and the flow toolbar
+        // can wrap it instead of it forcing the whole bar wider than the panel.
+        .frame(maxWidth: 260)
         .help("Jump to a parent folder")
     }
 
@@ -730,6 +791,7 @@ struct FinderBrowserView: View {
             }
             .listStyle(.plain)
             .onDeleteCommand { confirmTrash(selectedEntries) }
+            .contextMenu { listBackgroundMenu }
 
             if browser.entries.isEmpty {
                 EmptyStateView(icon: browser.hasActiveFilter
@@ -788,6 +850,13 @@ struct FinderBrowserView: View {
         } label: {
             Label(targets.count > 1 ? "Move \(targets.count) Items to Trash" : "Move to Trash",
                   systemImage: "trash")
+        }
+        Divider()
+        folderActionButtons
+        Menu {
+            sortFilterMenuContent
+        } label: {
+            Label("Sort & Filter", systemImage: "slider.horizontal.3")
         }
     }
 

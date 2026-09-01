@@ -125,3 +125,75 @@ extension EmptyStateView where Actions == EmptyView {
         self.init(icon: icon, title: title, message: message) { EmptyView() }
     }
 }
+
+/// Arranges its subviews left-to-right and wraps to a new line whenever the next
+/// subview won't fit the available width — a lightweight flow layout so toolbars
+/// stay usable (rather than clipping) when a docked panel is narrower than their
+/// natural span. Flexible subviews (e.g. a path menu capped with `maxWidth`) are
+/// proposed the clamped width so they truncate instead of overflowing.
+struct FlowLayout: Layout {
+    var horizontalSpacing: CGFloat = 8
+    var verticalSpacing: CGFloat = 6
+    var alignment: VerticalAlignment = .center
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let rows = layout(subviews, maxWidth: maxWidth)
+        let width = rows.map { row in
+            row.reduce(0) { $0 + $1.size.width } +
+                CGFloat(max(0, row.count - 1)) * horizontalSpacing
+        }.max() ?? 0
+        let height = rows.reduce(0) { $0 + ($1.map(\.size.height).max() ?? 0) } +
+            CGFloat(max(0, rows.count - 1)) * verticalSpacing
+        return CGSize(width: min(width, maxWidth), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        let rows = layout(subviews, maxWidth: bounds.width)
+        var y = bounds.minY
+        for row in rows {
+            let rowHeight = row.map(\.size.height).max() ?? 0
+            var x = bounds.minX
+            for item in row {
+                let yOffset: CGFloat
+                switch alignment {
+                case .top:    yOffset = 0
+                case .bottom: yOffset = rowHeight - item.size.height
+                default:      yOffset = (rowHeight - item.size.height) / 2
+                }
+                subviews[item.index].place(
+                    at: CGPoint(x: x, y: y + yOffset),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(item.size))
+                x += item.size.width + horizontalSpacing
+            }
+            y += rowHeight + verticalSpacing
+        }
+    }
+
+    private struct Item { let index: Int; let size: CGSize }
+
+    /// Group the subviews into rows that each fit `maxWidth`, clamping any single
+    /// subview to the row width so an over-wide flexible view truncates in place.
+    private func layout(_ subviews: Subviews, maxWidth: CGFloat) -> [[Item]] {
+        var rows: [[Item]] = []
+        var row: [Item] = []
+        var x: CGFloat = 0
+        for index in subviews.indices {
+            let ideal = subviews[index].sizeThatFits(.unspecified)
+            let width = min(ideal.width, maxWidth)
+            let size = CGSize(width: width, height: ideal.height)
+            let needed = (row.isEmpty ? 0 : horizontalSpacing) + width
+            if !row.isEmpty, x + needed > maxWidth {
+                rows.append(row)
+                row = []
+                x = 0
+            }
+            row.append(Item(index: index, size: size))
+            x += (row.count == 1 ? 0 : horizontalSpacing) + width
+        }
+        if !row.isEmpty { rows.append(row) }
+        return rows
+    }
+}
+

@@ -30,6 +30,9 @@ public sealed class SftpEntryViewModel
     public string SizeText => IsDirectory ? "" : HumanSize(Size);
     public string ModifiedText => IsParent ? "" : Modified.ToString("yyyy-MM-dd HH:mm");
 
+    /// <summary>A sort key for "kind": folders group empty, files by extension.</summary>
+    public string Kind => IsDirectory ? "" : Path.GetExtension(Name).ToLowerInvariant();
+
     private static string HumanSize(long bytes)
     {
         string[] units = { "B", "KB", "MB", "GB", "TB" };
@@ -46,9 +49,9 @@ public sealed class SftpCrumb
     public required string FullPath { get; init; }
 }
 
-/// <summary>Payload carried on the clipboard/drag data when an SFTP row is dragged,
-/// so a Finder drop target can ask the originating tab to download the item.</summary>
-public sealed record SftpDragData(SftpTabViewModel Source, SftpEntryViewModel Entry);
+/// <summary>Payload carried on the clipboard/drag data when one or more SFTP rows are
+/// dragged, so a Finder drop target can ask the originating tab to download the items.</summary>
+public sealed record SftpDragData(SftpTabViewModel Source, IReadOnlyList<SftpEntryViewModel> Entries);
 
 /// <summary>An SFTP file-browser tab backed by SSH.NET.</summary>
 public sealed partial class SftpTabViewModel : TabViewModel
@@ -85,6 +88,14 @@ public sealed partial class SftpTabViewModel : TabViewModel
 
     public ObservableCollection<SftpEntryViewModel> Entries { get; } = new();
 
+    /// <summary>The full, unfiltered listing of the current directory (sort/filter source).</summary>
+    private readonly List<SftpEntryViewModel> _all = new();
+
+    public enum SftpSort { Name, Size, Modified, Kind }
+
+    public IReadOnlyList<SftpSort> SortModes { get; } =
+        Enum.GetValues(typeof(SftpSort)).Cast<SftpSort>().ToList();
+
     /// <summary>Clickable path segments for the current directory.</summary>
     public ObservableCollection<SftpCrumb> Crumbs { get; } = new();
 
@@ -94,6 +105,23 @@ public sealed partial class SftpTabViewModel : TabViewModel
     [ObservableProperty] private string _statusText = "Connecting…";
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private SftpEntryViewModel? _selectedEntry;
+
+    [ObservableProperty] private SftpSort _sortMode = SftpSort.Name;
+    [ObservableProperty] private bool _sortAscending = true;
+    [ObservableProperty] private string _filterText = "";
+
+    partial void OnSortModeChanged(SftpSort value) => ApplyView();
+    partial void OnSortAscendingChanged(bool value) => ApplyView();
+    partial void OnFilterTextChanged(string value) => ApplyView();
+
+    /// <summary>Flip the sort between ascending and descending.</summary>
+    [RelayCommand]
+    private void ToggleSortDirection() => SortAscending = !SortAscending;
+
+    [RelayCommand] private void SetSortName() => SortMode = SftpSort.Name;
+    [RelayCommand] private void SetSortSize() => SortMode = SftpSort.Size;
+    [RelayCommand] private void SetSortModified() => SortMode = SftpSort.Modified;
+    [RelayCommand] private void SetSortKind() => SortMode = SftpSort.Kind;
 
     /// <summary>Shown when the connection isn't up, so the user can supply a
     /// password / passphrase and retry (e.g. after "permission denied").</summary>
@@ -361,19 +389,16 @@ public sealed partial class SftpTabViewModel : TabViewModel
                 CurrentPath = canonical;
                 PathInput = canonical;
                 RebuildCrumbs(canonical);
-                Entries.Clear();
+                _all.Clear();
                 if (canonical != "/")
-                    Entries.Add(new SftpEntryViewModel
+                    _all.Add(new SftpEntryViewModel
                     {
                         Name = "..", FullPath = ParentOf(canonical), IsDirectory = true, IsParent = true
                     });
 
-                foreach (var f in listing
-                             .Where(f => f.Name is not "." and not "..")
-                             .OrderByDescending(f => f.IsDirectory)
-                             .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase))
+                foreach (var f in listing.Where(f => f.Name is not "." and not ".."))
                 {
-                    Entries.Add(new SftpEntryViewModel
+                    _all.Add(new SftpEntryViewModel
                     {
                         Name = f.Name,
                         FullPath = f.FullName,
@@ -384,7 +409,7 @@ public sealed partial class SftpTabViewModel : TabViewModel
                         Permissions = PermissionString(f)
                     });
                 }
-                StatusText = $"{Entries.Count(e => !e.IsParent)} items";
+                ApplyView();
             });
         }
         catch (Exception ex)
@@ -395,6 +420,46 @@ public sealed partial class SftpTabViewModel : TabViewModel
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>Re-apply the current filter + sort from <see cref="_all"/> into <see cref="Entries"/>.
+    /// Keeps ".." pinned to the top and folders grouped above files.</summary>
+    private void ApplyView()
+    {
+        var filter = FilterText?.Trim() ?? "";
+        var items = _all
+            .Where(e => !e.IsParent
+                        && (filter.Length == 0
+                            || e.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        Comparison<SftpEntryViewModel> cmp = (a, b) =>
+        {
+            var key = SortMode switch
+            {
+                SftpSort.Size => a.Size.CompareTo(b.Size),
+                SftpSort.Modified => a.Modified.CompareTo(b.Modified),
+                SftpSort.Kind => string.Compare(a.Kind, b.Kind, StringComparison.OrdinalIgnoreCase),
+                _ => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
+            };
+            if (SortMode == SftpSort.Name || key == 0)
+                key = string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+            return SortAscending ? key : -key;
+        };
+
+        items.Sort((a, b) =>
+        {
+            if (a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
+            return cmp(a, b);
+        });
+
+        Entries.Clear();
+        var parent = _all.FirstOrDefault(e => e.IsParent);
+        if (parent != null) Entries.Add(parent);
+        foreach (var e in items) Entries.Add(e);
+
+        StatusText = $"{Entries.Count(e => !e.IsParent)} items"
+            + (filter.Length > 0 ? " (filtered)" : "");
     }
 
     private static string ParentOf(string path)

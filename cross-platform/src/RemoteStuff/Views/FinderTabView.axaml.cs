@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -15,6 +17,7 @@ public partial class FinderTabView : UserControl
     private Point _pressPos;
     private bool _dragArmed;
     private LocalEntryViewModel? _pressEntry;
+    private readonly List<LocalEntryViewModel> _dragEntries = new();
 
     public FinderTabView()
     {
@@ -37,11 +40,27 @@ public partial class FinderTabView : UserControl
     private void OnListPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         var pt = e.GetCurrentPoint(sender as Visual);
-        if (!pt.Properties.IsLeftButtonPressed) { _dragArmed = false; return; }
+        if (!pt.Properties.IsLeftButtonPressed) { _dragArmed = false; _dragEntries.Clear(); return; }
         _pressEntry = (e.Source as Control)?.DataContext as LocalEntryViewModel
                       ?? FindEntry(e.Source as Visual);
         _pressPos = pt.Position;
-        _dragArmed = _pressEntry is { IsParent: false };
+
+        // Capture the selection now: this Tunnel handler runs before the ListBox updates
+        // its selection for this press, so grabbing a row that's part of a multi-selection
+        // still carries the whole set, while grabbing an unselected row drags just it.
+        _dragEntries.Clear();
+        if (_pressEntry is { IsParent: false })
+        {
+            var selected = (sender as ListBox)?.SelectedItems?
+                .OfType<LocalEntryViewModel>()
+                .Where(x => !x.IsParent)
+                .ToList() ?? new List<LocalEntryViewModel>();
+            if (selected.Count > 1 && selected.Contains(_pressEntry))
+                _dragEntries.AddRange(selected);
+            else
+                _dragEntries.Add(_pressEntry);
+        }
+        _dragArmed = _dragEntries.Count > 0;
     }
 
     private async void OnListPointerMoved(object? sender, PointerEventArgs e)
@@ -54,7 +73,7 @@ public partial class FinderTabView : UserControl
         _dragArmed = false;
 
         var data = new DataObject();
-        data.Set(SftpTabView.LocalPathFormat, _pressEntry.FullPath);
+        data.Set(SftpTabView.LocalPathFormat, _dragEntries.Select(x => x.FullPath).ToList());
         try { await DragDrop.DoDragDrop(e, data, DragDropEffects.Copy); }
         catch { /* drag cancelled */ }
     }
@@ -85,7 +104,8 @@ public partial class FinderTabView : UserControl
         {
             if (e.Data.Get(SftpTabView.SftpDragFormat) is SftpDragData sd)
             {
-                await sd.Source.DownloadEntryToAsync(sd.Entry, vm.CurrentPath);
+                foreach (var entry in sd.Entries)
+                    await sd.Source.DownloadEntryToAsync(entry, vm.CurrentPath);
                 vm.ReloadCurrentDirectory();
             }
         }

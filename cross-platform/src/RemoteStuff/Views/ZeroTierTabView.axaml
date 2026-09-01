@@ -132,6 +132,17 @@
                         <Button Content="{controls:Icon chevrons-up}" Command="{Binding CollapseAllCommand}"
                                 ToolTip.Tip="Collapse every network" Margin="0,0,6,0" />
                     </StackPanel>
+                    <!-- Sort devices within each network -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6" VerticalAlignment="Center">
+                        <TextBlock Text="Sort" FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <ComboBox MinWidth="90" MinHeight="0" Padding="6,2" VerticalAlignment="Center"
+                                  ItemsSource="{Binding SortModes}" SelectedItem="{Binding SortMode, Mode=TwoWay}"
+                                  ToolTip.Tip="Order devices by name, IP, or online status" />
+                        <Button Content="{controls:Icon arrow-up-down}" Command="{Binding ToggleSortDirectionCommand}"
+                                MinHeight="0" Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center"
+                                ToolTip.Tip="Toggle sort direction" />
+                    </StackPanel>
                 </WrapPanel>
             </StackPanel>
         </Border>

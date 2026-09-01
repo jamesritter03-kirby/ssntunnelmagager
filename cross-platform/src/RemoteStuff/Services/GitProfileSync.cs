@@ -308,8 +308,18 @@ public sealed class GitProfileSync
             if (code == 0) return true;
         }
         catch { /* fall through */ }
-        log.AppendLine("Git is not available. Install the Xcode Command Line Tools or Git and try again.");
+        log.AppendLine(GitMissingHint());
         return false;
+    }
+
+    /// <summary>A platform-appropriate hint for installing Git when it isn't on PATH.</summary>
+    private static string GitMissingHint()
+    {
+        if (OperatingSystem.IsWindows())
+            return "Git is not available. Install Git for Windows from https://git-scm.com/download/win and try again.";
+        if (OperatingSystem.IsMacOS())
+            return "Git is not available. Install the Xcode Command Line Tools (run \"xcode-select --install\") or Git, then try again.";
+        return "Git is not available. Install Git with your package manager (e.g. \"sudo apt install git\") and try again.";
     }
 
     private static Task<(int Code, string Output)> RunGitAsync(string workingDir, StringBuilder log, params string[] args)

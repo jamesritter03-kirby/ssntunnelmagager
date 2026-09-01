@@ -291,6 +291,60 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         }
     }
 
+    /// <summary>How devices within each network are ordered.</summary>
+    public enum ZtSort { Name, Ip, Status }
+
+    public IReadOnlyList<ZtSort> SortModes { get; } = Enum.GetValues<ZtSort>();
+
+    [ObservableProperty] private ZtSort _sortMode = ZtSort.Name;
+    [ObservableProperty] private bool _sortAscending = true;
+
+    partial void OnSortModeChanged(ZtSort value) => Rebuild();
+    partial void OnSortAscendingChanged(bool value) => Rebuild();
+
+    /// <summary>Flip the device sort between ascending and descending.</summary>
+    [RelayCommand]
+    private void ToggleSortDirection() => SortAscending = !SortAscending;
+
+    /// <summary>Order the devices of one network by the current sort choice.</summary>
+    private void SortMembers(List<ZtMemberRowViewModel> members)
+    {
+        Comparison<ZtMemberRowViewModel> cmp = (a, b) =>
+        {
+            int key = SortMode switch
+            {
+                ZtSort.Ip => CompareIp(a.Ip, b.Ip),
+                ZtSort.Status => b.IsOnline.CompareTo(a.IsOnline), // online first
+                _ => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
+            };
+            if (SortMode == ZtSort.Name || key == 0)
+                key = string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+            return SortAscending ? key : -key;
+        };
+        members.Sort(cmp);
+    }
+
+    /// <summary>Compare two IPv4 strings numerically; falls back to text for anything else.</summary>
+    private static int CompareIp(string a, string b)
+    {
+        static long Key(string ip)
+        {
+            var parts = ip.Split('.');
+            if (parts.Length != 4) return -1;
+            long v = 0;
+            foreach (var p in parts)
+            {
+                if (!byte.TryParse(p, out var o)) return -1;
+                v = (v << 8) | o;
+            }
+            return v;
+        }
+        var ka = Key(a);
+        var kb = Key(b);
+        if (ka >= 0 && kb >= 0) return ka.CompareTo(kb);
+        return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+    }
+
     public bool HasAccounts => Accounts.Count > 0;
 
     /// <summary>The "Connect as" username used for one-click device connections,
@@ -434,6 +488,7 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
                 if (memberOfOnly && !row.IsLocallyJoined)
                     continue;
 
+                var memberRows = new List<ZtMemberRowViewModel>();
                 foreach (var m in _service.MembersOf(n))
                 {
                     if (onlineOnly && !m.IsOnline)
@@ -442,8 +497,10 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
                         !Contains(m.DisplayName, filter) && !Contains(m.PrimaryIp, filter) &&
                         !Contains(m.NodeId, filter))
                         continue;
-                    row.Members.Add(new ZtMemberRowViewModel(m, _service, this));
+                    memberRows.Add(new ZtMemberRowViewModel(m, _service, this));
                 }
+                SortMembers(memberRows);
+                foreach (var mr in memberRows) row.Members.Add(mr);
 
                 // With any filter active, keep a network only if it still has visible
                 // devices, its own name/id matched, or it qualifies for the member-of
