@@ -45,6 +45,13 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.108", build: 102, date: "Sep 3, 2026",
+            highlights: [
+                "ZeroTier browser: you can now sort the devices in each network by name, IP address, or online status, and flip between ascending and descending order. Your choice is remembered next time.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.107", build: 101, date: "Aug 5, 2026",
             highlights: [
                 "ZeroTier: authorizing or deauthorizing a device now tells you when it didn’t take effect — if your API token can read devices but lacks permission to change them, you’ll see a clear message instead of the toggle silently snapping back.",

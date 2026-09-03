@@ -21,6 +21,20 @@ private enum NetworkFilter: Hashable {
     case network(String)
 }
 
+/// How devices within each network are ordered (mirrors the cross-platform
+/// ZeroTier "Sort By" control).
+private enum ZTMemberSort: String, CaseIterable, Identifiable {
+    case name, ip, status
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .name: return "Name"
+        case .ip: return "IP"
+        case .status: return "Status"
+        }
+    }
+}
+
 /// How `ZeroTierBrowserView` is being hosted. A modal `sheet` (the macOS 13
 /// fallback) wants a wide side-by-side layout; a right-hand `panel` (the macOS
 /// 14+ inspector, matching the cross-platform app) is narrow and stacks its
@@ -49,6 +63,9 @@ struct ZeroTierBrowserView: View {
     /// Show only networks this Mac is actively connected to (status OK). Persisted
     /// across launches.
     @AppStorage("zeroTierConnectedOnly") private var connectedOnly = false
+    /// How devices within each network are ordered, remembered across launches.
+    @AppStorage("zeroTierSortMode") private var sortMode: ZTMemberSort = .name
+    @AppStorage("zeroTierSortAscending") private var sortAscending = true
     /// Accounts whose collapsible group is currently collapsed in the panel.
     @State private var collapsedAccounts: Set<UUID> = []
     /// Networks whose collapsible group is currently collapsed in the panel.
@@ -194,6 +211,10 @@ struct ZeroTierBrowserView: View {
                 }
             }
             filterSegments
+            HStack(spacing: 12) {
+                sortControl
+                Spacer(minLength: 0)
+            }
             connectAsRow
         }
         .padding(.horizontal, 14)
@@ -237,6 +258,68 @@ struct ZeroTierBrowserView: View {
             .labelsHidden()
             .frame(width: filterSegmentWidth)
         }
+    }
+
+    /// Compact device-sort control: pick the sort key and flip the direction.
+    /// Mirrors the cross-platform ZeroTier "Sort By" toolbar control.
+    private var sortControl: some View {
+        HStack(spacing: 4) {
+            Text("Sort").font(.caption).foregroundStyle(.secondary)
+            Picker("Sort", selection: $sortMode) {
+                ForEach(ZTMemberSort.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+            .help("Order devices by name, IP, or online status")
+            Button {
+                sortAscending.toggle()
+            } label: {
+                Image(systemName: sortAscending ? "arrow.up" : "arrow.down")
+            }
+            .buttonStyle(.borderless)
+            .help(sortAscending ? "Ascending — click for descending"
+                                : "Descending — click for ascending")
+        }
+    }
+
+    /// Order members by the chosen sort mode/direction, always tie-breaking on name.
+    private func sortedMembers(_ members: [ZeroTierMember]) -> [ZeroTierMember] {
+        members.sorted { a, b in
+            var key: Int
+            switch sortMode {
+            case .ip:
+                key = Self.compareIP(a.ipAssignments.first ?? "", b.ipAssignments.first ?? "")
+            case .status:
+                key = (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0)  // online first
+            case .name:
+                key = 0
+            }
+            if sortMode == .name || key == 0 {
+                key = a.displayName.localizedCaseInsensitiveCompare(b.displayName).rawValue
+            }
+            return sortAscending ? key < 0 : key > 0
+        }
+    }
+
+    /// Compare two IPv4 strings numerically; falls back to text for anything else.
+    private static func compareIP(_ a: String, _ b: String) -> Int {
+        func key(_ ip: String) -> UInt64? {
+            let base = ip.split(separator: "/").first.map(String.init) ?? ip
+            let parts = base.split(separator: ".")
+            guard parts.count == 4 else { return nil }
+            var v: UInt64 = 0
+            for p in parts {
+                guard let o = UInt8(p) else { return nil }
+                v = (v << 8) | UInt64(o)
+            }
+            return v
+        }
+        if let ka = key(a), let kb = key(b) {
+            return ka == kb ? 0 : (ka < kb ? -1 : 1)
+        }
+        return a.localizedCaseInsensitiveCompare(b).rawValue
     }
 
     @ViewBuilder
@@ -579,6 +662,7 @@ struct ZeroTierBrowserView: View {
                         .foregroundStyle(.secondary)
                 }
                 filterSegments
+                sortControl
             }
             connectAsRow
         }
@@ -796,9 +880,9 @@ struct ZeroTierBrowserView: View {
         )
     }
 
-    /// Members of one network after the search / online filters.
+    /// Members of one network after the search / online filters, in sort order.
     private func members(inNetwork id: String) -> [ZeroTierMember] {
-        (store.membersByNetwork[id] ?? []).filter(passesFilter)
+        sortedMembers((store.membersByNetwork[id] ?? []).filter(passesFilter))
     }
 
     /// Total devices shown across an account under the current filters.
@@ -1300,7 +1384,7 @@ struct ZeroTierBrowserView: View {
         } else {
             base = allMembers
         }
-        return base.filter(passesFilter)
+        return sortedMembers(base.filter(passesFilter))
     }
 
     private func subtitle(for member: ZeroTierMember) -> String {
