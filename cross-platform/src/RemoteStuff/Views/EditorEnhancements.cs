@@ -181,6 +181,91 @@ internal sealed class ChangeHistoryRenderer : IBackgroundRenderer
     }
 }
 
+/// <summary>A compiled klogg highlighter: a regex plus its colour and scope.</summary>
+internal sealed class CompiledHighlighter
+{
+    public System.Text.RegularExpressions.Regex Regex { get; init; } = null!;
+    public IBrush Brush { get; init; } = Brushes.Transparent;
+    public bool WholeLine { get; init; }
+}
+
+/// <summary>klogg-style user highlighters: paints the background of matching text
+/// (or the whole matching line) for every enabled highlighter. Compiled specs are
+/// supplied by the view, which rebuilds them when the highlighter list changes.</summary>
+internal sealed class LogHighlightRenderer : IBackgroundRenderer
+{
+    private readonly Func<IReadOnlyList<CompiledHighlighter>> _specs;
+
+    public LogHighlightRenderer(Func<IReadOnlyList<CompiledHighlighter>> specs) => _specs = specs;
+
+    public KnownLayer Layer => KnownLayer.Selection;
+
+    public void Draw(TextView textView, DrawingContext drawingContext)
+    {
+        var specs = _specs();
+        if (specs.Count == 0 || !textView.VisualLinesValid) return;
+        foreach (var visualLine in textView.VisualLines)
+        {
+            var docLine = visualLine.FirstDocumentLine;
+            if (docLine.Length == 0) continue;
+            string text = textView.Document.GetText(docLine.Offset, docLine.Length);
+            foreach (var spec in specs)
+            {
+                var matches = spec.Regex.Matches(text);
+                if (matches.Count == 0) continue;
+                if (spec.WholeLine)
+                {
+                    foreach (var rect in BackgroundGeometryBuilder.GetRectsForSegment(
+                                 textView, new SimpleSeg(docLine.Offset, docLine.Length)))
+                        drawingContext.FillRectangle(spec.Brush,
+                            new Rect(0, rect.Top, textView.Bounds.Width, rect.Height));
+                }
+                else
+                {
+                    foreach (System.Text.RegularExpressions.Match m in matches)
+                    {
+                        if (m.Length == 0) continue;
+                        foreach (var rect in BackgroundGeometryBuilder.GetRectsForSegment(
+                                     textView, new SimpleSeg(docLine.Offset + m.Index, m.Length)))
+                            drawingContext.FillRectangle(spec.Brush, rect);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// <summary>Paints a strip and faint highlight on klogg "marked" lines (distinct
+/// from the F2 bookmarks). The mark set is owned by the editor view-model.</summary>
+internal sealed class LogMarkRenderer : IBackgroundRenderer
+{
+    private readonly Func<IReadOnlyCollection<int>> _lines;
+    private readonly IBrush _fill = new SolidColorBrush(Color.FromArgb(26, 245, 170, 60));
+    private readonly IBrush _marker = new SolidColorBrush(Color.FromArgb(230, 240, 150, 40));
+
+    public LogMarkRenderer(Func<IReadOnlyCollection<int>> lines) => _lines = lines;
+
+    public KnownLayer Layer => KnownLayer.Background;
+
+    public void Draw(TextView textView, DrawingContext drawingContext)
+    {
+        var lines = _lines();
+        if (lines.Count == 0 || !textView.VisualLinesValid) return;
+        foreach (var visualLine in textView.VisualLines)
+        {
+            int lineNumber = visualLine.FirstDocumentLine.LineNumber;
+            if (!lines.Contains(lineNumber)) continue;
+            var docLine = visualLine.FirstDocumentLine;
+            foreach (var rect in BackgroundGeometryBuilder.GetRectsForSegment(
+                         textView, new SimpleSeg(docLine.Offset, docLine.Length)))
+            {
+                drawingContext.FillRectangle(_fill, new Rect(0, rect.Top, textView.Bounds.Width, rect.Height));
+                drawingContext.FillRectangle(_marker, new Rect(0, rect.Top, 3, rect.Height));
+            }
+        }
+    }
+}
+
 /// <summary>One word suggestion in the "Complete word" popup.</summary>
 internal sealed class WordCompletionData : ICompletionData
 {

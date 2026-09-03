@@ -480,6 +480,60 @@ final class TextEditorModel: ObservableObject {
     @Published var findWholeWord = false
     @Published var findStatus = ""
 
+    // MARK: - Log tools (klogg-style) state
+
+    /// Whether the klogg-style log tools side panel is visible.
+    @Published var logToolsVisible = false
+    /// Which log-tools tab is showing (filter / search results / marks / highlighters).
+    @Published var logToolsTab: LogToolsTab = .filter
+
+    /// The filter (grep) query and its options. The filter pane lists only the
+    /// buffer lines matching this, klogg-style.
+    @Published var filterText = "" { didSet { scheduleFilterRefresh() } }
+    @Published var filterUsesRegex = true { didSet { runFilter() } }
+    @Published var filterCaseSensitive = false { didSet { runFilter() } }
+    /// When on, the filter shows lines that do NOT match (klogg "inverse").
+    @Published var filterInverted = false { didSet { runFilter() } }
+    @Published private(set) var filterResults: [LogResultLine] = []
+
+    /// The most recent "search results" listing (every match of the Find query).
+    @Published private(set) var searchResults: [LogResultLine] = []
+
+    /// 1-based line numbers the user has marked (klogg marks). Persisted per file
+    /// is out of scope; kept for the tab's lifetime.
+    @Published var marks: Set<Int> = []
+
+    /// User-defined highlighters (regex → colour). Persisted app-wide.
+    @Published var highlighters: [LogHighlighter] = TextEditorModel.loadHighlighters() {
+        didSet {
+            TextEditorModel.saveHighlighters(highlighters)
+            highlightersToken = UUID()
+        }
+    }
+    /// Bumped whenever highlighters change so the editor view re-applies them.
+    @Published private(set) var highlightersToken = UUID()
+
+    /// Follow mode (tail -f): when on, external changes auto-reload and scroll to
+    /// the end instead of prompting.
+    @Published var followMode = false {
+        didSet {
+            if followMode, let url = fileURL { loadFromDisk(url); requestScrollToEnd() }
+        }
+    }
+    /// Bumped to ask the editor view to scroll the caret to the end of the buffer.
+    @Published private(set) var scrollToEndToken: UUID?
+
+    /// Debounces filter recomputation while the user types.
+    private var filterWorkItem: DispatchWorkItem?
+
+    // Private mutators for the `private(set)` log-tools state, so the log-tools
+    // logic (in LogToolsPanel.swift, a same-type extension) can update them.
+    func _setFilterResults(_ r: [LogResultLine]) { filterResults = r }
+    func _setSearchResults(_ r: [LogResultLine]) { searchResults = r }
+    func _setScrollToEndToken(_ t: UUID) { scrollToEndToken = t }
+    func _setFilterWorkItem(_ w: DispatchWorkItem) { filterWorkItem = w }
+    func _filterWorkItemCancel() { filterWorkItem?.cancel() }
+
     /// Bumped whenever the buffer is replaced programmatically (open / new /
     /// reload) so the editor view knows to reload its `NSTextView` contents.
     @Published private(set) var reloadToken = UUID()
@@ -565,6 +619,7 @@ final class TextEditorModel: ObservableObject {
         reloadToken = UUID()
         characterCount = (text as NSString).length
         lineCount = max(1, text.reduce(1) { $1 == "\n" ? $0 + 1 : $0 } - (text.hasSuffix("\n") ? 1 : 0))
+        refreshLogToolsAfterBufferChange()
     }
 
     /// Mirror the live editor buffer into the model **without** forcing a reload.
@@ -969,6 +1024,13 @@ final class TextEditorModel: ObservableObject {
         let modDate = attrs[.modificationDate] as? Date
         let size = (attrs[.size] as? NSNumber)?.intValue
         if modDate != lastKnownModDate || size != lastKnownSize {
+            // Follow mode (tail -f): quietly reload and jump to the end rather
+            // than nagging with the "changed on disk" prompt.
+            if followMode && !isDirty {
+                loadFromDisk(url)
+                requestScrollToEnd()
+                return
+            }
             if externalChange != .modified { externalChange = .modified }
         }
     }
@@ -978,6 +1040,8 @@ final class TextEditorModel: ObservableObject {
     /// when the app is reactivated). Guarded so it only appears once at a time.
     func presentExternalChangePromptIfNeeded() {
         guard NSApp.isActive, !isPresentingExternalPrompt, let change = externalChange else { return }
+        // Follow mode handles external modifications silently.
+        if followMode && change == .modified { externalChange = nil; return }
         isPresentingExternalPrompt = true
         defer { isPresentingExternalPrompt = false }
         switch change {

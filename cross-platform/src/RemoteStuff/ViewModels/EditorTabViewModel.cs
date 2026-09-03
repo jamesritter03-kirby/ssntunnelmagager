@@ -162,6 +162,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
         _lineCount = CountLines(initialText);
         BackupId = backupId ?? Guid.NewGuid().ToString("N");
         if (filePath != null) StartWatching(filePath);
+        InitLogTools();
     }
 
     /// <summary>Rebuild an editor tab from a recovered crash backup.</summary>
@@ -191,6 +192,7 @@ public sealed partial class EditorTabViewModel : TabViewModel
         if (Language == "Auto" && LanguageForPath(FilePath) == "Plain Text")
             OnPropertyChanged(nameof(EffectiveLanguage));
         if (!_restoring) ScheduleBackup();
+        RefreshLogToolsAfterTextChange();
     }
 
     /// <summary>The concrete language driving highlighting: when <see cref="Language"/>
@@ -271,6 +273,14 @@ public sealed partial class EditorTabViewModel : TabViewModel
             if (write == _diskBaseline) return; // our own write
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
+                // Follow mode (tail -f): reload silently and jump to the end
+                // instead of showing the "changed on disk" banner.
+                if (FollowMode && !IsDirty)
+                {
+                    ReloadFromDiskCommand.Execute(null);
+                    ScrollToEndRequested?.Invoke();
+                    return;
+                }
                 DiskDeleted = false;
                 DiskChanged = true;
             });

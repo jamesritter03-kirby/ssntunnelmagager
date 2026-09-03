@@ -45,11 +45,19 @@ enum ReleaseCatalog {
     /// uploaded.
     static let all: [Release] = [
         Release(
+            shortVersion: "1.9.109", build: 103, date: "Sep 3, 2026",
+            highlights: [
+                "Text editor: new klogg-style log tools. Filter the file to only the lines matching a pattern, list every search match, mark lines and jump between them, and colour-highlight text by your own rules — click any result to jump to that line.",
+                "Text editor: Follow mode (tail -f) — turn it on to auto-reload a growing log and stay pinned to the end.",
+            ],
+            isDownloadable: false
+        ),
+        Release(
             shortVersion: "1.9.108", build: 102, date: "Sep 3, 2026",
             highlights: [
                 "ZeroTier browser: you can now sort the devices in each network by name, IP address, or online status, and flip between ascending and descending order. Your choice is remembered next time.",
             ],
-            isDownloadable: false
+            isDownloadable: true
         ),
         Release(
             shortVersion: "1.9.107", build: 101, date: "Aug 5, 2026",
