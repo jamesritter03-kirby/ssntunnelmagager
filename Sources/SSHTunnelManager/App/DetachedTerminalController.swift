@@ -69,7 +69,7 @@ final class DetachedTerminalController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = session.title
+        window.title = session.displayTitle
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed          // never merge into the main window's tabs
         window.minSize = NSSize(width: 420, height: 240)
@@ -90,10 +90,14 @@ final class DetachedTerminalController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         windows[session.id] = window
-        // Keep the window's titlebar in sync with the live session title.
+        // Keep the window's titlebar in sync with the live session title (and any
+        // user-chosen custom name that overrides it).
         titleObservers[session.id] = session.$title
+            .combineLatest(session.$customTitle)
             .receive(on: RunLoop.main)
-            .sink { [weak window] title in window?.title = title }
+            .sink { [weak window, weak session] _, _ in
+                window?.title = session?.displayTitle ?? ""
+            }
     }
 
     /// Bring a session back into the main window's tab bar.

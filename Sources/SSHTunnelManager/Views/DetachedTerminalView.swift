@@ -20,7 +20,7 @@ struct DetachedTerminalView: View {
                 Image(systemName: session.symbolName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(session.title)
+                Text(session.displayTitle)
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
 

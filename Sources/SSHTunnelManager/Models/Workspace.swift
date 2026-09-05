@@ -255,12 +255,16 @@ struct SessionSnapshot: Codable {
     /// used instead; this carries the per-tab override for ad-hoc / workspace
     /// tabs. Optional so older snapshots still decode.
     var runOnConnect: String? = nil
+    /// A user-chosen tab name that overrides the auto-generated title, set from
+    /// the tab's “Rename Tab…” menu. Optional so older snapshots still decode.
+    var customTitle: String? = nil
 
     init(kind: TerminalSession.Kind, profileID: UUID? = nil, webURL: String? = nil,
          title: String? = nil, servicePort: Int? = nil,
          serviceHost: String? = nil, serviceUsername: String? = nil,
          editorBackupID: UUID? = nil, credentialID: UUID? = nil,
-         tabColor: TabColor? = nil, runOnConnect: String? = nil) {
+         tabColor: TabColor? = nil, runOnConnect: String? = nil,
+         customTitle: String? = nil) {
         self.kind = kind
         self.profileID = profileID
         self.webURL = webURL
@@ -272,6 +276,7 @@ struct SessionSnapshot: Codable {
         self.credentialID = credentialID
         self.tabColor = tabColor
         self.runOnConnect = runOnConnect
+        self.customTitle = customTitle
     }
 }
 
@@ -279,7 +284,7 @@ struct SessionSnapshot: Codable {
 // (the synthesized one would throw on the missing key and drop the resume state).
 extension SessionSnapshot {
     enum CodingKeys: String, CodingKey {
-        case kind, profileID, webURL, title, servicePort, serviceHost, serviceUsername, editorBackupID, credentialID, tabColor, runOnConnect
+        case kind, profileID, webURL, title, servicePort, serviceHost, serviceUsername, editorBackupID, credentialID, tabColor, runOnConnect, customTitle
     }
 
     init(from decoder: Decoder) throws {
@@ -295,6 +300,7 @@ extension SessionSnapshot {
         credentialID = try c.decodeIfPresent(UUID.self, forKey: .credentialID)
         tabColor = try c.decodeIfPresent(TabColor.self, forKey: .tabColor)
         runOnConnect = try c.decodeIfPresent(String.self, forKey: .runOnConnect)
+        customTitle = try c.decodeIfPresent(String.self, forKey: .customTitle)
     }
 }
 

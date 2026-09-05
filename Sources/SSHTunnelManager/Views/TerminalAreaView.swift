@@ -334,12 +334,12 @@ private struct DockColumnView: View {
     /// rail so it fits the thin toolbar, and rotated to read bottom-to-top on a
     /// left/right rail.
     @ViewBuilder private func railTitle(_ session: TerminalSession) -> some View {
-        let text = Text(session.title)
+        let text = Text(session.displayTitle)
             .font(.caption2)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.tail)
-            .help(session.title)
+            .help(session.displayTitle)
         if isHorizontal {
             text.frame(maxWidth: 120)
                 .fixedSize(horizontal: false, vertical: true)
@@ -510,7 +510,7 @@ private struct DockPaneView: View {
                 .padding(.vertical, 3)
                 .background(Color.accentColor.opacity(0.14), in: Capsule())
                 .help(ClosedItem.label(for: session.kind))
-            Text(session.title)
+            Text(session.displayTitle)
                 .font(.caption)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -1692,6 +1692,26 @@ private struct TerminalTabContextMenu: View {
         }
     }
 
+    /// Prompt for a custom tab name and apply it. An entered name overrides the
+    /// tab's auto-generated title; clearing the field (blank) reverts the tab to
+    /// its normal naming. Cancelling leaves the tab untouched.
+    private func renameTab() {
+        let alert = NSAlert()
+        alert.messageText = "Rename Tab"
+        alert.informativeText = "Enter a custom name for this tab. Leave blank to restore its automatic name."
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.stringValue = session.displayTitle
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let entered = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        session.customTitle = entered.isEmpty ? nil : entered
+    }
+
     /// Write the terminal's full output (scrollback + screen) to a chosen file.
     private func saveTerminalOutput() {
         let panel = NSSavePanel()
@@ -2010,6 +2030,11 @@ private struct TerminalTabContextMenu: View {
         }
         if session.kind == .ssh || session.kind == .localShell {
             themeMenu
+        }
+        Button {
+            renameTab()
+        } label: {
+            Label("Rename Tab…", systemImage: "pencil.line")
         }
         TabColorMenu(current: session.tabColor) { color in
             sessions.setTabColor(color, forSession: session.id)
@@ -2355,7 +2380,7 @@ private struct TabChip: View {
             Image(systemName: session.symbolName)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Text(session.title)
+            Text(session.displayTitle)
                 .lineLimit(1)
                 .font(.callout)
             if session.isLoggingSession {
@@ -2684,7 +2709,7 @@ private struct TerminalTile: View {
                 Image(systemName: session.symbolName)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text(session.title)
+                Text(session.displayTitle)
                     .font(.caption)
                     .lineLimit(1)
                 Spacer(minLength: 4)
