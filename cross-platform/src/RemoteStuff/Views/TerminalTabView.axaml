@@ -32,5 +32,16 @@
                 <Button Content="Fix Permissions &amp; Reconnect" Command="{Binding FixKeyPermissionsCommand}" Padding="10,2" />
                 <Button Content="Dismiss" Command="{Binding DismissKeyPermissionsBannerCommand}" Padding="10,2" />
             </StackPanel>
-        </Border>    </Grid>
+        </Border>
+        <!-- Legacy algorithm (old device, e.g. Dropbear ssh-rsa) warning -->
+        <Border Grid.Row="1" VerticalAlignment="Top" IsVisible="{Binding LegacyAlgorithmDetected}"
+                Background="#2A2413" BorderBrush="#7A6A3A" BorderThickness="0,0,0,1" Padding="10,6">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="&#x26A0; This device only supports the legacy ssh-rsa algorithm, which modern SSH disables by default."
+                           Foreground="#E6D39A" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <Button Content="Enable ssh-rsa &amp; Reconnect" Command="{Binding EnableLegacyAlgorithmsAndReconnectCommand}" Padding="10,2" />
+                <Button Content="Dismiss" Command="{Binding DismissLegacyAlgorithmBannerCommand}" Padding="10,2" />
+            </StackPanel>
+        </Border>
+    </Grid>
 </UserControl>

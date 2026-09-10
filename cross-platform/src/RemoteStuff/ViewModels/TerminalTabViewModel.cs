@@ -168,6 +168,9 @@ public sealed partial class TerminalTabViewModel : TabViewModel
         Terminal.BadKeyPermissions += () =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() => BadKeyPermissionsDetected = true);
 
+        Terminal.LegacyAlgorithmNeeded += () =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => LegacyAlgorithmDetected = true);
+
         Terminal.StartDeferred(executable, args, env, workingDirectory, runOnConnect);
         if (SupportsConnection) StartHealthProbe();
     }
@@ -477,6 +480,13 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     /// <summary>True when ssh refused the key file due to unsafe permissions.</summary>
     [ObservableProperty] private bool _badKeyPermissionsDetected;
 
+    /// <summary>True when ssh refused the device's only (legacy) host-key algorithm.</summary>
+    [ObservableProperty] private bool _legacyAlgorithmDetected;
+
+    /// <summary>Invoked to persist an in-place edit to <see cref="Profile"/> (e.g. the
+    /// legacy-algorithm opt-in). Wired by the owner to the profile store.</summary>
+    public System.Action? ProfilePersistRequested;
+
     /// <summary>Remove the stale entry from <c>known_hosts</c> (via <c>ssh-keygen -R</c>)
     /// and reconnect. Mirrors the macOS "Remove Key &amp; Reconnect" action.</summary>
     [RelayCommand]
@@ -515,6 +525,41 @@ public sealed partial class TerminalTabViewModel : TabViewModel
     /// <summary>Dismiss the host-key-changed banner without touching known_hosts.</summary>
     [RelayCommand]
     private void DismissHostKeyBanner() => HostKeyChangedDetected = false;
+
+    /// <summary>Enable the legacy <c>ssh-rsa</c> algorithm for this profile (old devices
+    /// such as Dropbear offer only it), persist it, and reconnect. Also applies it to the
+    /// live session so the current reconnect uses it immediately.</summary>
+    [RelayCommand]
+    private void EnableLegacyAlgorithmsAndReconnect()
+    {
+        if (Profile is { } p)
+        {
+            var opts = p.ExtraOptions ?? "";
+            void EnsureOpt(string opt)
+            {
+                if (opts.Contains(opt, System.StringComparison.OrdinalIgnoreCase)) return;
+                opts = string.IsNullOrWhiteSpace(opts) ? opt : opts.TrimEnd() + " " + opt;
+            }
+            EnsureOpt("-o HostKeyAlgorithms=+ssh-rsa");
+            EnsureOpt("-o PubkeyAcceptedAlgorithms=+ssh-rsa");
+            p.ExtraOptions = opts;
+            ProfilePersistRequested?.Invoke();
+        }
+        LegacyAlgorithmDetected = false;
+        _userStopped = false;
+        _reconnectAttempts = 0;
+        _reconnectCts?.Cancel();
+        IsPaused = false;
+        _lastConnectAt = System.DateTime.UtcNow;
+        // Apply the algorithm to the live args so this reconnect uses it right away.
+        Terminal.AddSshOptionsAndRestart("HostKeyAlgorithms=+ssh-rsa", "PubkeyAcceptedAlgorithms=+ssh-rsa");
+        IsRunning = true;
+        Title = EffectiveBaseTitle;
+    }
+
+    /// <summary>Dismiss the legacy-algorithm banner without changing the profile.</summary>
+    [RelayCommand]
+    private void DismissLegacyAlgorithmBanner() => LegacyAlgorithmDetected = false;
 
     [RelayCommand]
     private async System.Threading.Tasks.Task FixKeyPermissions()

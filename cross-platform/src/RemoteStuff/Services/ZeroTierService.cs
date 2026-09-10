@@ -363,7 +363,26 @@ public sealed class ZeroTierService
             m.IpAssignments.Any(a => string.Equals(a, needle, StringComparison.OrdinalIgnoreCase)));
     }
 
-    public bool IsHostOnline(string? host) => MemberForIp(host)?.IsOnline ?? false;
+    /// <summary>Whether the host is online in ZeroTier. A device can appear in several
+    /// networks/accounts (with different IPs) and only some entries may report online, so
+    /// match every entry at that IP — and every entry sharing the same node — and treat the
+    /// host as online if any of them is. This keeps the sidebar dot in sync with the ZeroTier
+    /// panel, which lists all of a device's network entries.</summary>
+    public bool IsHostOnline(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return false;
+        var needle = host.Trim();
+        var atIp = _members
+            .Where(m => m.IpAssignments.Any(a => string.Equals(a, needle, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (atIp.Count == 0) return false;
+        if (atIp.Any(m => m.IsOnline)) return true;
+        // Same physical node may be online under a different network/IP.
+        var nodeIds = atIp.Select(m => m.NodeId)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return nodeIds.Count > 0 && _members.Any(m => nodeIds.Contains(m.NodeId) && m.IsOnline);
+    }
 
     public IEnumerable<ZeroTierMember> MembersOf(ZeroTierNetwork network) =>
         _members.Where(m => m.NetworkId == network.Id && m.AccountId == network.AccountId);

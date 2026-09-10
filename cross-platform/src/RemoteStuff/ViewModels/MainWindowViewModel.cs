@@ -1221,6 +1221,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             if (tab.Profile is { } pr && Profiles.Any(x => x.Id == pr.Id)) _store.Update(pr);
         };
+        // Persist profile edits made from a tab (e.g. the legacy-algorithm opt-in).
+        tab.ProfilePersistRequested = () =>
+        {
+            if (tab.Profile is { } pr && Profiles.Any(x => x.Id == pr.Id)) _store.Update(pr);
+        };
 
         if (profile.LogSession)
         {

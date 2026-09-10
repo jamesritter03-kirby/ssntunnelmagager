@@ -66,6 +66,10 @@ public sealed class TerminalControl : Control
     public event Action? HostKeyChanged;
     public event Action? BadKeyPermissions;
 
+    /// <summary>Raised once when ssh refuses an old device's only offered algorithm
+    /// ("no matching host key type found" — e.g. Dropbear offering just ssh-rsa).</summary>
+    public event Action? LegacyAlgorithmNeeded;
+
     public TerminalControl()
     {
         Focusable = true;
@@ -146,6 +150,8 @@ public sealed class TerminalControl : Control
         _hostKeyScanTail = "";
         _badKeyPermFired = false;
         _badKeyPermScanTail = "";
+        _legacyAlgFired = false;
+        _legacyAlgScanTail = "";
         _autoPwSent = 0;
         _lastPromptSeen = "";
         _emu.Feed("\r\n\u001b[2m— reconnecting —\u001b[0m\r\n".AsSpan());
@@ -335,6 +341,7 @@ public sealed class TerminalControl : Control
                     MaybeFireRunOnConnect();
                     ScanForHostKeyChange(new ReadOnlySpan<char>(chars, 0, count));
                     ScanForBadKeyPermissions(new ReadOnlySpan<char>(chars, 0, count));
+                    ScanForLegacyAlgorithm(new ReadOnlySpan<char>(chars, 0, count));
                 }
                 catch { /* keep the reader alive; a dropped frame beats a crash */ }
             }
@@ -381,6 +388,45 @@ public sealed class TerminalControl : Control
             _badKeyPermFired = true;
             Dispatcher.UIThread.Post(() => BadKeyPermissions?.Invoke());
         }
+    }
+
+    // ---- Legacy algorithm (old device) detection ----
+    private string _legacyAlgScanTail = "";
+    private bool _legacyAlgFired;
+
+    /// <summary>Watch for OpenSSH refusing an old device's only offered host-key
+    /// algorithm (e.g. Dropbear offering just ssh-rsa) and raise
+    /// <see cref="LegacyAlgorithmNeeded"/> a single time per session.</summary>
+    private void ScanForLegacyAlgorithm(ReadOnlySpan<char> chunk)
+    {
+        if (_legacyAlgFired) return;
+        var combined = _legacyAlgScanTail + new string(chunk);
+        if (combined.Length > 4096) combined = combined.Substring(combined.Length - 4096);
+        _legacyAlgScanTail = combined;
+        if (combined.Contains("no matching host key type found", StringComparison.Ordinal))
+        {
+            _legacyAlgFired = true;
+            Dispatcher.UIThread.Post(() => LegacyAlgorithmNeeded?.Invoke());
+        }
+    }
+
+    /// <summary>Insert extra SSH <c>-o</c> options into the current session's args
+    /// (deduped) and relaunch — used to enable a legacy algorithm an old device requires.</summary>
+    public void AddSshOptionsAndRestart(params string[] options)
+    {
+        if (_lastSpec is not { } s) { Restart(); return; }
+        var argList = new System.Collections.Generic.List<string>();
+        foreach (var opt in options)
+        {
+            if (System.Array.IndexOf(s.args, opt) >= 0) continue;  // already present
+            argList.Add("-o");
+            argList.Add(opt);
+        }
+        if (argList.Count == 0) { Restart(); return; }
+        // -o options are parsed before the destination, so prepending is safe.
+        argList.AddRange(s.args);
+        _lastSpec = (s.exe, argList.ToArray(), s.env, s.cwd);
+        Restart();
     }
 
     // ---- Auto password ----
