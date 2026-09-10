@@ -659,6 +659,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ConnectionsChanged?.Invoke();
     }
 
+    /// <summary>Re-evaluate only the ZeroTier online dots against the current time. A member's
+    /// online state depends on a 5-minute "recently seen" window, so without this the sidebar
+    /// snapshot would stay green after the window lapses while the ZeroTier panel (re-evaluated
+    /// live) correctly shows offline. Runs cheaply on the health timer; the observable setter
+    /// only raises a change when a dot actually flips.</summary>
+    private void RefreshOnlineDots()
+    {
+        foreach (var section in SidebarSections)
+            foreach (var row in section.Rows)
+                row.IsOnline = _zeroTier.IsHostOnline(row.Profile.Host);
+    }
+
     /// <summary>Raised whenever live-session state changes (drives the tray checkmarks/badge).</summary>
     public event Action? ConnectionsChanged;
 
@@ -1418,7 +1430,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             Interval = TimeSpan.FromSeconds(5)
         };
-        _healthTimer.Tick += (_, _) => _ = ProbeTunnelHealthAsync();
+        _healthTimer.Tick += (_, _) =>
+        {
+            RefreshOnlineDots();
+            _ = ProbeTunnelHealthAsync();
+        };
         _healthTimer.Start();
     }
 
