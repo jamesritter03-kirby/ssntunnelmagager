@@ -50,10 +50,20 @@ public partial class App : Application
             window.Opened += (_, _) => vm.RunStartupTasks();
 
             // Persist the open session on shutdown so it can be resumed next launch.
-            desktop.ShutdownRequested += (_, _) =>
+            var sharingTornDown = false;
+            desktop.ShutdownRequested += async (_, e) =>
             {
                 vm.SaveLastSession();
                 settings.Save();
+                // Don't leave internet sharing (NAT/ICS) running past exit — it would
+                // reconfigure networking and break connectivity until manually undone.
+                if (!sharingTornDown && settings.RouterSharingActive)
+                {
+                    e.Cancel = true; // defer the actual shutdown until teardown finishes
+                    await NetworkTabViewModel.EnsureSharingStoppedAsync(settings);
+                    sharingTornDown = true;
+                    desktop.Shutdown();
+                }
             };
         }
 

@@ -117,6 +117,9 @@ public sealed partial class NetworkTabViewModel : TabViewModel
     // True while sharing is running via Windows ICS (the NetNat fallback), which fixes the
     // LAN to 192.168.137.0/24 and provides its own DHCP + DNS.
     private bool _icsActive;
+    // The LAN gateway IP ICS actually came up on (we pin it to RouterIp, but a stubborn
+    // Windows build can override it). Used for the status page instead of a hardcoded guess.
+    private string _icsScopeIp = "192.168.137.1";
 
     // Set while adapter selections are being restored from settings so that
     // reselecting an adapter doesn't clobber the remembered DNS / gateway text.
@@ -295,6 +298,53 @@ public sealed partial class NetworkTabViewModel : TabViewModel
         await ToggleSharing();
     }
 
+    /// <summary>Record whether internet sharing is currently live, so an unclean exit
+    /// (crash/kill) can be detected and torn down on the next launch.</summary>
+    private void MarkSharingActive(bool active)
+    {
+        if (_settings is not { } s) return;
+        s.RouterSharingActive = active;
+        s.Save();
+    }
+
+    /// <summary>Tear down any internet sharing (NAT/ICS) a previous run left active,
+    /// so a crash or unclean exit can't leave this machine's networking reconfigured.
+    /// Driven by the persisted <see cref="Services.AppSettings.RouterSharingActive"/>
+    /// flag and the remembered upstream/downstream adapters. No-op when nothing is
+    /// flagged; best-effort otherwise (may prompt for administrator rights).</summary>
+    public static async Task EnsureSharingStoppedAsync(Services.AppSettings? settings)
+    {
+        if (settings is null || !settings.RouterSharingActive) return;
+        try
+        {
+            var admin = NetworkAdmin.Create();
+            if (admin.IsSupported
+                && !string.IsNullOrWhiteSpace(settings.RouterUpstreamAdapter)
+                && !string.IsNullOrWhiteSpace(settings.RouterDownstreamAdapter))
+            {
+                var up = new NetAdapter
+                {
+                    Device = settings.RouterUpstreamAdapter,
+                    ServiceName = settings.RouterUpstreamAdapter,
+                    DisplayName = settings.RouterUpstreamAdapter
+                };
+                var down = new NetAdapter
+                {
+                    Device = settings.RouterDownstreamAdapter,
+                    ServiceName = settings.RouterDownstreamAdapter,
+                    DisplayName = settings.RouterDownstreamAdapter
+                };
+                await admin.StopSharingAsync(up, down);
+            }
+        }
+        catch { /* best-effort cleanup */ }
+        finally
+        {
+            settings.RouterSharingActive = false;
+            settings.Save();
+        }
+    }
+
     private static IReadOnlyList<string> ParseServers(string text) =>
         text.Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
@@ -341,14 +391,20 @@ public sealed partial class NetworkTabViewModel : TabViewModel
             if (IsSharing)
             {
                 _icsActive = result.Mode == "ics";
+                // ICS reports the LAN gateway it actually assigned; fall back to the requested IP.
+                _icsScopeIp = _icsActive && !string.IsNullOrWhiteSpace(result.RouterIp)
+                    ? result.RouterIp
+                    : RouterIp.Trim();
                 // Publish active router state so the ZeroTier IP picker can show NAT clients.
-                var effIp = _icsActive ? "192.168.137.1" : RouterIp.Trim();
+                var effIp = _icsActive ? _icsScopeIp : RouterIp.Trim();
                 var effPrefix = _icsActive ? 24 : prefix;
                 ActiveRouter = new RouterState(effIp, effPrefix);
                 // ICS runs its own DHCP + DNS; only start our DHCP for the WinNAT path.
                 if (!_icsActive)
                     StartDhcp(up, down);
                 StartStatusServer();
+                // Persist that sharing is live so a crash/kill can be reconciled next launch.
+                MarkSharingActive(true);
             }
             else
             {
@@ -356,6 +412,7 @@ public sealed partial class NetworkTabViewModel : TabViewModel
                 ActiveRouter = null;
                 StopDhcp();
                 StopStatusServer();
+                MarkSharingActive(false);
             }
         }
     }
@@ -395,22 +452,26 @@ public sealed partial class NetworkTabViewModel : TabViewModel
         var dns = ParseServers(DnsEditText).ToList();
         if (dns.Count == 0 && UpstreamAdapter is { } up)
             dns = UpstreamDnsServers(up);
-        // Under ICS the LAN is fixed to 192.168.137.0/24 and ICS supplies DHCP + DNS.
+        // Under ICS the LAN is a /24 on the scope address ICS assigned (we pin it to RouterIp).
         if (_icsActive)
+        {
+            var dot = _icsScopeIp.LastIndexOf('.');
+            var icsBase = dot > 0 ? _icsScopeIp[..(dot + 1)] + "x" : _icsScopeIp;
             return new Services.RouterStatusSnapshot
             {
                 Running = IsSharing,
                 HostName = HostName,
                 Platform = AdminPlatform + " (ICS)",
-                RouterIp = "192.168.137.1",
+                RouterIp = _icsScopeIp,
                 Subnet = "255.255.255.0",
-                DhcpRange = "192.168.137.x (ICS-managed)",
+                DhcpRange = $"{icsBase} (ICS-managed)",
                 UpstreamAdapter = UpstreamAdapter?.DisplayName ?? "\u2014",
                 DownstreamAdapter = DownstreamAdapter?.DisplayName ?? "\u2014",
                 DnsServers = "ICS-managed",
                 DhcpRunning = true,
                 Clients = clients
             };
+        }
         return new Services.RouterStatusSnapshot
         {
             Running = IsSharing,

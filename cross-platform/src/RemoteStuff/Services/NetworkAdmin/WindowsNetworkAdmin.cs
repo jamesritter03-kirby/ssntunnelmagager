@@ -84,7 +84,8 @@ internal sealed class WindowsNetworkAdmin : INetworkAdmin
         var internalPrefix = $"{network}/{prefixLength}";
         // Ported from PC_Shared_Network_Manager/NatSharingService — handles ICS conflicts,
         // APIPA cleanup and DAD disable that the simple version missed. Uses WinNAT when its
-        // WMI class is registered, else falls back to Windows ICS (which forces 192.168.137.0/24).
+        // WMI class is registered, else falls back to Windows ICS (whose LAN gateway we pin to
+        // the requested router IP via ScopeAddress).
         var script = $@"
 $ErrorActionPreference = 'Stop'
 
@@ -142,9 +143,18 @@ if ($hasNat) {{
     }}
 }} else {{
     # WinNAT's WMI class isn't registered on this Windows install: fall back to ICS.
-    # ICS assigns 192.168.137.1/24 to the private adapter and runs its own DHCP + DNS.
+    # ICS runs its own DHCP + DNS on the private adapter as a /24. By default Windows
+    # picks the LAN gateway itself; pin ScopeAddress to the requested router IP first so
+    # the LAN comes up on the address the user chose instead of a Windows default.
+    $sap = 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters'
+    try {{
+        New-Item -Path $sap -Force | Out-Null
+        Set-ItemProperty -Path $sap -Name 'ScopeAddress'       -Value '{Ps(routerIp)}' -Type String
+        Set-ItemProperty -Path $sap -Name 'ScopeAddressBackup' -Value '{Ps(routerIp)}' -Type String
+    }} catch {{}}
     try {{
         Set-Service -Name SharedAccess -StartupType Manual -ErrorAction SilentlyContinue
+        Restart-Service -Name SharedAccess -Force -ErrorAction SilentlyContinue
         Start-Service -Name SharedAccess -ErrorAction SilentlyContinue
     }} catch {{}}
     $m2 = New-Object -ComObject HNetCfg.HNetShare
@@ -159,6 +169,19 @@ if ($hasNat) {{
         # 0 = ICSSHARINGTYPE_PUBLIC (internet), 1 = ICSSHARINGTYPE_PRIVATE (LAN).
         $m2.INetSharingConfigurationForINetConnection($pubC).EnableSharing(0)
         $m2.INetSharingConfigurationForINetConnection($privC).EnableSharing(1)
+        # Report the address ICS actually assigned to the LAN side (a stubborn Windows
+        # build may override the scope), so the app shows the truth rather than a guess.
+        Start-Sleep -Milliseconds 800
+        $privAd = Get-NetAdapter -Name '{down}' -ErrorAction SilentlyContinue
+        $icsIp = $null
+        if ($privAd) {{
+            $icsIp = (Get-NetIPAddress -InterfaceIndex $privAd.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                      Where-Object {{ $_.PrefixOrigin -eq 'Manual' -and $_.IPAddress -notlike '169.254.*' }} |
+                      Select-Object -First 1).IPAddress
+        }}
+        if (-not $icsIp) {{ $icsIp = (Get-ItemProperty $sap -ErrorAction SilentlyContinue).ScopeAddress }}
+        if (-not $icsIp) {{ $icsIp = '{Ps(routerIp)}' }}
+        Write-Output ('ICS_SCOPE:' + $icsIp)
         Write-Output 'ICS_OK'
     }} catch {{
         Write-Output ('ICS_ERR:' + $_.Exception.Message)
@@ -176,13 +199,17 @@ if ($hasNat) {{
                 Message = $"Router active: {routerIp}/{prefixLength} on {downstream.Device}."
             };
         if (output.Contains("ICS_OK", StringComparison.Ordinal))
+        {
+            var scopeIp = ParseToken(output, "ICS_SCOPE:") ?? routerIp;
             return new AdminResult
             {
                 Ok = true,
                 Mode = "ics",
+                RouterIp = scopeIp,
                 Message = $"Router active via Windows Internet Connection Sharing on {downstream.Device} "
-                          + "(NetNat unavailable — clients get 192.168.137.x)."
+                          + $"(LAN {scopeIp}/24, ICS-managed DHCP)."
             };
+        }
 
         // Failure: give an accurate message for the missing-WMI-class case.
         if (output.Contains("Invalid class", StringComparison.OrdinalIgnoreCase)
@@ -217,9 +244,28 @@ try {{
     }}
 }} catch {{}}
 Set-NetIPInterface -InterfaceAlias '{down}' -Forwarding Disabled -ErrorAction SilentlyContinue
+# Clear the ICS scope we pinned so a later run / other tool starts from a clean default.
+$sap = 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters'
+Remove-ItemProperty -Path $sap -Name 'ScopeAddress'       -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path $sap -Name 'ScopeAddressBackup' -ErrorAction SilentlyContinue
 Write-Output 'STOP_OK'
 ";
         return RunElevatedAsync(script, "Sharing stopped.", successToken: "STOP_OK");
+    }
+
+    /// <summary>Return the value of the first <c>PREFIX...</c> line the elevated script wrote.</summary>
+    private static string? ParseToken(string output, string prefix)
+    {
+        foreach (var line in output.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                var v = t[prefix.Length..].Trim();
+                if (v.Length > 0) return v;
+            }
+        }
+        return null;
     }
 
     private static async Task<AdminResult> RunElevatedAsync(string psScript, string okMessage, string? successToken = null)

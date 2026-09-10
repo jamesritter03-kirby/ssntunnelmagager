@@ -58,6 +58,12 @@ public sealed class AppSettings
     /// its toolbar buttons don't wrap.</summary>
     public double ZeroTierPanelWidth { get; set; } = 400;
 
+    /// <summary>Automatically refresh ZeroTier device/network status on an interval. Remembered.</summary>
+    public bool ZeroTierAutoRefresh { get; set; } = true;
+
+    /// <summary>How often (seconds) to auto-refresh ZeroTier status when enabled. Remembered.</summary>
+    public int ZeroTierRefreshSeconds { get; set; } = 30;
+
     // --- Network tab: Router &amp; DNS (remembered across launches) ---
     public string RouterDnsAdapter { get; set; } = "";
     public string RouterDns { get; set; } = "";
@@ -71,6 +77,11 @@ public sealed class AppSettings
 
     /// <summary>Automatically start internet sharing (the router) when the app launches.</summary>
     public bool RouterAutoStart { get; set; }
+
+    /// <summary>True while internet sharing (NAT/ICS) is running. Persisted so an
+    /// unclean exit (crash/kill) can be detected on the next launch and torn down,
+    /// preventing a leftover that breaks networking.</summary>
+    public bool RouterSharingActive { get; set; }
 
     public AppSettings()
     {
@@ -112,6 +123,9 @@ public sealed class AppSettings
                     ZeroTierShowMemberOfOnly = loaded.ZeroTierShowMemberOfOnly;
                     if (loaded.ZeroTierPanelWidth > 0)
                         ZeroTierPanelWidth = loaded.ZeroTierPanelWidth;
+                    ZeroTierAutoRefresh = loaded.ZeroTierAutoRefresh;
+                    if (loaded.ZeroTierRefreshSeconds > 0)
+                        ZeroTierRefreshSeconds = loaded.ZeroTierRefreshSeconds;
                     RouterDnsAdapter = loaded.RouterDnsAdapter;
                     RouterDns = loaded.RouterDns;
                     RouterGateway = loaded.RouterGateway;
@@ -122,6 +136,7 @@ public sealed class AppSettings
                     if (!string.IsNullOrWhiteSpace(loaded.RouterDhcpStart)) RouterDhcpStart = loaded.RouterDhcpStart;
                     if (!string.IsNullOrWhiteSpace(loaded.RouterDhcpEnd)) RouterDhcpEnd = loaded.RouterDhcpEnd;
                     RouterAutoStart = loaded.RouterAutoStart;
+                    RouterSharingActive = loaded.RouterSharingActive;
                 }
             }
         }
@@ -149,6 +164,8 @@ public sealed class AppSettings
         public bool ZeroTierShowOnlineOnly { get; set; }
         public bool ZeroTierShowMemberOfOnly { get; set; }
         public double ZeroTierPanelWidth { get; set; } = 400;
+        public bool ZeroTierAutoRefresh { get; set; } = true;
+        public int ZeroTierRefreshSeconds { get; set; } = 30;
         public string RouterDnsAdapter { get; set; } = "";
         public string RouterDns { get; set; } = "";
         public string RouterGateway { get; set; } = "";
@@ -159,6 +176,7 @@ public sealed class AppSettings
         public string RouterDhcpStart { get; set; } = "10.1.1.100";
         public string RouterDhcpEnd { get; set; } = "10.1.1.254";
         public bool RouterAutoStart { get; set; }
+        public bool RouterSharingActive { get; set; }
     }
 
     public void Save()

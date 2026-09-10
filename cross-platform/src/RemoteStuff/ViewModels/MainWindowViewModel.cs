@@ -2489,10 +2489,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         RestoreEditorBackups();
 
+        // Sync ZeroTier status once at launch so the sidebar's online dots are correct
+        // immediately, instead of showing stale state until the ZeroTier panel is opened.
+        if (_zeroTier.HasAccounts)
+            Avalonia.Threading.DispatcherTimer.RunOnce(
+                () => _ = _zeroTier.RefreshAsync(), TimeSpan.FromSeconds(1));
+
         // Silently check GitHub for a newer release shortly after launch.
         if (Settings.AutoCheckUpdates)
             Avalonia.Threading.DispatcherTimer.RunOnce(
                 () => _ = RunUpdateCheck(interactive: false), TimeSpan.FromSeconds(3));
+
+        // Guard against a leftover router: if a previous run left internet sharing
+        // active (e.g. after a crash), tear it down before anything else so it can't
+        // keep the machine's networking reconfigured. Runs before any auto-start.
+        if (Settings.RouterSharingActive)
+            Avalonia.Threading.DispatcherTimer.RunOnce(
+                () => _ = NetworkTabViewModel.EnsureSharingStoppedAsync(Settings),
+                TimeSpan.FromSeconds(1));
 
         // Auto-start the internet-sharing router if the user enabled it.
         if (Settings.RouterAutoStart)

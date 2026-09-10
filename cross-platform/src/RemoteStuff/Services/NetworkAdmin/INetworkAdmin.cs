@@ -38,6 +38,9 @@ public sealed class AdminResult
     /// <summary>Which sharing mechanism actually ran, e.g. "winnat" or "ics". Empty for
     /// non-sharing operations.</summary>
     public string Mode { get; init; } = "";
+    /// <summary>The LAN gateway IP the router actually came up on (e.g. the address ICS
+    /// assigned). Empty for non-sharing operations.</summary>
+    public string RouterIp { get; init; } = "";
 
     public static AdminResult Success(string message = "Done") => new() { Ok = true, Message = message };
     public static AdminResult Fail(string message) => new() { Ok = false, Message = message };

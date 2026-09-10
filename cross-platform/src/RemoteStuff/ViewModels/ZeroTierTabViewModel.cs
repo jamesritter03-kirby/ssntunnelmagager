@@ -291,6 +291,43 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         }
     }
 
+    /// <summary>Automatically reload ZeroTier status on an interval. Remembered.</summary>
+    [ObservableProperty] private bool _autoRefresh = true;
+
+    /// <summary>Auto-refresh interval in seconds. Remembered.</summary>
+    [ObservableProperty] private int _refreshIntervalSeconds = 30;
+
+    /// <summary>Selectable auto-refresh intervals, in seconds.</summary>
+    public IReadOnlyList<int> RefreshIntervalOptions { get; } = new[] { 10, 15, 30, 60, 120, 300 };
+
+    partial void OnAutoRefreshChanged(bool value)
+    {
+        if (_settings is { } s && s.ZeroTierAutoRefresh != value)
+        {
+            s.ZeroTierAutoRefresh = value;
+            s.Save();
+        }
+        ConfigureRefreshTimer();
+    }
+
+    partial void OnRefreshIntervalSecondsChanged(int value)
+    {
+        if (_settings is { } s && s.ZeroTierRefreshSeconds != value)
+        {
+            s.ZeroTierRefreshSeconds = value;
+            s.Save();
+        }
+        ConfigureRefreshTimer();
+    }
+
+    // Apply the current auto-refresh on/off + interval to the periodic timer.
+    private void ConfigureRefreshTimer()
+    {
+        if (_refreshTimer is null) return;
+        _refreshTimer.Interval = Math.Max(5, RefreshIntervalSeconds) * 1000.0;
+        if (AutoRefresh) _refreshTimer.Start(); else _refreshTimer.Stop();
+    }
+
     /// <summary>How devices within each network are ordered.</summary>
     public enum ZtSort { Name, Ip, Status }
 
@@ -400,6 +437,8 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         _settings = settings;
         _showOnlineOnly = settings?.ZeroTierShowOnlineOnly ?? false;
         _showMemberOfOnly = settings?.ZeroTierShowMemberOfOnly ?? false;
+        _autoRefresh = settings?.ZeroTierAutoRefresh ?? true;
+        _refreshIntervalSeconds = settings?.ZeroTierRefreshSeconds is int n and > 0 ? n : 30;
         _connectUsername = string.IsNullOrWhiteSpace(settings?.ZeroTierConnectUsername)
             ? Environment.UserName
             : settings!.ZeroTierConnectUsername;
@@ -409,14 +448,14 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         ReloadAccounts();
         _ = Refresh();
 
-        // Periodically refresh device/network status so the panel stays current
-        // without a manual reload.
-        _refreshTimer = new System.Timers.Timer(30_000) { AutoReset = true };
+        // Periodically refresh device/network status so the panel stays current without a
+        // manual reload. The on/off toggle and interval are remembered via AppSettings.
+        _refreshTimer = new System.Timers.Timer { AutoReset = true };
         _refreshTimer.Elapsed += (_, _) => Dispatcher.UIThread.Post(async () =>
         {
             if (!IsBusy) await Refresh();
         });
-        _refreshTimer.Start();
+        ConfigureRefreshTimer();
     }
 
     private void OnServiceUpdated() => Dispatcher.UIThread.Post(Rebuild);

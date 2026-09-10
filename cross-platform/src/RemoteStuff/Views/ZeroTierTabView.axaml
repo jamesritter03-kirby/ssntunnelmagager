@@ -143,6 +143,23 @@
                                 MinHeight="0" Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center"
                                 ToolTip.Tip="Toggle sort direction" />
                     </StackPanel>
+                    <!-- Auto-refresh interval (remembered across launches) -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6" VerticalAlignment="Center">
+                        <CheckBox Content="Auto-refresh" IsChecked="{Binding AutoRefresh, Mode=TwoWay}"
+                                  MinHeight="0" VerticalAlignment="Center" Margin="0,0,6,0"
+                                  ToolTip.Tip="Automatically reload ZeroTier device/network status on an interval" />
+                        <ComboBox MinWidth="70" MinHeight="0" Padding="6,2" VerticalAlignment="Center"
+                                  ItemsSource="{Binding RefreshIntervalOptions}"
+                                  SelectedItem="{Binding RefreshIntervalSeconds, Mode=TwoWay}"
+                                  IsEnabled="{Binding AutoRefresh}"
+                                  ToolTip.Tip="How often to auto-refresh">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding StringFormat='{}{0}s'}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
                 </WrapPanel>
             </StackPanel>
         </Border>
