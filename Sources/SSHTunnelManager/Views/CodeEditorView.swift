@@ -250,6 +250,8 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedWrap: Bool?
         private var appliedLineNumbers: Bool?
         private var appliedThemeID: String?
+        private var appliedHighlightersToken: UUID?
+        private var lastScrollToEndToken: UUID?
 
         private var fullHighlightScheduled = false
         private var boundsObserver: NSObjectProtocol?
@@ -355,8 +357,24 @@ struct CodeEditorView: NSViewRepresentable {
             if appliedLanguage != model.language { applyLanguage() }
             if appliedWrap != model.wordWrap { applyWrap() }
             if appliedLineNumbers != model.showLineNumbers { applyLineNumbers() }
+            if appliedHighlightersToken != model.highlightersToken {
+                appliedHighlightersToken = model.highlightersToken
+                highlightAll()
+            }
+            if let token = model.scrollToEndToken, lastScrollToEndToken != token {
+                lastScrollToEndToken = token
+                scrollToEnd()
+            }
             layoutTextView()
             positionGutter()
+        }
+
+        /// Scroll the caret to the end of the buffer (follow / tail mode).
+        private func scrollToEnd() {
+            guard let textView else { return }
+            let end = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: end, length: 0))
+            textView.scrollRangeToVisible(NSRange(location: end, length: 0))
         }
 
         // The active theme.
@@ -485,18 +503,21 @@ struct CodeEditorView: NSViewRepresentable {
             let f = font
             let t = theme
             storage.addAttributes([.font: f, .foregroundColor: t.foreground], range: range)
-            guard model.language.hasHighlighting else { return }
-            let text = storage.string
-            for pattern in model.language.highlightPatterns() {
-                pattern.regex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
-                    guard let match else { return }
-                    let r = pattern.group == 0 ? match.range : match.range(at: pattern.group)
-                    guard r.location != NSNotFound, r.length > 0,
-                          NSMaxRange(r) <= storage.length else { return }
-                    storage.addAttribute(.foregroundColor,
-                                         value: t.color(for: pattern.token), range: r)
+            if model.language.hasHighlighting {
+                let text = storage.string
+                for pattern in model.language.highlightPatterns() {
+                    pattern.regex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+                        guard let match else { return }
+                        let r = pattern.group == 0 ? match.range : match.range(at: pattern.group)
+                        guard r.location != NSNotFound, r.length > 0,
+                              NSMaxRange(r) <= storage.length else { return }
+                        storage.addAttribute(.foregroundColor,
+                                             value: t.color(for: pattern.token), range: r)
+                    }
                 }
             }
+            // klogg-style user highlighters layer on top (any language, incl. logs).
+            LogHighlightApplier.apply(model.highlighters, to: storage, range: range)
         }
 
         /// Re‑highlight the whole document shortly after an edit so multi‑line
@@ -520,7 +541,7 @@ struct CodeEditorView: NSViewRepresentable {
                          range editedRange: NSRange,
                          changeInLength delta: Int) {
             guard editedMask.contains(.editedCharacters) else { return }
-            guard model.language.hasHighlighting else { return }
+            guard model.language.hasHighlighting || !model.highlighters.isEmpty else { return }
             let ns = textStorage.string as NSString
             let safeLocation = min(editedRange.location, ns.length)
             let safeLength = min(editedRange.length, ns.length - safeLocation)

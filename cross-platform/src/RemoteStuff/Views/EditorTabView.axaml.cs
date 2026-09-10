@@ -40,6 +40,9 @@ public partial class EditorTabView : UserControl
     // Document map (minimap) overview.
     private RemoteStuff.Views.Controls.Minimap? _minimap;
 
+    // klogg log-tools: compiled highlighter specs, rebuilt when the list changes.
+    private IReadOnlyList<CompiledHighlighter> _logHighlightSpecs = System.Array.Empty<CompiledHighlighter>();
+
     public EditorTabView()
     {
         InitializeComponent();
@@ -61,6 +64,9 @@ public partial class EditorTabView : UserControl
             tv.BackgroundRenderers.Add(new IndentGuideRenderer(() => _vm?.ShowIndentGuides ?? false));
             tv.BackgroundRenderers.Add(new BookmarkRenderer(() => true, _bookmarks));
             tv.BackgroundRenderers.Add(new ChangeHistoryRenderer(() => _vm?.ShowChangeHistory ?? false, _changeHistory));
+            tv.BackgroundRenderers.Add(new LogMarkRenderer(
+                () => _vm?.MarkedLines ?? (IReadOnlyCollection<int>)System.Array.Empty<int>()));
+            tv.BackgroundRenderers.Add(new LogHighlightRenderer(() => _logHighlightSpecs));
 
             _foldingTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             _foldingTimer.Tick += (_, _) => { _foldingTimer!.Stop(); UpdateFoldings(); };
@@ -124,6 +130,10 @@ public partial class EditorTabView : UserControl
             _vm.PropertyChanged -= OnVmPropertyChanged;
             _vm.ActionRequested -= OnEditorAction;
             _vm.GoToLineRequested -= OnGoToLineRequested;
+            _vm.JumpToLineRequested -= OnJumpToLine;
+            _vm.ScrollToEndRequested -= OnScrollToEnd;
+            _vm.MarksChanged -= OnMarksChanged;
+            _vm.HighlightersChanged -= OnHighlightersChanged;
         }
         _vm = DataContext as EditorTabViewModel;
         if (_vm != null && _editor != null)
@@ -139,9 +149,14 @@ public partial class EditorTabView : UserControl
             ApplyFolding();
             UpdateFoldings();
             UpdateCaretStatus();
+            RebuildHighlightSpecs();
             _vm.PropertyChanged += OnVmPropertyChanged;
             _vm.ActionRequested += OnEditorAction;
             _vm.GoToLineRequested += OnGoToLineRequested;
+            _vm.JumpToLineRequested += OnJumpToLine;
+            _vm.ScrollToEndRequested += OnScrollToEnd;
+            _vm.MarksChanged += OnMarksChanged;
+            _vm.HighlightersChanged += OnHighlightersChanged;
         }
     }
 
@@ -294,6 +309,76 @@ public partial class EditorTabView : UserControl
         _editor.ScrollToLine(line);
         _editor.Select(docLine.Offset, 0);
         _editor.TextArea.Focus();
+    }
+
+    // --- klogg log tools ---
+
+    /// <summary>Move the caret to a 1-based line and reveal it (result-list click).</summary>
+    private void OnJumpToLine(int line)
+    {
+        if (_editor?.Document is null) return;
+        line = System.Math.Clamp(line, 1, _editor.Document.LineCount);
+        var docLine = _editor.Document.GetLineByNumber(line);
+        _editor.TextArea.Caret.Line = line;
+        _editor.TextArea.Caret.Column = 1;
+        _editor.ScrollToLine(line);
+        _editor.Select(docLine.Offset, 0);
+        _editor.TextArea.Focus();
+    }
+
+    /// <summary>Scroll the caret to the end of the buffer (follow / tail mode).</summary>
+    private void OnScrollToEnd()
+    {
+        if (_editor?.Document is null) return;
+        _editor.CaretOffset = _editor.Document.TextLength;
+        _editor.ScrollToLine(_editor.Document.LineCount);
+    }
+
+    /// <summary>Clicking a filter / search / marks result jumps the editor there.</summary>
+    private void OnResultSelected(object? sender, Avalonia.Controls.SelectionChangedEventArgs e)
+    {
+        if (sender is ListBox { SelectedItem: LogResultLine line })
+        {
+            OnJumpToLine(line.LineNumber);
+            ((ListBox)sender).SelectedItem = null; // allow re-clicking the same row
+        }
+    }
+
+    private void OnMarksChanged() => _editor?.TextArea.TextView.InvalidateVisual();
+
+    private void OnHighlightersChanged() => RebuildHighlightSpecs();
+
+    /// <summary>Compile the VM's highlighters into ready-to-draw specs and repaint.</summary>
+    private void RebuildHighlightSpecs()
+    {
+        var list = new List<CompiledHighlighter>();
+        if (_vm != null)
+        {
+            foreach (var h in _vm.Highlighters)
+            {
+                if (!h.Enabled || string.IsNullOrEmpty(h.Pattern)) continue;
+                System.Text.RegularExpressions.Regex re;
+                try
+                {
+                    var opts = System.Text.RegularExpressions.RegexOptions.CultureInvariant;
+                    if (!h.CaseSensitive) opts |= System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+                    re = new System.Text.RegularExpressions.Regex(h.Pattern, opts);
+                }
+                catch { continue; }
+                Avalonia.Media.IBrush brush;
+                try
+                {
+                    var c = Avalonia.Media.Color.Parse(h.ColorHex);
+                    brush = new Avalonia.Media.SolidColorBrush(
+                        Avalonia.Media.Color.FromArgb(130, c.R, c.G, c.B));
+                }
+                catch { brush = new Avalonia.Media.SolidColorBrush(
+                    Avalonia.Media.Color.FromArgb(120, 255, 240, 130)); }
+                list.Add(new CompiledHighlighter { Regex = re, Brush = brush, WholeLine = h.WholeLine });
+            }
+        }
+        _logHighlightSpecs = list;
+        _editor?.TextArea.TextView.InvalidateVisual();
     }
 
     // --- Smart-editing commands (mirror the Mac app's Scintilla actions) ---

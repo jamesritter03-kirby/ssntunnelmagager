@@ -31,18 +31,27 @@ struct TextEditorTabView: View {
             // reports a huge ideal size; without this the tabbed layout (which
             // sizes its `VStack`/`ZStack` from child ideals) balloons past the
             // window, covering the tab bar and scrolling typed text out of view.
-            GeometryReader { geo in
-                Group {
-                    if model.useScintillaEngine {
-                        ScintillaEditorView(model: model)
-                    } else {
-                        CodeEditorView(model: model)
+            HStack(spacing: 0) {
+                GeometryReader { geo in
+                    Group {
+                        if model.useScintillaEngine {
+                            ScintillaEditorView(model: model)
+                        } else {
+                            CodeEditorView(model: model)
+                        }
                     }
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
-                .frame(width: geo.size.width, height: geo.size.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+
+                if model.logToolsVisible {
+                    Divider()
+                    LogToolsPanel(model: model)
+                        .frame(width: 300)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
             Divider()
             statusBar
         }
@@ -129,6 +138,18 @@ struct TextEditorTabView: View {
                 model.openFindBar(replace: false)
             }
             .keyboardShortcut("f", modifiers: .command)
+
+            Divider().frame(height: 18)
+
+            toggleButton("sidebar.right", "Log Tools", isOn: model.logToolsVisible,
+                         help: "klogg-style filter, search results, marks & highlighters") {
+                model.toggleLogTools()
+            }
+            toggleButton("arrow.down.to.line", "Follow", isOn: model.followMode,
+                         help: "Follow mode (tail -f): auto-reload and scroll to the end") {
+                model.followMode.toggle()
+            }
+            .disabled(model.fileURL == nil)
 
             Divider().frame(height: 18)
 
@@ -314,7 +335,12 @@ struct TextEditorTabView: View {
                 TextField("Find", text: $model.findText)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 160)
-                    .onChange(of: model.findText) { _ in model.refreshFindCount() }
+                    .onChange(of: model.findText) { _ in
+                        model.refreshFindCount()
+                        if model.logToolsVisible && model.logToolsTab == .search {
+                            model.refreshSearchResults()
+                        }
+                    }
                     .onSubmit { model.findNext() }
 
                 Button { model.findPrevious() } label: { Image(systemName: "chevron.up") }

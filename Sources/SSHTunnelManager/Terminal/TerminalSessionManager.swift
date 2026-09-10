@@ -2846,7 +2846,8 @@ final class TerminalSessionManager: ObservableObject {
                                editorBackupID: s.textEditorModel?.id,
                                credentialID: credentialID,
                                tabColor: s.tabColor,
-                               runOnConnect: s.runOnConnectCommand)
+                               runOnConnect: s.runOnConnectCommand,
+                               customTitle: s.customTitle)
     }
 
     /// Snapshot a workspace's side drawers by tab index (matching `snapshotTabs`
@@ -3059,6 +3060,10 @@ final class TerminalSessionManager: ObservableObject {
         if let cmd = snap.runOnConnect, !cmd.isEmpty,
            snap.profileID == nil, sessions.count > tabCountBefore {
             sessions.last?.runOnConnectCommand = cmd
+        }
+        // Re-apply a user-chosen custom tab name to the tab this call created.
+        if let custom = snap.customTitle, !custom.isEmpty, sessions.count > tabCountBefore {
+            sessions.last?.customTitle = custom
         }
     }
 

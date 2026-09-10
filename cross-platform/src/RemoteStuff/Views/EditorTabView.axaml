@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:RemoteStuff.ViewModels"
              xmlns:controls="using:RemoteStuff.Views.Controls"
+             xmlns:models="using:RemoteStuff.Models"
              xmlns:ae="using:AvaloniaEdit"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="RemoteStuff.Views.EditorTabView"
@@ -41,6 +42,10 @@
 
                 <Button Content="{controls:Icon search}" Classes="tool" Click="OnFind" ToolTip.Tip="Find / Replace (Ctrl+F)" />
                 <Button Content="{controls:Icon arrow-down-to-line}" Classes="tool" Command="{Binding GoToLineCommand}" ToolTip.Tip="Go to line… (Ctrl+G)" />
+                <ToggleButton Content="{controls:Icon panel-left}" Classes="tool" IsChecked="{Binding LogToolsVisible, Mode=TwoWay}"
+                              ToolTip.Tip="Log tools: filter, search results, marks &amp; highlighters" />
+                <ToggleButton Content="{controls:Icon chevrons-down}" Classes="tool" IsChecked="{Binding FollowMode, Mode=TwoWay}"
+                              ToolTip.Tip="Follow mode (tail -f): auto-reload and scroll to the end" />
                 <Button Content="{controls:Icon git-compare}" Classes="tool" IsVisible="{Binding HasCompareTargets}"
                         ToolTip.Tip="Compare with another open file">
                     <Button.Flyout>
@@ -137,7 +142,7 @@
             </StackPanel>
         </Border>
 
-        <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto">
             <ae:TextEditor Name="Editor" Grid.Column="0"
                            FontFamily="Menlo, Consolas, monospace"
                            FontSize="{Binding FontSize}"
@@ -149,6 +154,141 @@
                               IsVisible="{Binding ShowMinimap}"
                               LineBrush="{DynamicResource AppSecondaryTextBrush}"
                               Background="{DynamicResource AppChromeBrush}" />
+
+            <!-- klogg-style log tools panel -->
+            <Border Grid.Column="2" Width="320" IsVisible="{Binding LogToolsVisible}"
+                    Background="{DynamicResource AppChromeBrush}"
+                    BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1,0,0,0">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <!-- Tab header -->
+                    <Grid Grid.Row="0" ColumnDefinitions="*,*,*,*,Auto" Margin="4">
+                        <ToggleButton Grid.Column="0" Content="Filter" HorizontalAlignment="Stretch"
+                                      IsChecked="{Binding IsFilterTab, Mode=OneWay}"
+                                      Command="{Binding ShowLogTabCommand}"
+                                      CommandParameter="{x:Static vm:LogToolsTab.Filter}" />
+                        <ToggleButton Grid.Column="1" Content="Results" HorizontalAlignment="Stretch"
+                                      IsChecked="{Binding IsSearchTab, Mode=OneWay}"
+                                      Command="{Binding ShowLogTabCommand}"
+                                      CommandParameter="{x:Static vm:LogToolsTab.Search}" />
+                        <ToggleButton Grid.Column="2" Content="Marks" HorizontalAlignment="Stretch"
+                                      IsChecked="{Binding IsMarksTab, Mode=OneWay}"
+                                      Command="{Binding ShowLogTabCommand}"
+                                      CommandParameter="{x:Static vm:LogToolsTab.Marks}" />
+                        <ToggleButton Grid.Column="3" Content="Color" HorizontalAlignment="Stretch"
+                                      IsChecked="{Binding IsHighlightersTab, Mode=OneWay}"
+                                      Command="{Binding ShowLogTabCommand}"
+                                      CommandParameter="{x:Static vm:LogToolsTab.Highlighters}" />
+                        <Button Grid.Column="4" Content="{controls:Icon x}" Classes="tool"
+                                Command="{Binding ToggleLogToolsCommand}" ToolTip.Tip="Close log tools" />
+                    </Grid>
+                    <Rectangle Grid.Row="1" Height="1" Fill="{DynamicResource AppDividerBrush}" />
+
+                    <!-- Filter pane -->
+                    <Grid Grid.Row="2" RowDefinitions="Auto,*" IsVisible="{Binding IsFilterTab}">
+                        <StackPanel Grid.Row="0" Margin="6" Spacing="6">
+                            <TextBox Text="{Binding FilterText, Mode=TwoWay}" Watermark="Filter lines (regex)" />
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <ToggleButton Content=".*" IsChecked="{Binding FilterUsesRegex, Mode=TwoWay}"
+                                              Padding="7,2" ToolTip.Tip="Treat the filter as a regular expression" />
+                                <ToggleButton Content="Aa" IsChecked="{Binding FilterCaseSensitive, Mode=TwoWay}"
+                                              Padding="7,2" ToolTip.Tip="Match case" />
+                                <ToggleButton Content="≠" IsChecked="{Binding FilterInverted, Mode=TwoWay}"
+                                              Padding="7,2" ToolTip.Tip="Invert: show lines that do NOT match" />
+                                <TextBlock Text="{Binding FilterResults.Count}" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <ListBox Grid.Row="1" x:CompileBindings="False"
+                                 ItemsSource="{Binding FilterResults}"
+                                 SelectionChanged="OnResultSelected"
+                                 FontFamily="Menlo, Consolas, monospace" FontSize="11">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LogResultLine">
+                                    <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+
+                    <!-- Search-results pane -->
+                    <Grid Grid.Row="2" RowDefinitions="Auto,*" IsVisible="{Binding IsSearchTab}">
+                        <TextBox Grid.Row="0" Margin="6" Text="{Binding LogSearchText, Mode=TwoWay}"
+                                 Watermark="Search all lines (regex)" />
+                        <ListBox Grid.Row="1" x:CompileBindings="False"
+                                 ItemsSource="{Binding SearchResults}"
+                                 SelectionChanged="OnResultSelected"
+                                 FontFamily="Menlo, Consolas, monospace" FontSize="11">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LogResultLine">
+                                    <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+
+                    <!-- Marks pane -->
+                    <Grid Grid.Row="2" RowDefinitions="Auto,*" IsVisible="{Binding IsMarksTab}">
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="6" Spacing="6">
+                            <Button Content="Mark Line" Command="{Binding ToggleMarkAtCaretCommand}"
+                                    ToolTip.Tip="Toggle a mark on the current line" />
+                            <Button Content="Clear" Command="{Binding ClearMarksCommand}"
+                                    ToolTip.Tip="Clear all marks" />
+                        </StackPanel>
+                        <ListBox Grid.Row="1" x:CompileBindings="False"
+                                 ItemsSource="{Binding Marks}"
+                                 SelectionChanged="OnResultSelected"
+                                 FontFamily="Menlo, Consolas, monospace" FontSize="11">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LogResultLine">
+                                    <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+
+                    <!-- Highlighters pane -->
+                    <Grid Grid.Row="2" RowDefinitions="Auto,*" IsVisible="{Binding IsHighlightersTab}">
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="6" Spacing="6">
+                            <Button Content="Add Highlighter" Command="{Binding AddHighlighterCommand}"
+                                    ToolTip.Tip="Add a colour rule (seeded from the search text)" />
+                        </StackPanel>
+                        <ScrollViewer Grid.Row="1">
+                            <ItemsControl x:CompileBindings="False" ItemsSource="{Binding Highlighters}" Margin="6">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:LogHighlighterVm">
+                                        <Border Background="{DynamicResource AppInsetBrush}" CornerRadius="6"
+                                                Padding="6" Margin="0,0,0,6">
+                                            <StackPanel Spacing="4">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                                              ToolTip.Tip="Enable this highlighter" />
+                                                    <Border Width="18" Height="18" CornerRadius="3"
+                                                            Background="{Binding ColorHex,
+                                                                Converter={x:Static models:HexColorConverter.Instance}}"
+                                                            BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1" />
+                                                    <TextBox Text="{Binding ColorHex, Mode=TwoWay}" Width="86"
+                                                             ToolTip.Tip="Highlight colour (#RRGGBB)" />
+                                                    <Button Content="{controls:Icon x}" Classes="tool"
+                                                            Command="{Binding DataContext.RemoveHighlighterCommand,
+                                                                RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            CommandParameter="{Binding}" ToolTip.Tip="Remove" />
+                                                </StackPanel>
+                                                <TextBox Text="{Binding Pattern, Mode=TwoWay}" Watermark="regex pattern" />
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <ToggleButton Content="Aa" IsChecked="{Binding CaseSensitive, Mode=TwoWay}"
+                                                                  Padding="7,2" ToolTip.Tip="Match case" />
+                                                    <ToggleButton Content="▬" IsChecked="{Binding WholeLine, Mode=TwoWay}"
+                                                                  Padding="7,2" ToolTip.Tip="Colour the whole line, not just the match" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Grid>
+            </Border>
         </Grid>
 
         <Border Grid.Row="1" VerticalAlignment="Top" IsVisible="{Binding DiskChanged}"

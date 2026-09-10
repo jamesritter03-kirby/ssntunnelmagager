@@ -36,6 +36,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     let kind: Kind
     @Published var title: String
+    /// A user-chosen name that overrides the tab's auto-generated `title` for
+    /// display. Set from the tab's right-click "Rename Tab…" menu; clearing it
+    /// (blank) reverts the tab to its normal naming. Persisted per tab.
+    @Published var customTitle: String? = nil
+    /// The name shown for this tab: the user's custom title when set, otherwise
+    /// the live auto-generated `title`.
+    var displayTitle: String {
+        if let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !custom.isEmpty {
+            return custom
+        }
+        return title
+    }
     @Published var isRunning: Bool = true
     @Published var exitCode: Int32? = nil
     /// An optional user-chosen tint for this tab's chip (nil = default accent).
