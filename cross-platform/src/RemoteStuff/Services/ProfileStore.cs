@@ -195,14 +195,7 @@ public sealed class ProfileStore
 
     /// <summary>Parse a JSON document (array or single object) into profiles WITHOUT adding
     /// them to the store, so the caller can inspect for duplicates first.</summary>
-    public List<SshProfile> ParseProfiles(string json)
-    {
-        var trimmed = json.TrimStart();
-        if (trimmed.StartsWith("["))
-            return JsonSerializer.Deserialize<List<SshProfile>>(json, JsonOptions) ?? new();
-        var one = JsonSerializer.Deserialize<SshProfile>(json, JsonOptions);
-        return one == null ? new() : new List<SshProfile> { one };
-    }
+    public List<SshProfile> ParseProfiles(string json) => DeserializeProfiles(json);
 
     /// <summary>True when a profile with this display name (trimmed, case-insensitive) exists.</summary>
     public bool NameExists(string name) =>
@@ -243,21 +236,42 @@ public sealed class ProfileStore
     public string ExportJson(SshProfile profile) =>
         JsonSerializer.Serialize(new[] { profile }, JsonOptions);
 
-    /// <summary>Parse a JSON document (array or single object) and import its profiles.</summary>
+    /// <summary>Parse a JSON document (array, single object, or Swift envelope) and
+    /// import its profiles.</summary>
     public int ImportJson(string json)
     {
-        List<SshProfile>? incoming = null;
+        var incoming = DeserializeProfiles(json);
+        return incoming.Count == 0 ? 0 : ImportProfiles(incoming);
+    }
+
+    /// <summary>Deserialize profiles from any shape this app or the macOS (Swift) app
+    /// can produce: a bare <c>[ … ]</c> array, a single profile object, or the Swift
+    /// export envelope <c>{ "format": "ssh-tunnel-manager.profiles", "version": …,
+    /// "profiles": [ … ] }</c>. The envelope is unwrapped to its <c>profiles</c> array
+    /// so files exported from the mac-only app import correctly.</summary>
+    private static List<SshProfile> DeserializeProfiles(string json)
+    {
         var trimmed = json.TrimStart();
         if (trimmed.StartsWith("["))
+            return JsonSerializer.Deserialize<List<SshProfile>>(json, JsonOptions) ?? new();
+
+        if (trimmed.StartsWith("{"))
         {
-            incoming = JsonSerializer.Deserialize<List<SshProfile>>(json, JsonOptions);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "profiles", StringComparison.OrdinalIgnoreCase) &&
+                        prop.Value.ValueKind == JsonValueKind.Array)
+                        return JsonSerializer.Deserialize<List<SshProfile>>(
+                            prop.Value.GetRawText(), JsonOptions) ?? new();
+                }
+            }
         }
-        else
-        {
-            var one = JsonSerializer.Deserialize<SshProfile>(json, JsonOptions);
-            if (one != null) incoming = new List<SshProfile> { one };
-        }
-        return incoming == null ? 0 : ImportProfiles(incoming);
+
+        var one = JsonSerializer.Deserialize<SshProfile>(json, JsonOptions);
+        return one == null ? new() : new List<SshProfile> { one };
     }
 
     /// <summary>A display name that doesn't already exist, suffixing " (2)", " (3)"…</summary>

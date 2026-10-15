@@ -691,9 +691,50 @@ private struct MacNetworkDetail: View {
                         .font(.caption)
                         .foregroundStyle(client.isActive ? .green : .secondary)
                 }
+                .contentShape(Rectangle())
+                .contextMenu { deviceActionMenu(ip: client.ip) }
                 if client.id != net.routerClients.last?.id { Divider() }
             }
         }
+    }
+
+    /// One-click connection actions offered for a device IP seen on the router's
+    /// LAN — mirrors the LAN-scan launch menu in the cross-platform app.
+    @ViewBuilder
+    private func deviceActionMenu(ip: String) -> some View {
+        Button("Open SSH") {
+            TerminalSessionManager.shared.openAdHocSSH(host: ip, port: 22,
+                                                       username: "root", password: "")
+        }
+        Button("Open SFTP") {
+            TerminalSessionManager.shared.openAdHocSFTP(host: ip, port: 22,
+                                                        username: "root", password: "")
+        }
+        Button("Open MQTT") {
+            TerminalSessionManager.shared.openAdHocService(category: .mqtt, host: ip,
+                port: ForwardCategory.mqtt.defaultPort, username: "", password: "")
+        }
+        Button("Open Redis") {
+            TerminalSessionManager.shared.openAdHocService(category: .redis, host: ip,
+                port: ForwardCategory.redis.defaultPort, username: "", password: "")
+        }
+        Divider()
+        Button("Open Web (80)")   { openDeviceWeb(ip: ip, port: nil) }
+        Button("Open Web (8080)") { openDeviceWeb(ip: ip, port: 8080) }
+        Button("Open Web (1880)") { openDeviceWeb(ip: ip, port: 1880) }
+        Divider()
+        Button("Copy IP Address") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(ip, forType: .string)
+        }
+    }
+
+    /// Open an in-app browser tab pointed at a device's web UI on the given port
+    /// (nil = plain http on port 80).
+    private func openDeviceWeb(ip: String, port: Int?) {
+        let base = port.map { "http://\(ip):\($0)" } ?? "http://\(ip)"
+        guard let url = URL(string: base) else { return }
+        TerminalSessionManager.shared.openWeb(url: url, title: ip)
     }
 
     /// Load the store's current sharing config into the editable draft.

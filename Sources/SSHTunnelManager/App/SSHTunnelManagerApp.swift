@@ -191,6 +191,15 @@ struct SSHTunnelManagerApp: App {
                     }
                 }
                 .disabled(sessions.savedWorkspaces.isEmpty)
+                Divider()
+                Button("Import Workspaces…") {
+                    WorkspaceTransfer.importFlow(into: sessions)
+                }
+                Button("Export Saved Workspaces…") {
+                    WorkspaceTransfer.exportFlow(sessions.savedWorkspaces,
+                                                 suggestedName: "Workspaces.json")
+                }
+                .disabled(sessions.savedWorkspaces.isEmpty)
             }
             CommandGroup(after: .windowArrangement) {
                 Button("Detach Tab into New Window") {

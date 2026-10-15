@@ -2312,6 +2312,39 @@ final class TerminalSessionManager: ObservableObject {
         }
     }
 
+    /// Merge imported saved-workspace launch templates into the library, resolving
+    /// name collisions per `resolution`:
+    /// - `.copies`  — always add, suffixing the name " (2)", " (3)"… when taken.
+    /// - `.skip`    — drop any whose name already exists.
+    /// - `.replace` — overwrite the existing same-named template (keeping its id).
+    /// Returns the number added or updated.
+    @discardableResult
+    func importSavedWorkspaces(_ incoming: [SavedWorkspace],
+                               resolution: WorkspaceTransfer.DuplicateResolution) -> Int {
+        var count = 0
+        for ws in incoming {
+            let existingIndex = savedWorkspaces.firstIndex {
+                $0.name.caseInsensitiveCompare(ws.name) == .orderedSame
+            }
+            switch resolution {
+            case .skip where existingIndex != nil:
+                continue
+            case .replace where existingIndex != nil:
+                var updated = ws
+                updated.id = savedWorkspaces[existingIndex!].id
+                savedWorkspaces[existingIndex!] = updated
+                count += 1
+            default:
+                var copy = ws
+                copy.name = uniqueSavedWorkspaceName(for: ws.name)
+                savedWorkspaces.append(copy)
+                count += 1
+            }
+        }
+        persistSavedWorkspaces()
+        return count
+    }
+
     /// Snapshot `ws` into `savedWorkspaces`, replacing any entry of the same name.
     private func upsertSavedWorkspace(from ws: Workspace, name: String) {
         let tabs = snapshotTabs(for: ws)

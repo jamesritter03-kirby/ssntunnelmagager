@@ -6,9 +6,13 @@ import AppKit
 final class ProfileComparisonModel: ObservableObject {
     static let shared = ProfileComparisonModel()
     @Published var isPresented = false
+    /// Profiles to pre-select when the window next appears (e.g. opened from a
+    /// sidebar multi-selection's "Compare" action). Consumed by the view.
+    @Published var pendingSelection: Set<UUID> = []
     private var windowController: ProfileComparisonWindowController?
 
-    func present() {
+    func present(selecting ids: Set<UUID> = []) {
+        pendingSelection = ids
         if windowController == nil {
             windowController = ProfileComparisonWindowController { [weak self] in
                 self?.windowController = nil
@@ -254,6 +258,7 @@ struct ProfileField: Identifiable {
 struct ProfileComparisonView: View {
     @EnvironmentObject var store: ProfileStore
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var comparisonModel = ProfileComparisonModel.shared
 
     @State private var selected: Set<UUID> = []
     @State private var fieldName: String = ProfileField.editable.first?.name ?? ""
@@ -295,6 +300,15 @@ struct ProfileComparisonView: View {
 
     private var currentOptions: [String] { selectedField?.options ?? [] }
 
+    /// Pre-select the profiles the model asked for (e.g. a sidebar multi-selection
+    /// opened via "Compare"), then clear the request so it doesn't reapply.
+    private func applyPendingSelection() {
+        let pending = comparisonModel.pendingSelection
+        guard !pending.isEmpty else { return }
+        selected = pending
+        comparisonModel.pendingSelection = []
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -307,7 +321,9 @@ struct ProfileComparisonView: View {
                minHeight: 460, idealHeight: 640, maxHeight: .infinity)
         .onAppear {
             if fieldIsOptions { optionValue = currentOptions.first ?? "" }
+            applyPendingSelection()
         }
+        .onChange(of: comparisonModel.pendingSelection) { _ in applyPendingSelection() }
         .sheet(isPresented: $showPropagate) {
             PropagateCollectionView(
                 targets: rows.filter { selected.contains($0.id) },

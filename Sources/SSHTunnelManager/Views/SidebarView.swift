@@ -392,6 +392,11 @@ struct SidebarView: View {
         } label: {
             Label("Export \(profiles.count) Profiles…", systemImage: "square.and.arrow.up")
         }
+        Button {
+            ProfileComparisonModel.shared.present(selecting: ids)
+        } label: {
+            Label("Compare \(profiles.count) Profiles…", systemImage: "rectangle.split.3x1")
+        }
         Divider()
         Button(role: .destructive) {
             for profile in profiles { store.delete(profile) }
