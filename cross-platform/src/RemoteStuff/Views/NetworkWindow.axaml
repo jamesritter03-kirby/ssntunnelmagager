@@ -1,0 +1,14 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RemoteStuff.ViewModels"
+        xmlns:views="using:RemoteStuff.Views"
+        x:Class="RemoteStuff.Views.NetworkWindow"
+        x:DataType="vm:NetworkTabViewModel"
+        Width="900" Height="640"
+        MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppSurfaceBrush}"
+        Title="Network">
+
+    <views:NetworkTabView />
+</Window>

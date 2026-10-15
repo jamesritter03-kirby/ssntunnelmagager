@@ -369,6 +369,11 @@ public sealed class ZeroTierService
     /// node would over-report online.</summary>
     public bool IsHostOnline(string? host) => MemberForIp(host)?.IsOnline ?? false;
 
+    /// <summary>Whether this host maps to a known ZeroTier device, so its online/offline
+    /// state is meaningful. Hosts we don't track (ordinary internet hosts) have no online
+    /// info and fall back to connection-based sidebar dots.</summary>
+    public bool IsHostTracked(string? host) => MemberForIp(host) is not null;
+
     public IEnumerable<ZeroTierMember> MembersOf(ZeroTierNetwork network) =>
         _members.Where(m => m.NetworkId == network.Id && m.AccountId == network.AccountId);
 

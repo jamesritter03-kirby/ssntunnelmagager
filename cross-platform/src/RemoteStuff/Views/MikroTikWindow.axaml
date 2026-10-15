@@ -1,0 +1,14 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RemoteStuff.ViewModels"
+        xmlns:views="using:RemoteStuff.Views"
+        x:Class="RemoteStuff.Views.MikroTikWindow"
+        x:DataType="vm:MikroTikTabViewModel"
+        Width="980" Height="680"
+        MinWidth="680" MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppSurfaceBrush}"
+        Title="MikroTik Router">
+
+    <views:MikroTikTabView />
+</Window>

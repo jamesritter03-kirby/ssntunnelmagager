@@ -16,6 +16,9 @@ using RemoteStuff.Services.NetworkAdmin;
 
 namespace RemoteStuff.ViewModels;
 
+/// <summary>A one-click connection action offered for an IP found by the LAN scanner.</summary>
+public enum NetScanAction { Ssh, Sftp, Mqtt, Redis, Web80, Web8080, Web1880 }
+
 /// <summary>
 /// A cross-platform network browser: lists this machine's interfaces, gateway,
 /// DNS servers, hostname and public IP, and offers a LAN ping-sweep scanner. On
@@ -276,6 +279,24 @@ public sealed partial class NetworkTabViewModel : TabViewModel
             ScanStatus = $"Copied {text}";
         }
     }
+
+    /// <summary>Raised when the user picks a connection action for a scanned IP. The host
+    /// owns the actual tab/dialog creation (it has the workspace context); this VM only
+    /// knows the address and which action was chosen.</summary>
+    public event Action<NetScanAction, string>? HostActionRequested;
+
+    private void RequestHostAction(NetScanAction action, string? ip)
+    {
+        if (!string.IsNullOrWhiteSpace(ip)) HostActionRequested?.Invoke(action, ip!.Trim());
+    }
+
+    [RelayCommand] private void OpenSsh(string? ip) => RequestHostAction(NetScanAction.Ssh, ip);
+    [RelayCommand] private void OpenSftp(string? ip) => RequestHostAction(NetScanAction.Sftp, ip);
+    [RelayCommand] private void OpenMqtt(string? ip) => RequestHostAction(NetScanAction.Mqtt, ip);
+    [RelayCommand] private void OpenRedis(string? ip) => RequestHostAction(NetScanAction.Redis, ip);
+    [RelayCommand] private void OpenWeb80(string? ip) => RequestHostAction(NetScanAction.Web80, ip);
+    [RelayCommand] private void OpenWeb8080(string? ip) => RequestHostAction(NetScanAction.Web8080, ip);
+    [RelayCommand] private void OpenWeb1880(string? ip) => RequestHostAction(NetScanAction.Web1880, ip);
 
     /// <summary>Fill the LAN scanner's subnet from a clicked interface's IPv4 address.</summary>
     [RelayCommand]

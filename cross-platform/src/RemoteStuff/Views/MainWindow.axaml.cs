@@ -45,6 +45,8 @@ public partial class MainWindow : Window
             _vm.DetachTerminalRequested -= ShowDetachedTerminal;
             _vm.SessionLogsRequested -= ShowSessionLogs;
             _vm.OlderVersionsRequested -= ShowOlderVersions;
+            _vm.NetworkConfigRequested -= ShowNetworkConfig;
+            _vm.MikroTikConfigRequested -= ShowMikroTikConfig;
             _vm.PropertyChanged -= OnVmPropertyChanged;
         }
         _vm = DataContext as MainWindowViewModel;
@@ -66,6 +68,8 @@ public partial class MainWindow : Window
             _vm.DetachTerminalRequested += ShowDetachedTerminal;
             _vm.SessionLogsRequested += ShowSessionLogs;
             _vm.OlderVersionsRequested += ShowOlderVersions;
+            _vm.NetworkConfigRequested += ShowNetworkConfig;
+            _vm.MikroTikConfigRequested += ShowMikroTikConfig;
             _vm.PropertyChanged += OnVmPropertyChanged;
         }
     }
@@ -429,6 +433,34 @@ public partial class MainWindow : Window
     {
         var window = new OlderVersionsWindow { DataContext = vm };
         window.Show(this);
+    }
+
+    private NetworkWindow? _networkWindow;
+
+    private void ShowNetworkConfig(NetworkTabViewModel vm)
+    {
+        if (_networkWindow is { } existing)
+        {
+            existing.Activate();
+            return;
+        }
+        _networkWindow = new NetworkWindow { DataContext = vm };
+        _networkWindow.Closed += (_, _) => _networkWindow = null;
+        _networkWindow.Show(this);
+    }
+
+    private MikroTikWindow? _mikroTikWindow;
+
+    private void ShowMikroTikConfig(MikroTikTabViewModel vm)
+    {
+        if (_mikroTikWindow is { } existing)
+        {
+            existing.Activate();
+            return;
+        }
+        _mikroTikWindow = new MikroTikWindow { DataContext = vm };
+        _mikroTikWindow.Closed += (_, _) => _mikroTikWindow = null;
+        _mikroTikWindow.Show(this);
     }
 
     private void ShowDetachedTerminal(TerminalTabViewModel term)

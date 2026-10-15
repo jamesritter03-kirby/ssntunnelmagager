@@ -145,10 +145,38 @@
                     <DataTemplate x:DataType="vm:NetworkTabViewModel+ScanHit">
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="2">
                             <TextBlock Text="🟢" />
-                            <Button Classes="copy"
-                                    Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).CopyTextCommand}"
-                                    CommandParameter="{Binding Ip}">
+                            <Button Classes="copy" ToolTip.Tip="Open a connection to this device">
                                 <TextBlock Text="{Binding Display}" />
+                                <Button.Flyout>
+                                    <MenuFlyout>
+                                        <MenuItem Header="SSH Terminal"
+                                                  Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).OpenSshCommand}"
+                                                  CommandParameter="{Binding Ip}" />
+                                        <MenuItem Header="SFTP"
+                                                  Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).OpenSftpCommand}"
+                                                  CommandParameter="{Binding Ip}" />
+                                        <MenuItem Header="MQTT Explorer"
+                                                  Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).OpenMqttCommand}"
+                                                  CommandParameter="{Binding Ip}" />
+                                        <MenuItem Header="Redis Client"
+                                                  Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).OpenRedisCommand}"
+                                                  CommandParameter="{Binding Ip}" />
+                                        <Separator />
+                                        <MenuItem Header="Open Web — port 80"
+                                                  Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).OpenWeb80Command}"
+                                                  CommandParameter="{Binding Ip}" />
+                                        <MenuItem Header="Open Web — port 8080"
+                                                  Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).OpenWeb8080Command}"
+                                                  CommandParameter="{Binding Ip}" />
+                                        <MenuItem Header="Open Web — port 1880"
+                                                  Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).OpenWeb1880Command}"
+                                                  CommandParameter="{Binding Ip}" />
+                                        <Separator />
+                                        <MenuItem Header="Copy IP Address"
+                                                  Command="{Binding $parent[ListBox].((vm:NetworkTabViewModel)DataContext).CopyTextCommand}"
+                                                  CommandParameter="{Binding Ip}" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
                             </Button>
                             <TextBlock Text="{Binding LatencyMs, StringFormat='{}{0} ms'}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" />
                         </StackPanel>

@@ -32,6 +32,9 @@ public sealed partial class ProfileRowViewModel : ObservableObject
     /// <summary>True while at least one live session for this profile is open.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowHealthDot))]
+    [NotifyPropertyChangedFor(nameof(ShowOfflineDot))]
+    [NotifyPropertyChangedFor(nameof(ShowOnlineDisconnectedDot))]
+    [NotifyPropertyChangedFor(nameof(ShowConnectedDot))]
     private bool _isConnected;
 
     /// <summary>Live tunnel health, driving the sidebar status dot colour.</summary>
@@ -56,10 +59,49 @@ public sealed partial class ProfileRowViewModel : ObservableObject
         _ => ""
     };
 
-    public bool ShowHealthDot => IsConnected && Health != TunnelHealth.Unknown;
+    public bool ShowHealthDot => ShowConnectedDot && Health != TunnelHealth.Unknown;
 
     /// <summary>True when the profile's host is an online ZeroTier device.</summary>
-    [ObservableProperty] private bool _isOnline;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowOfflineDot))]
+    [NotifyPropertyChangedFor(nameof(ShowOnlineDisconnectedDot))]
+    [NotifyPropertyChangedFor(nameof(ShowConnectedDot))]
+    private bool _isOnline;
+
+    /// <summary>True when the host maps to a known ZeroTier device, so its online/offline
+    /// state is meaningful. Untracked hosts (ordinary internet hosts) and local shells have
+    /// no online info and fall back to connection-based dots.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowOfflineDot))]
+    [NotifyPropertyChangedFor(nameof(ShowOnlineDisconnectedDot))]
+    [NotifyPropertyChangedFor(nameof(ShowConnectedDot))]
+    private bool _isTracked;
+
+    /// <summary>Treat local shells and untracked hosts as reachable so their dots reflect
+    /// connection state; only a tracked ZeroTier device that is genuinely offline forces
+    /// the grey "offline" look even while a stale session stays open.</summary>
+    private bool TreatedOnline => IsLocal || !IsTracked || IsOnline;
+
+    /// <summary>Filled green dot: the host is reachable and a live session is open.</summary>
+    public bool ShowConnectedDot => IsConnected && TreatedOnline;
+
+    /// <summary>Hollow green ring: a tracked ZeroTier device is online but not connected to.</summary>
+    public bool ShowOnlineDisconnectedDot => IsTracked && !IsLocal && IsOnline && !IsConnected;
+
+    /// <summary>Grey dot: offline, or not connected with no online info to show.</summary>
+    public bool ShowOfflineDot => !ShowConnectedDot && !ShowOnlineDisconnectedDot;
+
+    /// <summary>Ticked in multi-select mode (drives bulk compare/delete). Kept in sync with
+    /// the owner's checked set so it survives sidebar rebuilds.</summary>
+    [ObservableProperty] private bool _isChecked;
+
+    partial void OnIsCheckedChanged(bool value) => _owner.OnRowCheckedChanged(this);
+
+    /// <summary>True while the sidebar is in multi-select mode (checkboxes shown).</summary>
+    public bool IsSelectionMode => _owner.IsSelectionMode;
+
+    /// <summary>Re-read selection mode from the owner after it toggles.</summary>
+    public void RefreshSelectionMode() => OnPropertyChanged(nameof(IsSelectionMode));
 
     public bool IsFavorite => Profile.IsFavorite;
     public string FavoriteGlyph => Profile.IsFavorite ? "★" : "☆";

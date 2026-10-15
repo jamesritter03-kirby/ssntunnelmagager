@@ -653,6 +653,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             foreach (var row in section.Rows)
             {
                 row.IsConnected = connected.Contains(row.Profile.Id);
+                row.IsTracked = _zeroTier.IsHostTracked(row.Profile.Host);
                 row.IsOnline = _zeroTier.IsHostOnline(row.Profile.Host);
             }
         OnPropertyChanged(nameof(ConnectedProfileCount));
@@ -668,7 +669,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         foreach (var section in SidebarSections)
             foreach (var row in section.Rows)
+            {
+                row.IsTracked = _zeroTier.IsHostTracked(row.Profile.Host);
                 row.IsOnline = _zeroTier.IsHostOnline(row.Profile.Host);
+            }
     }
 
     /// <summary>Raised whenever live-session state changes (drives the tray checkmarks/badge).</summary>
@@ -751,7 +755,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             IsExpanded = !_collapsedSections.Contains(title)
         };
         foreach (var p in profiles)
-            section.Rows.Add(new ProfileRowViewModel(p, this));
+        {
+            var row = new ProfileRowViewModel(p, this);
+            row.IsChecked = _checkedProfileIds.Contains(p.Id);
+            section.Rows.Add(row);
+        }
         section.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName != nameof(SidebarSectionViewModel.IsExpanded)) return;
@@ -862,6 +870,91 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectedProfile = Profiles.FirstOrDefault();
     }
 
+    // ---- Multi-select (bulk compare / delete) ----
+
+    /// <summary>When true the sidebar shows a checkbox on every row for bulk actions.</summary>
+    [ObservableProperty] private bool _isSelectionMode;
+
+    /// <summary>Profile ids currently ticked, tracked centrally so the selection survives
+    /// sidebar rebuilds (which recreate the row view models).</summary>
+    private readonly HashSet<Guid> _checkedProfileIds = new();
+
+    public int CheckedProfileCount => _checkedProfileIds.Count;
+    public bool HasCheckedProfiles => _checkedProfileIds.Count > 0;
+    public string CheckedProfileSummary =>
+        _checkedProfileIds.Count == 0 ? "Select profiles"
+        : $"{_checkedProfileIds.Count} selected";
+
+    partial void OnIsSelectionModeChanged(bool value)
+    {
+        if (!value)
+        {
+            _checkedProfileIds.Clear();
+            foreach (var row in AllRows) row.IsChecked = false;
+        }
+        foreach (var row in AllRows) row.RefreshSelectionMode();
+        RaiseCheckedState();
+    }
+
+    private IEnumerable<ProfileRowViewModel> AllRows =>
+        SidebarSections.SelectMany(s => s.Rows);
+
+    /// <summary>Called by a row when its checkbox flips; keeps the central set in sync.</summary>
+    public void OnRowCheckedChanged(ProfileRowViewModel row)
+    {
+        if (row.IsChecked) _checkedProfileIds.Add(row.Profile.Id);
+        else _checkedProfileIds.Remove(row.Profile.Id);
+        RaiseCheckedState();
+    }
+
+    private void RaiseCheckedState()
+    {
+        OnPropertyChanged(nameof(CheckedProfileCount));
+        OnPropertyChanged(nameof(HasCheckedProfiles));
+        OnPropertyChanged(nameof(CheckedProfileSummary));
+        CompareCheckedProfilesCommand.NotifyCanExecuteChanged();
+        DeleteCheckedProfilesCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand]
+    private void ToggleSelectionMode() => IsSelectionMode = !IsSelectionMode;
+
+    [RelayCommand]
+    private void ClearCheckedProfiles()
+    {
+        _checkedProfileIds.Clear();
+        foreach (var row in AllRows) row.IsChecked = false;
+        RaiseCheckedState();
+    }
+
+    [RelayCommand(CanExecute = nameof(HasCheckedProfiles))]
+    private void CompareCheckedProfiles()
+    {
+        var picked = _store.Profiles.Where(p => _checkedProfileIds.Contains(p.Id)).ToList();
+        if (picked.Count == 0) return;
+        CompareProfilesRequested?.Invoke(new ProfileComparisonViewModel(
+            picked, _secrets,
+            () => { _store.Save(); ReloadProfiles(); }));
+    }
+
+    [RelayCommand(CanExecute = nameof(HasCheckedProfiles))]
+    private async Task DeleteCheckedProfiles()
+    {
+        var picked = _store.Profiles.Where(p => _checkedProfileIds.Contains(p.Id)).ToList();
+        if (picked.Count == 0) return;
+        var ok = await Services.DialogService.ConfirmAsync(
+            "Delete profiles",
+            $"Delete {picked.Count} selected profile{(picked.Count == 1 ? "" : "s")}? This can't be undone.",
+            "Delete", "Cancel");
+        if (!ok) return;
+        foreach (var p in picked) _store.Delete(p);
+        _checkedProfileIds.Clear();
+        RaiseCheckedState();
+        ReloadProfiles();
+        SelectedProfile = Profiles.FirstOrDefault();
+        SetStatus($"Deleted {picked.Count} profile{(picked.Count == 1 ? "" : "s")}.");
+    }
+
     [RelayCommand]
     private void ClearSearch() => SearchText = "";
 
@@ -878,6 +971,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         RebuildProfileMenus();
         RebuildSidebar();
+
+        // Drop any ticked ids whose profile no longer exists so bulk counts stay honest.
+        if (_checkedProfileIds.Count > 0)
+        {
+            _checkedProfileIds.IntersectWith(_store.Profiles.Select(p => p.Id));
+            RaiseCheckedState();
+        }
     }
 
     partial void OnSelectedProfileChanged(SshProfile? value)
@@ -2256,12 +2356,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 OpenRedisTab(rhost, rport, rpass, rhost.Length == 0 ? "Redis" : rhost, snap.Id);
                 break;
             }
-            case "network":
-                NewNetworkCommand.Execute(null);
-                break;
-            case "mikrotik":
-                NewMikroTikCommand.Execute(null);
-                break;
+            // Network and MikroTik are standalone dialogs, not workspace tabs, so a
+            // persisted session no longer reopens them here.
         }
     }
 
@@ -2533,9 +2629,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Settings.RouterAutoStart)
             Avalonia.Threading.DispatcherTimer.RunOnce(() =>
             {
-                NewNetwork();
-                var net = Tabs.OfType<NetworkTabViewModel>().FirstOrDefault();
-                if (net is not null) _ = net.AutoStartRouterIfEnabledAsync();
+                _ = EnsureNetworkConfig().AutoStartRouterIfEnabledAsync();
             }, TimeSpan.FromSeconds(2));
 
         // Stagger auto-connect profiles so we don't spawn every ssh at once.
@@ -2850,22 +2944,58 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void NewNetwork()
     {
-        var existing = Tabs.OfType<NetworkTabViewModel>().FirstOrDefault();
-        if (existing is not null) { SelectedTab = existing; return; }
-        var net = new NetworkTabViewModel(Settings);
-        net.CloseRequested += CloseTab;
-        Tabs.Add(net);
-        SelectedTab = net;
+        NetworkConfigRequested?.Invoke(EnsureNetworkConfig());
+    }
+
+    /// <summary>Raised to open the Network configuration dialog.</summary>
+    public event Action<NetworkTabViewModel>? NetworkConfigRequested;
+
+    /// <summary>Raised to open the MikroTik router configuration dialog.</summary>
+    public event Action<MikroTikTabViewModel>? MikroTikConfigRequested;
+
+    private NetworkTabViewModel? _networkConfig;
+    private MikroTikTabViewModel? _mikroTikConfig;
+
+    /// <summary>The single shared Network configuration view model, created on first use.
+    /// Kept alive so router/NAT state and scan results survive closing the dialog window.</summary>
+    private NetworkTabViewModel EnsureNetworkConfig()
+    {
+        if (_networkConfig is null)
+        {
+            _networkConfig = new NetworkTabViewModel(Settings);
+            _networkConfig.HostActionRequested += OnNetworkHostAction;
+        }
+        return _networkConfig;
+    }
+
+    /// <summary>Launch a connection to an IP the LAN scanner found. SSH/SFTP default to
+    /// the <c>root</c> user (the terminal/SFTP prompts for a password), matching the
+    /// ZeroTier device one-click actions.</summary>
+    private void OnNetworkHostAction(NetScanAction action, string ip)
+    {
+        var host = ip.Trim();
+        if (host.Length == 0) return;
+        switch (action)
+        {
+            case NetScanAction.Ssh:     OpenSession(AdHocProfile(host, host, "root")); break;
+            case NetScanAction.Sftp:    OpenSftpTab(AdHocProfile(host, host, "root")); break;
+            case NetScanAction.Mqtt:    OpenMqttTab(host, 1883, null, null, $"{host} · MQTT"); break;
+            case NetScanAction.Redis:   OpenRedisTab(host, 6379, null, $"{host} · Redis"); break;
+            case NetScanAction.Web80:   NewBrowserAt($"http://{host}"); break;
+            case NetScanAction.Web8080: NewBrowserAt($"http://{host}:8080"); break;
+            case NetScanAction.Web1880: NewBrowserAt($"http://{host}:1880"); break;
+        }
     }
 
     [RelayCommand]
     private void NewMikroTik()
     {
-        var mt = new MikroTikTabViewModel(_mikroTikRouters);
-        mt.CloseRequested += CloseTab;
-        mt.MacTelnetRequested += OpenMacTelnetTab;
-        Tabs.Add(mt);
-        SelectedTab = mt;
+        if (_mikroTikConfig is null)
+        {
+            _mikroTikConfig = new MikroTikTabViewModel(_mikroTikRouters);
+            _mikroTikConfig.MacTelnetRequested += OpenMacTelnetTab;
+        }
+        MikroTikConfigRequested?.Invoke(_mikroTikConfig);
     }
 
     /// <summary>Open a WinBox-style MAC-Telnet terminal to a device discovered on the
@@ -3128,7 +3258,62 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         try
         {
             var json = await File.ReadAllTextAsync(path);
-            var count = _store.ImportJson(json);
+            var incoming = _store.ParseProfiles(json);
+            if (incoming.Count == 0) { SetStatus("No profiles found in that file."); return; }
+
+            var dupes = incoming.Where(p => _store.NameExists(p.Name)).ToList();
+            int count;
+            if (dupes.Count > 0)
+            {
+                var names = string.Join(", ", dupes.Take(8).Select(p => p.Name));
+                if (dupes.Count > 8) names += ", …";
+                var choice = await Services.DialogService.ChooseAsync(
+                    "Duplicate profiles found",
+                    $"{dupes.Count} of {incoming.Count} profile(s) match the name of one you already have:\n\n" +
+                    $"{names}\n\nHow would you like to handle the duplicates?",
+                    new[] { "Import as Copies", "Skip Duplicates", "Replace Existing", "Compare…", "Cancel" });
+
+                var dupeSet = new HashSet<SshProfile>(dupes);
+                switch (choice)
+                {
+                    case 0:
+                        count = _store.ImportProfiles(incoming);
+                        break;
+                    case 1:
+                        count = _store.ImportProfiles(incoming.Where(p => !dupeSet.Contains(p)));
+                        break;
+                    case 2:
+                        count = _store.ImportReplacingByName(incoming);
+                        break;
+                    case 3:
+                    {
+                        // Bring everything in as copies, then show the duplicated names
+                        // (existing + the imported copies) side by side so the user can
+                        // compare and prune with the sidebar's multi-select delete.
+                        var dupeNames = dupes.Select(d => d.Name.Trim())
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var added = _store.ImportProfilesReturning(incoming);
+                        var addedIds = added.Select(a => a.Id).ToHashSet();
+                        ReloadProfiles();
+                        var toCompare = _store.Profiles
+                            .Where(p => addedIds.Contains(p.Id) || dupeNames.Contains(p.Name.Trim()))
+                            .ToList();
+                        CompareProfilesRequested?.Invoke(new ProfileComparisonViewModel(
+                            toCompare.Count > 0 ? toCompare : _store.Profiles, _secrets,
+                            () => { _store.Save(); ReloadProfiles(); }));
+                        SetStatus($"Imported {added.Count} profile{(added.Count == 1 ? "" : "s")} — comparing duplicates.");
+                        return;
+                    }
+                    default:
+                        SetStatus("Import cancelled.");
+                        return;
+                }
+            }
+            else
+            {
+                count = _store.ImportProfiles(incoming);
+            }
+
             ReloadProfiles();
             SetStatus($"Imported {count} profile{(count == 1 ? "" : "s")}.");
         }
@@ -3164,7 +3349,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         try
         {
             var json = await File.ReadAllTextAsync(path);
-            var count = _store.ImportWorkspacesJson(json);
+            var incoming = _store.ParseWorkspaces(json);
+            if (incoming.Count == 0) { SetStatus("No workspaces found in that file."); return; }
+
+            var dupes = incoming.Where(w => _store.WorkspaceNameExists(w.Name)).ToList();
+            int count;
+            if (dupes.Count > 0)
+            {
+                var names = string.Join(", ", dupes.Take(8).Select(w => w.Name));
+                if (dupes.Count > 8) names += ", …";
+                var choice = await Services.DialogService.ChooseAsync(
+                    "Duplicate workspaces found",
+                    $"{dupes.Count} of {incoming.Count} workspace(s) match the name of one you already have:\n\n" +
+                    $"{names}\n\nHow would you like to handle the duplicates?",
+                    new[] { "Import as Copies", "Skip Duplicates", "Replace Existing", "Cancel" });
+
+                var dupeSet = new HashSet<WorkspaceTemplate>(dupes);
+                switch (choice)
+                {
+                    case 0: count = _store.ImportWorkspacesAsCopies(incoming); break;
+                    case 1: count = _store.ImportWorkspacesAsCopies(incoming.Where(w => !dupeSet.Contains(w))); break;
+                    case 2: count = _store.ImportWorkspacesReplacingByName(incoming); break;
+                    default: SetStatus("Workspace import cancelled."); return;
+                }
+            }
+            else
+            {
+                count = _store.ImportWorkspacesAsCopies(incoming);
+            }
+
             RefreshSavedWorkspaces();
             SetStatus($"Imported {count} workspace{(count == 1 ? "" : "s")}.");
         }

@@ -176,6 +176,66 @@ public sealed class ProfileStore
         return added;
     }
 
+    /// <summary>Like <see cref="ImportProfiles"/>, but returns the profiles that were added
+    /// (each with its freshly assigned id) so the caller can act on them — e.g. open a
+    /// comparison scoped to the imported copies.</summary>
+    public List<SshProfile> ImportProfilesReturning(IEnumerable<SshProfile> incoming)
+    {
+        var added = new List<SshProfile>();
+        foreach (var profile in incoming)
+        {
+            profile.Id = Guid.NewGuid();
+            profile.Name = UniqueName(profile.Name);
+            Profiles.Add(profile);
+            added.Add(profile);
+        }
+        if (added.Count > 0) Save();
+        return added;
+    }
+
+    /// <summary>Parse a JSON document (array or single object) into profiles WITHOUT adding
+    /// them to the store, so the caller can inspect for duplicates first.</summary>
+    public List<SshProfile> ParseProfiles(string json)
+    {
+        var trimmed = json.TrimStart();
+        if (trimmed.StartsWith("["))
+            return JsonSerializer.Deserialize<List<SshProfile>>(json, JsonOptions) ?? new();
+        var one = JsonSerializer.Deserialize<SshProfile>(json, JsonOptions);
+        return one == null ? new() : new List<SshProfile> { one };
+    }
+
+    /// <summary>True when a profile with this display name (trimmed, case-insensitive) exists.</summary>
+    public bool NameExists(string name) =>
+        Profiles.Any(p => p.Name.Trim().Equals(name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Import profiles, overwriting any existing profile that shares a name (keeping
+    /// the existing id so saved secrets and workspace references stay valid); profiles with a
+    /// new name are added as-is. Returns the number processed.</summary>
+    public int ImportReplacingByName(IEnumerable<SshProfile> incoming)
+    {
+        var changed = 0;
+        foreach (var profile in incoming)
+        {
+            var name = profile.Name.Trim();
+            var existing = Profiles.FirstOrDefault(p =>
+                p.Name.Trim().Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                profile.Id = existing.Id;
+                Profiles[Profiles.IndexOf(existing)] = profile;
+            }
+            else
+            {
+                profile.Id = Guid.NewGuid();
+                profile.Name = UniqueName(profile.Name);
+                Profiles.Add(profile);
+            }
+            changed++;
+        }
+        if (changed > 0) Save();
+        return changed;
+    }
+
     /// <summary>Serialize every profile to a JSON document (for Export).</summary>
     public string ExportJson() => JsonSerializer.Serialize(Profiles, JsonOptions);
 
@@ -274,23 +334,11 @@ public sealed class ProfileStore
     /// <summary>Serialize every saved workspace template to a JSON document (for Export).</summary>
     public string ExportWorkspacesJson() => JsonSerializer.Serialize(WorkspaceTemplates, JsonOptions);
 
-    /// <summary>Parse a JSON document (array or single object) of workspace templates and
-    /// add them, giving each a unique name so imports never clobber existing ones.
-    /// Returns the number imported.</summary>
+    /// <summary>Parse a JSON document (array or single object) and add them, giving each a
+    /// unique name so imports never clobber existing ones. Returns the number imported.</summary>
     public int ImportWorkspacesJson(string json)
     {
-        List<WorkspaceTemplate>? incoming;
-        var trimmed = json.TrimStart();
-        if (trimmed.StartsWith("["))
-        {
-            incoming = JsonSerializer.Deserialize<List<WorkspaceTemplate>>(json, JsonOptions);
-        }
-        else
-        {
-            var one = JsonSerializer.Deserialize<WorkspaceTemplate>(json, JsonOptions);
-            incoming = one == null ? null : new List<WorkspaceTemplate> { one };
-        }
-        if (incoming == null) return 0;
+        var incoming = ParseWorkspaces(json);
         var added = 0;
         foreach (var t in incoming)
         {
@@ -300,6 +348,50 @@ public sealed class ProfileStore
         }
         if (added > 0) SaveWorkspaces();
         return added;
+    }
+
+    /// <summary>Parse workspace templates from JSON (array or single) WITHOUT adding them.</summary>
+    public List<WorkspaceTemplate> ParseWorkspaces(string json)
+    {
+        var trimmed = json.TrimStart();
+        if (trimmed.StartsWith("["))
+            return JsonSerializer.Deserialize<List<WorkspaceTemplate>>(json, JsonOptions) ?? new();
+        var one = JsonSerializer.Deserialize<WorkspaceTemplate>(json, JsonOptions);
+        return one == null ? new() : new List<WorkspaceTemplate> { one };
+    }
+
+    /// <summary>True when a saved workspace with this name (trimmed, case-insensitive) exists.</summary>
+    public bool WorkspaceNameExists(string name) =>
+        WorkspaceTemplates.Any(w => w.Name.Trim().Equals(name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Add these workspace templates as copies (unique names). Returns the count.</summary>
+    public int ImportWorkspacesAsCopies(IEnumerable<WorkspaceTemplate> incoming)
+    {
+        var added = 0;
+        foreach (var t in incoming)
+        {
+            t.Name = UniqueWorkspaceName(t.Name);
+            WorkspaceTemplates.Add(t);
+            added++;
+        }
+        if (added > 0) SaveWorkspaces();
+        return added;
+    }
+
+    /// <summary>Import workspace templates, replacing any existing one that shares a name;
+    /// others are added as-is. Returns the number processed.</summary>
+    public int ImportWorkspacesReplacingByName(IEnumerable<WorkspaceTemplate> incoming)
+    {
+        var changed = 0;
+        foreach (var t in incoming)
+        {
+            t.Name = string.IsNullOrWhiteSpace(t.Name) ? "Workspace" : t.Name.Trim();
+            WorkspaceTemplates.RemoveAll(w => w.Name.Equals(t.Name, StringComparison.OrdinalIgnoreCase));
+            WorkspaceTemplates.Add(t);
+            changed++;
+        }
+        if (changed > 0) SaveWorkspaces();
+        return changed;
     }
 
     /// <summary>A workspace name that doesn't already exist, suffixing " (2)", " (3)"…</summary>
