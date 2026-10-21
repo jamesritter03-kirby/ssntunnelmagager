@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -8,8 +9,20 @@ using System.Threading.Tasks;
 
 namespace RemoteStuff.Services;
 
-/// <summary>The outcome of a Git sync operation, with a human-readable log.</summary>
-public sealed record GitSyncResult(bool Success, string Log);
+/// <summary>The outcome of a Git sync operation, with a human-readable log. <see cref="Conflict"/>
+/// is set when a Pull stopped on a merge conflict, so the UI can ask which side to keep.</summary>
+public sealed record GitSyncResult(bool Success, string Log, bool Conflict = false);
+
+/// <summary>How a Pull should resolve a merge conflict between the remote and the local copy.</summary>
+public enum GitConflictResolution
+{
+    /// <summary>Plain merge; a conflict is reported back for the user to decide.</summary>
+    None,
+    /// <summary><c>-X theirs</c>: the remote's version wins conflicting changes.</summary>
+    KeepRemote,
+    /// <summary><c>-X ours</c>: the local copy's version wins conflicting changes.</summary>
+    KeepLocal
+}
 
 /// <summary>Persisted Git-sync configuration (remote URL + branch).</summary>
 public sealed class GitSyncConfig
@@ -93,6 +106,9 @@ public sealed class GitProfileSync
 
     private bool RepoInitialized => Directory.Exists(Path.Combine(_repoDir, ".git"));
 
+    /// <summary>True while a merge is paused with conflicts (git leaves <c>.git/MERGE_HEAD</c> behind).</summary>
+    private bool MergeInProgress => File.Exists(Path.Combine(_repoDir, ".git", "MERGE_HEAD"));
+
     /// <summary>
     /// True when it's safe to replace the working copy with a fresh clone — it doesn't exist,
     /// is empty, or is already a Git working copy. Protects a user-chosen folder that contains
@@ -161,8 +177,10 @@ public sealed class GitProfileSync
         return new GitSyncResult(true, log.ToString());
     }
 
-    /// <summary>Pull the latest profiles from the repo and copy them into the live store.</summary>
-    public async Task<GitSyncResult> PullAsync()
+    /// <summary>Pull the latest profiles from the repo and copy them into the live store.
+    /// On a merge conflict the merge is aborted and <see cref="GitSyncResult.Conflict"/> is
+    /// returned so the UI can ask which side to keep and re-pull with a <paramref name="resolution"/>.</summary>
+    public async Task<GitSyncResult> PullAsync(GitConflictResolution resolution = GitConflictResolution.None)
     {
         var log = new StringBuilder();
         if (!await GitAvailableAsync(log))
@@ -178,8 +196,28 @@ public sealed class GitProfileSync
         if (!string.IsNullOrWhiteSpace(Config.RemoteUrl))
         {
             await EnsureRemoteAsync(log);
-            var (code, _) = await RunGitAsync(_repoDir, log, "pull", "--no-rebase", "origin", Config.Branch);
-            if (code != 0) return new GitSyncResult(false, log.ToString());
+            // `--allow-unrelated-histories` lets a freshly-init'd local repo merge a
+            // remote that already has commits instead of failing outright.
+            var args = new List<string> { "pull", "--no-rebase", "--allow-unrelated-histories" };
+            if (resolution == GitConflictResolution.KeepRemote) { args.Add("-X"); args.Add("theirs"); }
+            else if (resolution == GitConflictResolution.KeepLocal) { args.Add("-X"); args.Add("ours"); }
+            args.Add("origin");
+            args.Add(Config.Branch);
+            var (code, _) = await RunGitAsync(_repoDir, log, args.ToArray());
+            if (code != 0)
+            {
+                // A merge that stops on conflicts leaves MERGE_HEAD behind. Abort it so
+                // the working copy is clean again, then report the conflict so the caller
+                // can ask which side to keep and re-pull with a resolution.
+                if (resolution == GitConflictResolution.None && MergeInProgress)
+                {
+                    await RunGitAsync(_repoDir, log, "merge", "--abort");
+                    log.AppendLine("The remote and your local copy both changed the same profiles/workspaces.");
+                    log.AppendLine("Choose which version to keep, then Pull again.");
+                    return new GitSyncResult(false, log.ToString(), Conflict: true);
+                }
+                return new GitSyncResult(false, log.ToString());
+            }
         }
 
         var repoProfiles = Path.Combine(_repoDir, ProfilesFileName);

@@ -90,9 +90,14 @@ public static class DialogService
     /// <summary>Show a modal message with several option buttons. Returns the index of the
     /// clicked button; a closed/dismissed dialog resolves to the last option (treated as
     /// Cancel). The first option is the default, the last is the Esc/close action.</summary>
-    public static async Task<int> ChooseAsync(string title, string prompt, IReadOnlyList<string> options)
+    public static Task<int> ChooseAsync(string title, string prompt, IReadOnlyList<string> options)
+        => ChooseAsync(Top as Window, title, prompt, options);
+
+    /// <summary>As <see cref="ChooseAsync(string,string,IReadOnlyList{string})"/> but owned by an
+    /// explicit window — use this when choosing from a modal dialog so the chooser stacks on it.</summary>
+    public static async Task<int> ChooseAsync(Window? owner, string title, string prompt, IReadOnlyList<string> options)
     {
-        if (Top is not Window owner || options.Count == 0) return options.Count - 1;
+        if (owner is null || options.Count == 0) return options.Count - 1;
 
         var buttons = new StackPanel
         {

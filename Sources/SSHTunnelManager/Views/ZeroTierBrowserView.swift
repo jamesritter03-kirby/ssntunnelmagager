@@ -55,6 +55,7 @@ struct ZeroTierBrowserView: View {
     @ObservedObject var store = ZeroTierStore.shared
     @EnvironmentObject var sessions: TerminalSessionManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     /// The left-list selection (“All Networks” or one network).
     @State private var selection: NetworkFilter = .all
@@ -1180,6 +1181,15 @@ struct ZeroTierBrowserView: View {
                 .foregroundStyle(.secondary)
 
             Spacer()
+
+            if let web = account.webURL {
+                Button {
+                    openURL(web)
+                } label: {
+                    Image(systemName: "safari")
+                }
+                .help("Open \(account.serverDisplay) in your browser")
+            }
 
             Button("Edit…") {
                 tokenDraft = ""

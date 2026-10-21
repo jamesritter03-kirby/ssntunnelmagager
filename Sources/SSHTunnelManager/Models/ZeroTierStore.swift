@@ -434,6 +434,17 @@ struct ZeroTierAccount: Identifiable, Codable, Hashable {
         return baseURL
     }
 
+    /// The account's web dashboard, so the UI can open it in a browser. ZeroTier
+    /// Central lives at my.zerotier.com; a self-hosted controller's UI is served
+    /// from the same host as its API, with the `/api/v1` suffix dropped.
+    var webURL: URL? {
+        if isCentral { return URL(string: "https://my.zerotier.com") }
+        var s = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        while s.hasSuffix("/") { s.removeLast() }
+        if s.lowercased().hasSuffix("/api/v1") { s.removeLast("/api/v1".count) }
+        return URL(string: s)
+    }
+
     /// Turn raw user input into a usable API base URL ending in `/api/v1`.
     /// Empty input means ZeroTier Central. A bare host gets `https://`; an
     /// existing `/api/v1` suffix isn't duplicated.

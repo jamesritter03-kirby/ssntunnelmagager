@@ -29,6 +29,8 @@ struct GitSyncView: View {
     @State private var commitMessage = ""
     @State private var log = ""
     @State private var isBusy = false
+    /// Shown when a Pull stops on a merge conflict so the user can pick which side to keep.
+    @State private var showConflictDialog = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -79,7 +81,7 @@ struct GitSyncView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    run(reloadOnSuccess: true) { await engine.sync.pull() }
+                    runPull()
                 } label: {
                     Label("Pull (import)", systemImage: "arrow.down.circle")
                 }
@@ -138,6 +140,37 @@ struct GitSyncView: View {
             remoteUrl = engine.sync.config.remoteUrl
             branch = engine.sync.config.branch
             localPath = engine.sync.config.localPath
+        }
+        .confirmationDialog("Merge conflict",
+                            isPresented: $showConflictDialog,
+                            titleVisibility: .visible) {
+            Button("Keep Remote Version") { runPull(resolution: .keepRemote) }
+            Button("Keep My Version") { runPull(resolution: .keepLocal) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The remote and your local copy both changed the same profiles or workspaces. Choose which version to keep.")
+        }
+    }
+
+    /// Run a Pull, reloading the profiles and workspaces on success. A merge
+    /// conflict surfaces a dialog so the user can choose which side to keep, then
+    /// re-pulls with that resolution.
+    private func runPull(resolution: GitConflictResolution = .none) {
+        guard !isBusy else { return }
+        isBusy = true
+        engine.sync.saveConfig(remoteUrl: remoteUrl, branch: branch, localPath: localPath)
+        Task {
+            let result = await engine.sync.pull(resolution: resolution)
+            await MainActor.run {
+                log = result.log
+                if result.success {
+                    store.reloadFromDisk()
+                    TerminalSessionManager.shared.importSavedWorkspaces(fromPath: engine.sync.workspacesFilePath)
+                } else if result.conflict {
+                    showConflictDialog = true
+                }
+                isBusy = false
+            }
         }
     }
 

@@ -28,6 +28,10 @@ public sealed partial class GitSyncViewModel : ObservableObject
     /// <summary>Set by the view to show a folder picker; returns the chosen path or null.</summary>
     public Func<Task<string?>>? PickFolderAsync { get; set; }
 
+    /// <summary>Set by the view to resolve a Pull merge conflict; returns the chosen
+    /// resolution (or <see cref="GitConflictResolution.None"/> to cancel).</summary>
+    public Func<Task<GitConflictResolution>>? ResolveConflictAsync { get; set; }
+
     public GitSyncViewModel(GitProfileSync sync, Action onProfilesReplaced)
     {
         _sync = sync;
@@ -67,7 +71,37 @@ public sealed partial class GitSyncViewModel : ObservableObject
     private Task InitOrClone() => RunAsync(() => _sync.InitOrCloneAsync());
 
     [RelayCommand(CanExecute = nameof(CanRun))]
-    private Task Pull() => RunAsync(() => _sync.PullAsync(), reloadOnSuccess: true);
+    private Task Pull() => PullWithConflictHandlingAsync(GitConflictResolution.None);
+
+    /// <summary>Pull, and if it stops on a merge conflict, ask the user which side to
+    /// keep and re-pull with that resolution.</summary>
+    private async Task PullWithConflictHandlingAsync(GitConflictResolution resolution)
+    {
+        if (IsBusy) return;
+        IsBusy = true;
+        SaveConfig();
+        GitConflictResolution? next = null;
+        try
+        {
+            var result = await _sync.PullAsync(resolution);
+            Log = result.Log;
+            if (result.Success)
+                _onProfilesReplaced();
+            else if (result.Conflict && ResolveConflictAsync is not null)
+                next = await ResolveConflictAsync();
+        }
+        catch (Exception ex)
+        {
+            Log = "Unexpected error:\n" + ex;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        if (next is { } chosen && chosen != GitConflictResolution.None)
+            await PullWithConflictHandlingAsync(chosen);
+    }
 
     [RelayCommand(CanExecute = nameof(CanRun))]
     private Task Push() => RunAsync(() => _sync.PushAsync(CommitMessage));

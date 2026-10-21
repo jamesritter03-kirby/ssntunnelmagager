@@ -1,9 +1,21 @@
 import Foundation
 
-/// The outcome of a Git sync operation, with a human-readable log.
+/// The outcome of a Git sync operation, with a human-readable log. `conflict` is
+/// set when a Pull stopped on a merge conflict, so the UI can ask which side to keep.
 struct GitSyncResult {
     let success: Bool
     let log: String
+    var conflict: Bool = false
+}
+
+/// How a Pull should resolve a merge conflict between the remote and the local copy.
+enum GitConflictResolution {
+    /// Plain merge; a conflict is reported back for the user to decide.
+    case none
+    /// `-X theirs`: the remote's version wins conflicting changes.
+    case keepRemote
+    /// `-X ours`: the local copy's version wins conflicting changes.
+    case keepLocal
 }
 
 /// Persisted Git-sync configuration (remote URL + branch + optional working-copy folder).
@@ -85,6 +97,11 @@ final class GitProfileSync {
         FileManager.default.fileExists(atPath: (repoDir as NSString).appendingPathComponent(".git"))
     }
 
+    /// True while a merge is paused with conflicts (git leaves `.git/MERGE_HEAD` behind).
+    private var mergeInProgress: Bool {
+        FileManager.default.fileExists(atPath: (repoDir as NSString).appendingPathComponent(".git/MERGE_HEAD"))
+    }
+
     /// True when it's safe to replace `repoDir` with a fresh clone — it doesn't exist,
     /// is empty, or is already a Git working copy. Protects a user-chosen folder that
     /// contains unrelated files from being deleted by the clone-and-move below.
@@ -150,7 +167,9 @@ final class GitProfileSync {
     }
 
     /// Pull the latest profiles from the repo and copy them onto the live store file.
-    func pull() async -> GitSyncResult {
+    /// On a merge conflict the merge is aborted and `conflict` is returned so the UI
+    /// can ask which side to keep and re-pull with a `resolution`.
+    func pull(resolution: GitConflictResolution = .none) async -> GitSyncResult {
         let log = LogBuffer()
         guard await gitAvailable(log) else { return GitSyncResult(success: false, log: log.text) }
 
@@ -162,8 +181,28 @@ final class GitProfileSync {
 
         if !config.remoteUrl.trimmingCharacters(in: .whitespaces).isEmpty {
             await ensureRemote(log)
-            let (code, _) = await runGit(in: repoDir, log: log, "pull", "--no-rebase", "origin", config.branch)
-            if code != 0 { return GitSyncResult(success: false, log: log.text) }
+            // `--allow-unrelated-histories` lets a freshly-init'd local repo merge a
+            // remote that already has commits instead of failing outright.
+            var args = ["pull", "--no-rebase", "--allow-unrelated-histories"]
+            switch resolution {
+            case .none: break
+            case .keepRemote: args += ["-X", "theirs"]
+            case .keepLocal: args += ["-X", "ours"]
+            }
+            args += ["origin", config.branch]
+            let (code, _) = await runGit(in: repoDir, log: log, quiet: false, args)
+            if code != 0 {
+                // A merge that stops on conflicts leaves MERGE_HEAD behind. Abort it so
+                // the working copy is clean again, then report the conflict so the caller
+                // can ask which side to keep and re-pull with a resolution.
+                if resolution == .none && mergeInProgress {
+                    _ = await runGit(in: repoDir, log: log, "merge", "--abort")
+                    log.line("The remote and your local copy both changed the same profiles/workspaces.")
+                    log.line("Choose which version to keep, then Pull again.")
+                    return GitSyncResult(success: false, log: log.text, conflict: true)
+                }
+                return GitSyncResult(success: false, log: log.text)
+            }
         }
 
         let repoProfiles = (repoDir as NSString).appendingPathComponent(Self.profilesFileName)
