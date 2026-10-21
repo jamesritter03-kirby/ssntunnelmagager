@@ -623,6 +623,14 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         await Refresh();
     }
 
+    [RelayCommand]
+    private void OpenAccountDashboard(ZeroTierAccount? account)
+    {
+        var url = account?.WebUrl;
+        if (!string.IsNullOrEmpty(url))
+            RemoteStuff.Services.SystemOpen.Open(url);
+    }
+
     public override void Dispose()
     {
         _refreshTimer.Stop();

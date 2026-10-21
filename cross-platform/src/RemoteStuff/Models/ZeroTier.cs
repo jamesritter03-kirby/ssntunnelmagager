@@ -32,6 +32,23 @@ public sealed class ZeroTierAccount
             return BaseUrl;
         }
     }
+
+    /// <summary>The account's web dashboard, opened in a browser. ZeroTier Central
+    /// lives at my.zerotier.com; a self-hosted controller's UI is served from the
+    /// same host as its API, with the <c>/api/v1</c> suffix dropped.</summary>
+    [JsonIgnore]
+    public string? WebUrl
+    {
+        get
+        {
+            if (IsCentral) return "https://my.zerotier.com";
+            var s = (BaseUrl ?? "").Trim();
+            while (s.EndsWith("/")) s = s[..^1];
+            if (s.EndsWith("/api/v1", StringComparison.OrdinalIgnoreCase))
+                s = s[..^"/api/v1".Length];
+            return string.IsNullOrEmpty(s) ? null : s;
+        }
+    }
 }
 
 /// <summary>A ZeroTier network visible to an account.</summary>
