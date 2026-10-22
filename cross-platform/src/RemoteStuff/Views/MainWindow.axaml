@@ -721,6 +721,8 @@
                                                         <MenuItem Header="Rename…" Command="{Binding RenameCommand}" />
                                                         <MenuItem Header="Save Workspace" Command="{Binding SaveCommand}" />
                                                         <MenuItem Header="Save as Workspace…" Command="{Binding SaveAsCommand}" />
+                                                        <MenuItem Header="Update Profile’s Workspace" Command="{Binding SaveToProfileCommand}"
+                                                                  IsVisible="{Binding CanSaveToProfile}" />
                                                         <MenuItem Header="Save as Profile…" Command="{Binding SaveAsProfileCommand}" />
                                                         <Separator />
                                                         <MenuItem Header="Pill Color" ItemsSource="{Binding WorkspaceColorMenuItems}">

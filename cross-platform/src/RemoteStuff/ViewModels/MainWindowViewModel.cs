@@ -581,8 +581,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             if (e.NewItems != null)
                 foreach (TabViewModel t in e.NewItems)
                 {
-                    if (t.WorkspaceId == Guid.Empty && CurrentWorkspace is { } ws)
-                        t.WorkspaceId = ws.Id;
+                    if (t.WorkspaceId == Guid.Empty)
+                        t.WorkspaceId = (CurrentWorkspace ?? EnsureWorkspace()).Id;
                     t.PropertyChanged += OnTabPropertyChanged;
                     t.DockRequested += OnTabDockRequested;
                     t.DuplicateRequested += OnTabDuplicateRequested;
@@ -1968,6 +1968,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectWorkspace(ws);
     }
 
+    /// <summary>Guarantee a current workspace exists, recreating one when every
+    /// workspace has been closed and the user starts a new tab from Home. Kept
+    /// lightweight (no tab restore) so it is safe to call while a tab is being added.</summary>
+    private WorkspaceViewModel EnsureWorkspace()
+    {
+        if (CurrentWorkspace is { } cur) return cur;
+        var ws = Workspaces.FirstOrDefault()
+                 ?? new WorkspaceViewModel(this, Guid.NewGuid(), "Workspace 1");
+        if (!Workspaces.Contains(ws)) Workspaces.Add(ws);
+        IsHomeSelected = false;
+        foreach (var w in Workspaces) w.IsCurrent = w == ws;
+        CurrentWorkspace = ws;
+        return ws;
+    }
+
     [RelayCommand]
     private void OpenSettings() => SettingsRequested?.Invoke(new SettingsViewModel(Settings));
 
@@ -2061,13 +2076,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
         var idx = Workspaces.IndexOf(ws);
         Workspaces.Remove(ws);
-        // Never leave zero workspaces: closing the last one drops it and starts a
-        // fresh, empty workspace so the welcome screen shows.
+        // Closing the last workspace is allowed now that Home provides a landing
+        // screen: drop to zero workspaces and reveal the welcome/Home view instead
+        // of spawning an empty replacement. A fresh workspace is recreated lazily
+        // the moment the user opens a tab (see EnsureWorkspace).
         if (Workspaces.Count == 0)
         {
-            var fresh = new WorkspaceViewModel(this, Guid.NewGuid(), "Workspace 1");
-            Workspaces.Add(fresh);
-            SelectWorkspace(fresh);
+            CurrentWorkspace = null;
+            ShowHome();
             return;
         }
         if (CurrentWorkspace == ws)
@@ -2147,6 +2163,52 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ws.IsSaved = true;
         RefreshSavedWorkspaces();
         SetStatus($"Saved workspace “{ws.Name}”.");
+    }
+
+    /// <summary>True when the workspace was launched from a profile, so its changes
+    /// can be committed back to the saved workspace that profile recreates.</summary>
+    public bool WorkspaceHasProfileTemplate(WorkspaceViewModel ws) =>
+        ws.SourceProfileId is { } id && _store.Profiles.Any(p => p.Id == id);
+
+    /// <summary>Commit the current workspace's tabs back to the saved workspace that
+    /// the launching profile recreates, so relaunching the profile reflects these
+    /// changes. Also points the profile at that template when it wasn't already, so a
+    /// workspace that started empty begins recreating these tabs on next launch.</summary>
+    public void SaveWorkspaceToProfileTemplate(WorkspaceViewModel ws)
+    {
+        if (ws.SourceProfileId is not { } id ||
+            _store.Profiles.FirstOrDefault(p => p.Id == id) is not { } profile)
+        {
+            // Not launched from a profile — fall back to an in-place save.
+            SaveWorkspace(ws);
+            return;
+        }
+
+        var templateName = (!string.IsNullOrWhiteSpace(profile.WorkspaceTemplateName)
+                ? profile.WorkspaceTemplateName
+                : !string.IsNullOrWhiteSpace(profile.WorkspaceName)
+                    ? profile.WorkspaceName
+                    : profile.Name).Trim();
+
+        var template = new WorkspaceTemplate
+        {
+            Name = templateName,
+            Color = ws.Color,
+            Tabs = SnapshotTabs(ws)
+        };
+        CaptureDrawerState(template);
+        _store.SaveWorkspaceTemplate(template);
+
+        // Ensure the launcher recreates this template next time it opens.
+        if (!string.Equals(profile.WorkspaceTemplateName, templateName, StringComparison.Ordinal))
+        {
+            profile.WorkspaceTemplateName = templateName;
+            _store.Update(profile);
+        }
+
+        ws.IsSaved = true;
+        RefreshSavedWorkspaces();
+        SetStatus($"Updated “{profile.Name}” workspace.");
     }
 
     /// <summary>Save the current workspace's tabs as a named saved workspace — the

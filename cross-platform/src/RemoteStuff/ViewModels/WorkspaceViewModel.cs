@@ -27,7 +27,16 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     [ObservableProperty] private string _color = "";
 
     /// <summary>When set, the profile whose dedicated workspace this is.</summary>
-    public Guid? SourceProfileId { get; set; }
+    public Guid? SourceProfileId
+    {
+        get => _sourceProfileId;
+        set { _sourceProfileId = value; OnPropertyChanged(nameof(CanSaveToProfile)); }
+    }
+    private Guid? _sourceProfileId;
+
+    /// <summary>True when this workspace was launched from a profile, so the pill menu
+    /// can offer committing changes back to that profile's saved workspace.</summary>
+    public bool CanSaveToProfile => _owner.WorkspaceHasProfileTemplate(this);
 
     /// <summary>Id of the tab that was selected the last time this workspace was
     /// current, so switching back to it restores the same tab instead of resetting
@@ -71,6 +80,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     [RelayCommand] private void Rename() => _owner.BeginRenameWorkspace(this);
     [RelayCommand] private void Save() => _owner.SaveWorkspace(this);
     [RelayCommand] private void SaveAs() => _owner.SaveWorkspaceAs(this);
+    [RelayCommand] private void SaveToProfile() => _owner.SaveWorkspaceToProfileTemplate(this);
     [RelayCommand] private void SaveAsProfile() => _owner.SaveWorkspaceAsProfile(this);
     [RelayCommand] private void ConnectionHealth() => _owner.ShowWorkspaceStats(this);
     [RelayCommand] private void PauseConnections() => _owner.PauseWorkspaceConnections(this);

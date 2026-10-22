@@ -336,7 +336,7 @@ public sealed partial class SftpTabViewModel : TabViewModel
         }
         catch (Exception ex)
         {
-            StatusText = "Connection failed: " + ex.Message;
+            StatusText = "Connection failed: " + DescribeSftpError(ex);
             IsConnected = false;
             ShowReconnect = true;
         }
@@ -344,6 +344,23 @@ public sealed partial class SftpTabViewModel : TabViewModel
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>Turn an SSH.NET connect exception into a clearer message. A channel that
+    /// closes right after login (rather than an auth failure) almost always means the server
+    /// accepted the login but has no SFTP subsystem — common on Dropbear-based routers/devices,
+    /// which ship SSH/SCP but not an sftp-server.</summary>
+    private static string DescribeSftpError(Exception ex)
+    {
+        var msg = ex.Message;
+        if (msg.Contains("Channel was closed", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("subsystem", StringComparison.OrdinalIgnoreCase))
+        {
+            return msg + "  The server accepted the login but closed the SFTP channel — this device "
+                 + "likely has no SFTP server (common on Dropbear-based routers/embedded devices). "
+                 + "The SSH terminal still works; SFTP just isn't available on it.";
+        }
+        return msg;
     }
 
     /// <summary>Ensure the SFTP session is live, transparently reconnecting when the
