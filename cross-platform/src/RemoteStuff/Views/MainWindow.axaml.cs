@@ -61,6 +61,7 @@ public partial class MainWindow : Window
             _vm.OlderVersionsRequested -= ShowOlderVersions;
             _vm.NetworkConfigRequested -= ShowNetworkConfig;
             _vm.MikroTikConfigRequested -= ShowMikroTikConfig;
+            _vm.FeedbackRequested -= ShowFeedback;
             _vm.PropertyChanged -= OnVmPropertyChanged;
         }
         _vm = DataContext as MainWindowViewModel;
@@ -84,6 +85,7 @@ public partial class MainWindow : Window
             _vm.OlderVersionsRequested += ShowOlderVersions;
             _vm.NetworkConfigRequested += ShowNetworkConfig;
             _vm.MikroTikConfigRequested += ShowMikroTikConfig;
+            _vm.FeedbackRequested += ShowFeedback;
             _vm.PropertyChanged += OnVmPropertyChanged;
         }
     }
@@ -410,6 +412,12 @@ public partial class MainWindow : Window
     private void ShowHelp()
     {
         var window = new HelpWindow();
+        window.Show(this);
+    }
+
+    private void ShowFeedback(FeedbackViewModel vm)
+    {
+        var window = new FeedbackWindow { DataContext = vm };
         window.Show(this);
     }
 

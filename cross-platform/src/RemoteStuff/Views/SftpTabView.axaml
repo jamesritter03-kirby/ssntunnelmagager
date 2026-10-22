@@ -178,10 +178,10 @@
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="28" />
-                            <ColumnDefinition Width="*" MinWidth="120" />
-                            <ColumnDefinition Width="110" />
-                            <ColumnDefinition Width="110" />
-                            <ColumnDefinition Width="170" />
+                            <ColumnDefinition Width="2.2*" MinWidth="90" />
+                            <ColumnDefinition Width="0.7*" MinWidth="0" MaxWidth="110" />
+                            <ColumnDefinition Width="0.6*" MinWidth="0" MaxWidth="110" />
+                            <ColumnDefinition Width="*" MinWidth="0" MaxWidth="170" />
                         </Grid.ColumnDefinitions>
                         <Grid.ContextMenu>
                             <ContextMenu>
@@ -235,9 +235,9 @@
                         <controls:LineIcon Grid.Column="0" Kind="{Binding Glyph}" Width="16" Height="16" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                         <TextBlock Grid.Column="2" Text="{Binding Permissions}" Foreground="#7FA7C7"
-                                   FontFamily="Menlo, Consolas, monospace" />
-                        <TextBlock Grid.Column="3" Text="{Binding SizeText}" Foreground="{DynamicResource AppSecondaryTextBrush}" HorizontalAlignment="Right" Margin="0,0,12,0" />
-                        <TextBlock Grid.Column="4" Text="{Binding ModifiedText}" Foreground="{DynamicResource AppMutedTextBrush}" />
+                                   FontFamily="Menlo, Consolas, monospace" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="3" Text="{Binding SizeText}" Foreground="{DynamicResource AppSecondaryTextBrush}" HorizontalAlignment="Right" Margin="0,0,12,0" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="4" Text="{Binding ModifiedText}" Foreground="{DynamicResource AppMutedTextBrush}" TextTrimming="CharacterEllipsis" />
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>

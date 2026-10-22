@@ -35,7 +35,14 @@
             <Grid RowDefinitions="Auto,*">
                 <Border Grid.Row="0" Background="{DynamicResource AppChromeBrush}"
                         BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="8,6">
-                    <TextBlock Text="Topics" Foreground="{DynamicResource AppSecondaryTextBrush}" FontWeight="SemiBold" />
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBlock Grid.Column="0" Text="Topics" Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                   FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Classes="paneIcon" Content="{controls:Icon chevrons-down}"
+                                Command="{Binding ExpandAllTopicsCommand}" ToolTip.Tip="Expand all topics" />
+                        <Button Grid.Column="2" Classes="paneIcon" Content="{controls:Icon chevrons-up}"
+                                Command="{Binding CollapseAllTopicsCommand}" ToolTip.Tip="Collapse all topics" />
+                    </Grid>
                 </Border>
                 <TreeView Grid.Row="1" ItemsSource="{Binding TopicTree}"
                           SelectedItem="{Binding SelectedTopic, Mode=TwoWay}"
@@ -97,7 +104,9 @@
         <Grid Grid.Row="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="{Binding GraphRowHeight}" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="{Binding PayloadRowHeight}" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="{Binding HistoryRowHeight}" />
             </Grid.RowDefinitions>
 
@@ -127,8 +136,13 @@
                 </DockPanel>
             </Border>
 
+            <!-- Drag handle: Graph / Payload -->
+            <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" ResizeDirection="Rows"
+                          Background="{DynamicResource AppDividerBrush}"
+                          IsVisible="{Binding GraphResizerVisible}" />
+
             <!-- Payload (JSON) -->
-            <Border Grid.Row="1" Background="{DynamicResource AppInsetBrush}"
+            <Border Grid.Row="2" Background="{DynamicResource AppInsetBrush}"
                     BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1"
                     IsVisible="{Binding HasSelectedTopic}">
                 <DockPanel>
@@ -156,8 +170,13 @@
                 </DockPanel>
             </Border>
 
+            <!-- Drag handle: Payload / History -->
+            <GridSplitter Grid.Row="3" Height="4" HorizontalAlignment="Stretch" ResizeDirection="Rows"
+                          Background="{DynamicResource AppDividerBrush}"
+                          IsVisible="{Binding PayloadResizerVisible}" />
+
             <!-- History (messages) -->
-            <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}">
+            <Border Grid.Row="4" Background="{DynamicResource AppSurfaceBrush}">
                 <DockPanel>
                     <Border DockPanel.Dock="Top" Background="{DynamicResource AppChromeBrush}"
                             BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1" Padding="4,2">

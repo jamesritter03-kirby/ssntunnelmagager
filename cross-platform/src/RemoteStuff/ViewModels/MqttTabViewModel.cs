@@ -31,7 +31,7 @@ public sealed partial class MqttTopicNode : ObservableObject
     public string FullTopic { get; }
     public ObservableCollection<MqttTopicNode> Children { get; } = new();
 
-    [ObservableProperty] private bool _isExpanded = true;
+    [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string _latestPayload = "";
     [ObservableProperty] private int _messageCount;
 
@@ -146,6 +146,11 @@ public sealed partial class MqttTabViewModel : TabViewModel
     public bool PayloadMaximized => MaximizedPane == "payload";
     public bool HistoryMaximized => MaximizedPane == "history";
 
+    // A drag handle only makes sense between two sections that both currently share
+    // the area (star height) — hidden when either is collapsed, maximized, or absent.
+    public bool GraphResizerVisible => GraphRowHeight.IsStar && PayloadRowHeight.IsStar;
+    public bool PayloadResizerVisible => PayloadRowHeight.IsStar && HistoryRowHeight.IsStar;
+
     public string GraphCollapseIcon => GraphCollapsed ? "chevron-right" : "chevron-down";
     public string PayloadCollapseIcon => PayloadCollapsed ? "chevron-right" : "chevron-down";
     public string HistoryCollapseIcon => HistoryCollapsed ? "chevron-right" : "chevron-down";
@@ -159,18 +164,22 @@ public sealed partial class MqttTabViewModel : TabViewModel
         OnPropertyChanged(nameof(GraphRowHeight));
         OnPropertyChanged(nameof(GraphContentVisible));
         OnPropertyChanged(nameof(GraphCollapseIcon));
+        OnPropertyChanged(nameof(GraphResizerVisible));
     }
     partial void OnPayloadCollapsedChanged(bool value)
     {
         OnPropertyChanged(nameof(PayloadRowHeight));
         OnPropertyChanged(nameof(PayloadContentVisible));
         OnPropertyChanged(nameof(PayloadCollapseIcon));
+        OnPropertyChanged(nameof(GraphResizerVisible));
+        OnPropertyChanged(nameof(PayloadResizerVisible));
     }
     partial void OnHistoryCollapsedChanged(bool value)
     {
         OnPropertyChanged(nameof(HistoryRowHeight));
         OnPropertyChanged(nameof(HistoryContentVisible));
         OnPropertyChanged(nameof(HistoryCollapseIcon));
+        OnPropertyChanged(nameof(PayloadResizerVisible));
     }
 
     private void RaisePaneLayout()
@@ -187,6 +196,8 @@ public sealed partial class MqttTabViewModel : TabViewModel
         OnPropertyChanged(nameof(GraphMaxIcon));
         OnPropertyChanged(nameof(PayloadMaxIcon));
         OnPropertyChanged(nameof(HistoryMaxIcon));
+        OnPropertyChanged(nameof(GraphResizerVisible));
+        OnPropertyChanged(nameof(PayloadResizerVisible));
     }
 
     [RelayCommand] private void ToggleGraphCollapsed() => GraphCollapsed = !GraphCollapsed;

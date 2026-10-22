@@ -1459,6 +1459,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void ShowSessionLogs()
         => SessionLogsRequested?.Invoke(new SessionLogsViewModel(SystemOpen.Open, SystemOpen.Reveal));
 
+    // ---- Feedback / feature requests ----
+
+    private readonly FeedbackStore _feedback = new();
+
+    /// <summary>Raised to open the Feedback &amp; Feature Requests window.</summary>
+    public event Action<FeedbackViewModel>? FeedbackRequested;
+
+    /// <summary>Open the window to file feature requests, bugs and notes, vote, and export.</summary>
+    [RelayCommand]
+    private void ShowFeedback() => FeedbackRequested?.Invoke(new FeedbackViewModel(_feedback));
+
     /// <summary>Disconnect every live terminal session across all workspaces.</summary>
     [RelayCommand]
     private void DisconnectAll()

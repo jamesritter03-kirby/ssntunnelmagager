@@ -1,0 +1,148 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RemoteStuff.ViewModels"
+        xmlns:controls="using:RemoteStuff.Views.Controls"
+        x:Class="RemoteStuff.Views.FeedbackWindow"
+        x:DataType="vm:FeedbackViewModel"
+        Width="760" Height="640"
+        MinWidth="560" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppSurfaceBrush}"
+        Title="Feedback &amp; Feature Requests">
+
+    <Window.Styles>
+        <Style Selector="Button.paneIcon">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="Foreground" Value="{DynamicResource AppMutedTextBrush}" />
+        </Style>
+        <Style Selector="Button.paneIcon:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppPillBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Padding="14,10"
+                Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+            <StackPanel Spacing="2">
+                <TextBlock Text="Feedback &amp; Feature Requests" FontWeight="SemiBold" FontSize="15" />
+                <TextBlock Text="File feature requests, bugs and notes, up-vote what matters, then export the list to send for development."
+                           Opacity="0.65" FontSize="12" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <!-- Add form -->
+        <Border DockPanel.Dock="Top" Padding="14,10"
+                Background="{DynamicResource AppInsetBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1">
+            <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="160,*">
+                    <ComboBox Grid.Column="0" ItemsSource="{Binding KindChoices}"
+                              SelectedIndex="{Binding NewKindIndex, Mode=TwoWay}"
+                              HorizontalAlignment="Stretch" Margin="0,0,8,0" />
+                    <TextBox Grid.Column="1" Text="{Binding NewTitle, Mode=TwoWay}"
+                             Watermark="Short title (e.g. 'Add dark theme for editor')" />
+                </Grid>
+                <TextBox Text="{Binding NewDetails, Mode=TwoWay}"
+                         Watermark="Optional details — steps to reproduce a bug, or what you'd like the feature to do…"
+                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" MaxHeight="140"
+                         VerticalContentAlignment="Top" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Add" Command="{Binding AddItemCommand}"
+                            Background="#0E639C" Foreground="White" Padding="16,6" />
+                    <TextBlock Text="{Binding StatusText}" Foreground="#9FD3A0"
+                               VerticalAlignment="Center" FontSize="12" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Footer actions -->
+        <Border DockPanel.Dock="Bottom" Padding="12,8"
+                Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button Command="{Binding ExportJsonCommand}" Padding="12,6">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <controls:LineIcon Kind="download" Width="15" Height="15" VerticalAlignment="Center" />
+                        <TextBlock Text="Export JSON" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding ExportMarkdownCommand}" Padding="12,6"
+                        Background="#0E639C" Foreground="White">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <controls:LineIcon Kind="download" Width="15" Height="15" VerticalAlignment="Center" />
+                        <TextBlock Text="Download List (Markdown)" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- List -->
+        <Grid>
+            <TextBlock Text="No feedback yet — add a feature request, bug, or note above."
+                       Opacity="0.55" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       IsVisible="{Binding !HasItems}" />
+            <ScrollViewer IsVisible="{Binding HasItems}">
+                <ItemsControl ItemsSource="{Binding Items}" Margin="12">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FeedbackItemViewModel">
+                            <Border Background="{DynamicResource AppInsetBrush}"
+                                    BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
+                                    CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+
+                                    <!-- Vote stepper -->
+                                    <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center"
+                                                Margin="0,0,12,0" Width="40">
+                                        <Button Classes="paneIcon" Command="{Binding UpvoteCommand}"
+                                                HorizontalAlignment="Center" Padding="4,1" ToolTip.Tip="Up-vote">
+                                            <controls:LineIcon Kind="chevron-up" Width="16" Height="16" />
+                                        </Button>
+                                        <TextBlock Text="{Binding Votes}" FontWeight="Bold" FontSize="14"
+                                                   HorizontalAlignment="Center" />
+                                        <Button Classes="paneIcon" Command="{Binding DownvoteCommand}"
+                                                HorizontalAlignment="Center" Padding="4,1" ToolTip.Tip="Lower vote">
+                                            <controls:LineIcon Kind="chevron-down" Width="16" Height="16" />
+                                        </Button>
+                                    </StackPanel>
+
+                                    <!-- Body -->
+                                    <StackPanel Grid.Column="1" Spacing="3">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Border Background="{Binding KindBrush}" CornerRadius="4" Padding="6,1"
+                                                    VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <controls:LineIcon Kind="{Binding KindGlyph}" Width="12" Height="12"
+                                                                       Foreground="White" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding KindLabel}" Foreground="White"
+                                                               FontSize="11" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </Border>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14"
+                                                       VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Details}" IsVisible="{Binding HasDetails}"
+                                                   Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                                   FontSize="12" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Meta}" Foreground="{DynamicResource AppMutedTextBrush}"
+                                                   FontSize="11" />
+                                    </StackPanel>
+
+                                    <!-- Delete -->
+                                    <Button Grid.Column="2" Classes="paneIcon" Command="{Binding DeleteCommand}"
+                                            VerticalAlignment="Top" ToolTip.Tip="Remove">
+                                        <controls:LineIcon Kind="trash-2" Width="15" Height="15" />
+                                    </Button>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>

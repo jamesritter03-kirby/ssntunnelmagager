@@ -388,6 +388,7 @@
                         <MenuItem Header="Check for Updates…" Command="{Binding CheckForUpdatesCommand}" />
                         <MenuItem Header="Install an Older Version…" Command="{Binding ShowOlderVersionsCommand}" />
                         <MenuItem Header="Repair / Reinstall…" Command="{Binding RepairInstallCommand}" />
+                        <MenuItem Header="Feedback &amp; Feature Requests…" Command="{Binding ShowFeedbackCommand}" />
                         <MenuItem Header="Help…" Command="{Binding OpenHelpCommand}" />
                     </MenuItem>
                 </Menu>
