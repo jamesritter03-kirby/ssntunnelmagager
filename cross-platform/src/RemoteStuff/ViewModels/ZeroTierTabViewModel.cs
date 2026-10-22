@@ -42,6 +42,14 @@ public sealed partial class ZtMemberRowViewModel : ObservableObject
     public bool IsOnline => Member.IsOnline;
     public string StatusText => Member.IsOnline ? "online" : "offline";
 
+    /// <summary>Re-raise the time-based online state (no controller call) so the panel
+    /// dot tracks the 5-minute last-seen window in lockstep with the sidebar.</summary>
+    public void RaiseOnlineChanged()
+    {
+        OnPropertyChanged(nameof(IsOnline));
+        OnPropertyChanged(nameof(StatusText));
+    }
+
     [ObservableProperty] private bool _authorized;
     [ObservableProperty] private bool _authBusy;
 
@@ -614,6 +622,18 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
             foreach (var n in g.Networks)
                 n.IsExpanded = expanded;
         }
+    }
+
+    /// <summary>Re-evaluate every visible device's online dot against the current time,
+    /// without refetching from the controller. Called on the host's 5s health cadence so
+    /// the panel's online state stays in lockstep with the sidebar dots as the 5-minute
+    /// last-seen window lapses (the row getters are otherwise frozen between rebuilds).</summary>
+    public void RefreshOnlineStates()
+    {
+        foreach (var g in AccountGroups)
+            foreach (var n in g.Networks)
+                foreach (var m in n.Members)
+                    m.RaiseOnlineChanged();
     }
 
     [RelayCommand]

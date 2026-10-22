@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -17,10 +18,23 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = BuildTitleWithVersion();
         DataContextChanged += OnDataContextChanged;
         AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
         SetupTabDrag();
         SetupWorkspaceDrag();
+    }
+
+    /// <summary>"Remote Stuff CP 1.9.126" — the assembly's informational version,
+    /// with any +metadata suffix stripped.</summary>
+    private static string BuildTitleWithVersion()
+    {
+        var asm = Assembly.GetExecutingAssembly();
+        var ver = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                  ?? asm.GetName().Version?.ToString(3) ?? "";
+        var plus = ver.IndexOf('+');
+        if (plus >= 0) ver = ver[..plus];
+        return string.IsNullOrEmpty(ver) ? "Remote Stuff CP" : $"Remote Stuff CP {ver}";
     }
 
     private MainWindowViewModel? _vm;

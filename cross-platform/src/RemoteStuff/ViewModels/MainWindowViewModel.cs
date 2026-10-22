@@ -1533,6 +1533,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _healthTimer.Tick += (_, _) =>
         {
             RefreshOnlineDots();
+            // Keep the ZeroTier panel's dots in lockstep with the sidebar as the
+            // 5-min last-seen window lapses (only if the panel has been created).
+            _zeroTierPanel?.RefreshOnlineStates();
             _ = ProbeTunnelHealthAsync();
         };
         _healthTimer.Start();
