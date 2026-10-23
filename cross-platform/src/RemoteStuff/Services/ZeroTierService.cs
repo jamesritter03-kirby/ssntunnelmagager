@@ -131,13 +131,17 @@ public sealed class ZeroTierService
             // Where this account's rows start, so a mid-way failure can be rolled back.
             int netStart = networks.Count;
             int memStart = members.Count;
+            // Set when a network-listing call fails transiently (timeout / 5xx / 429) so we
+            // keep last-known data instead of blanking the account's networks this cycle.
+            bool transientFail = false;
+            void MarkFail() => transientFail = true;
 
             try
             {
                 var accountNetworks = new List<ZeroTierNetwork>();
 
                 // Personal / Central route first.
-                var personal = await GetArrayAsync(account.BaseUrl, token, "/network");
+                var personal = await GetArrayAsync(account.BaseUrl, token, "/network", MarkFail);
                 if (personal is not null)
                     foreach (var e in personal.Value.EnumerateArray())
                     {
@@ -147,14 +151,14 @@ public sealed class ZeroTierService
                     }
 
                 // Self-hosted org-scoped tokens: enumerate orgs then their networks.
-                var orgs = await GetArrayAsync(account.BaseUrl, token, "/org");
+                var orgs = await GetArrayAsync(account.BaseUrl, token, "/org", MarkFail);
                 if (orgs is not null)
                 {
                     foreach (var orgEl in orgs.Value.EnumerateArray())
                     {
                         var orgId = orgEl.GetStringOr("id");
                         if (string.IsNullOrEmpty(orgId)) continue;
-                        var orgNetworks = await GetArrayAsync(account.BaseUrl, token, $"/org/{orgId}/network");
+                        var orgNetworks = await GetArrayAsync(account.BaseUrl, token, $"/org/{orgId}/network", MarkFail);
                         if (orgNetworks is null) continue;
                         foreach (var e in orgNetworks.Value.EnumerateArray())
                         {
@@ -183,6 +187,17 @@ public sealed class ZeroTierService
                         m.OrgId = n.OrgId;
                         members.Add(m);
                     }
+                }
+
+                // A transient listing failure means this cycle's networks are unreliable (the
+                // controller 5xx'd / timed out). Keep the account's last-known rows so its
+                // networks don't vanish until a clean refresh succeeds.
+                if (transientFail)
+                {
+                    if (networks.Count > netStart) networks.RemoveRange(netStart, networks.Count - netStart);
+                    if (members.Count > memStart) members.RemoveRange(memStart, members.Count - memStart);
+                    networks.AddRange(_networks.Where(n => n.AccountId == account.Id));
+                    members.AddRange(_members.Where(m => m.AccountId == account.Id));
                 }
             }
             catch
@@ -490,19 +505,31 @@ public sealed class ZeroTierService
         return authFail!;
     }
 
-    private static async Task<JsonElement?> GetArrayAsync(string baseUrl, string token, string path)
+    private static async Task<JsonElement?> GetArrayAsync(string baseUrl, string token, string path, Action? onTransientFail = null)
     {
-        using var resp = await SendAsync(baseUrl, token, HttpMethod.Get, path, null);
-        if (!resp.IsSuccessStatusCode) return null;
-        var json = await resp.Content.ReadAsStringAsync();
-        try
+        HttpResponseMessage resp;
+        try { resp = await SendAsync(baseUrl, token, HttpMethod.Get, path, null); }
+        catch { onTransientFail?.Invoke(); return null; }  // timeout / network error
+        using (resp)
         {
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
-            // Clone so the element outlives the disposed document.
-            return doc.RootElement.Clone();
+            if (!resp.IsSuccessStatusCode)
+            {
+                // 5xx / 408 / 429 are worth keeping last-known data for; a definitive 4xx
+                // (e.g. a Central account's 404 on /org) means "no data here", not a glitch.
+                int code = (int)resp.StatusCode;
+                if (code is 408 or 429 || code >= 500) onTransientFail?.Invoke();
+                return null;
+            }
+            var json = await resp.Content.ReadAsStringAsync();
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
+                // Clone so the element outlives the disposed document.
+                return doc.RootElement.Clone();
+            }
+            catch { return null; }
         }
-        catch { return null; }
     }
 
     /// <summary>Read a single member and return its authorized flag, or null if the
