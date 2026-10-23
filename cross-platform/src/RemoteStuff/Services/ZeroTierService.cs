@@ -242,14 +242,37 @@ public sealed class ZeroTierService
                         ? $"/network/{n.Id}/member"
                         : $"/org/{n.OrgId}/network/{n.Id}/member";
                     var mem = await GetArrayAsync(account.BaseUrl, token, path);
-                    if (!mem.Ok) continue;
-                    foreach (var e in mem.Array!.Value.EnumerateArray())
+
+                    var netMembers = new List<ZeroTierMember>();
+                    if (mem.Ok)
                     {
-                        var m = ZeroTierMember.FromJson(e);
-                        if (string.IsNullOrEmpty(m.NetworkId)) m.NetworkId = n.Id;
-                        m.AccountId = account.Id;
-                        m.OrgId = n.OrgId;
-                        members.Add(m);
+                        foreach (var e in mem.Array!.Value.EnumerateArray())
+                        {
+                            var m = ZeroTierMember.FromJson(e);
+                            if (string.IsNullOrEmpty(m.NetworkId)) m.NetworkId = n.Id;
+                            m.AccountId = account.Id;
+                            m.OrgId = n.OrgId;
+                            netMembers.Add(m);
+                        }
+                    }
+
+                    // Per-network member grace: a transient member-fetch failure, or a 200 []
+                    // where the network had devices last time (seen with ZTNET), would blank the
+                    // device list for one refresh and repopulate on the next. Keep last-known
+                    // members for a few cycles so a network's devices don't vanish and reappear.
+                    var prevNetMems = prevMems.Where(m =>
+                        string.Equals(m.NetworkId, n.Id, StringComparison.OrdinalIgnoreCase)).ToList();
+                    var memKey = (account.Id, n.Id);
+                    if ((!mem.Ok || netMembers.Count == 0) && prevNetMems.Count > 0 &&
+                        _memberMissingStreak.GetValueOrDefault(memKey) < MissingGrace)
+                    {
+                        _memberMissingStreak[memKey] = _memberMissingStreak.GetValueOrDefault(memKey) + 1;
+                        members.AddRange(prevNetMems);
+                    }
+                    else
+                    {
+                        if (netMembers.Count > 0) _memberMissingStreak.Remove(memKey);
+                        members.AddRange(netMembers);
                     }
                 }
 
@@ -427,10 +450,16 @@ public sealed class ZeroTierService
     private readonly Dictionary<(Guid Account, string Network), int> _missingStreak = new();
     private const int MissingGrace = 3;
 
+    // (accountId, networkId) -> consecutive refreshes a present network's member fetch failed or
+    // returned 0 where it had devices. Up to MissingGrace of these keep last-known members.
+    private readonly Dictionary<(Guid Account, string Network), int> _memberMissingStreak = new();
+
     private void ResetMissingStreaks(Guid accountId)
     {
         foreach (var key in _missingStreak.Keys.Where(k => k.Account == accountId).ToList())
             _missingStreak.Remove(key);
+        foreach (var key in _memberMissingStreak.Keys.Where(k => k.Account == accountId).ToList())
+            _memberMissingStreak.Remove(key);
     }
 
     /// <summary>A short human summary of the account's last refresh (networks read, or
