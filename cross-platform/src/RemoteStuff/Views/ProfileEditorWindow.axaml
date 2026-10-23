@@ -331,6 +331,8 @@
                             <TextBlock Text="Command snippets" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" />
                             <Button Grid.Column="1" Content="+ Add" Command="{Binding AddSnippetCommand}" />
                         </Grid>
+                        <TextBlock Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" TextWrapping="Wrap"
+                                   Text="Commands you can insert into this session's terminal. Click “Save to library” on a row to add it to the shared library (also created via the Command Palette — Ctrl/⌘+K ▸ New Command…), then reuse it in any profile with “Add from library”." />
                         <!-- Pick from the shared library (the command palette's reusable commands). -->
                         <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasSnippetLibrary}">
                             <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="0,0,4,0"

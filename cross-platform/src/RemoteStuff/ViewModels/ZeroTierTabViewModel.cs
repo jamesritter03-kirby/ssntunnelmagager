@@ -400,7 +400,10 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
             };
             if (SortMode == ZtSort.Name || key == 0)
                 key = string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
-            return SortAscending ? key : -key;
+            int directed = SortAscending ? key : -key;
+            // Deterministic tiebreaker (node id) so equal-key rows keep a stable order
+            // across refreshes instead of swapping — swaps flicker as the row is recreated.
+            return directed != 0 ? directed : string.Compare(a.NodeId, b.NodeId, StringComparison.OrdinalIgnoreCase);
         };
         members.Sort(cmp);
     }
@@ -605,6 +608,15 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
                 nets.Add((n, local, members));
                 networkCount++;
             }
+
+            // Stable order (name, then id) so a refresh that returns the same networks in
+            // a different API order doesn't reshuffle rows — reordering makes Avalonia tear
+            // down and recreate the moved cards, which looks like networks vanishing.
+            nets.Sort((a, b) =>
+            {
+                int c = string.Compare(a.Item1.DisplayName, b.Item1.DisplayName, StringComparison.OrdinalIgnoreCase);
+                return c != 0 ? c : string.Compare(a.Item1.Id, b.Item1.Id, StringComparison.OrdinalIgnoreCase);
+            });
 
             // With any filter active, hide accounts that have no visible networks.
             if (anyFilter && nets.Count == 0)
