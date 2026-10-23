@@ -131,10 +131,22 @@ public sealed class ZeroTierService
             // Where this account's rows start, so a mid-way failure can be rolled back.
             int netStart = networks.Count;
             int memStart = members.Count;
-            // Set when a network-listing call fails transiently (timeout / 5xx / 429) so we
-            // keep last-known data instead of blanking the account's networks this cycle.
+            // The account's last-known rows, carried over only if a failure leaves us with
+            // FEWER networks than before — so a glitch on a route this account doesn't use
+            // (e.g. a self-hosted account's /network 5xx while /org loads fine) never wipes
+            // freshly-loaded data, while a real loss keeps the networks on screen.
+            var prevNets = _networks.Where(n => n.AccountId == account.Id).ToList();
+            var prevMems = _members.Where(m => m.AccountId == account.Id).ToList();
             bool transientFail = false;
             void MarkFail() => transientFail = true;
+            void CarryOverIfLost()
+            {
+                if (prevNets.Count <= networks.Count - netStart) return;
+                if (networks.Count > netStart) networks.RemoveRange(netStart, networks.Count - netStart);
+                if (members.Count > memStart) members.RemoveRange(memStart, members.Count - memStart);
+                networks.AddRange(prevNets);
+                members.AddRange(prevMems);
+            }
 
             try
             {
@@ -189,26 +201,14 @@ public sealed class ZeroTierService
                     }
                 }
 
-                // A transient listing failure means this cycle's networks are unreliable (the
-                // controller 5xx'd / timed out). Keep the account's last-known rows so its
-                // networks don't vanish until a clean refresh succeeds.
-                if (transientFail)
-                {
-                    if (networks.Count > netStart) networks.RemoveRange(netStart, networks.Count - netStart);
-                    if (members.Count > memStart) members.RemoveRange(memStart, members.Count - memStart);
-                    networks.AddRange(_networks.Where(n => n.AccountId == account.Id));
-                    members.AddRange(_members.Where(m => m.AccountId == account.Id));
-                }
+                // A transient listing failure (controller 5xx'd / timed out) can leave this
+                // cycle short of networks; only then fall back to the account's last-known rows.
+                if (transientFail) CarryOverIfLost();
             }
             catch
             {
-                // A transient fetch failure (slow/unreachable controller, timeout) must not
-                // make the whole account vanish on refresh: discard this attempt's partial
-                // rows and carry over the account's previously-loaded state until next cycle.
-                if (networks.Count > netStart) networks.RemoveRange(netStart, networks.Count - netStart);
-                if (members.Count > memStart) members.RemoveRange(memStart, members.Count - memStart);
-                networks.AddRange(_networks.Where(n => n.AccountId == account.Id));
-                members.AddRange(_members.Where(m => m.AccountId == account.Id));
+                // A hard failure mid-fetch: keep last-known rows rather than dropping networks.
+                CarryOverIfLost();
             }
         }
 
