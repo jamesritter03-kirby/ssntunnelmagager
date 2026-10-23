@@ -850,24 +850,56 @@ public sealed partial class SftpTabViewModel : TabViewModel
         }
     }
 
+    /// <summary>The rows currently highlighted in the list, kept in sync by the view so
+    /// commands like Delete can act on the whole multi-selection, not just one row.</summary>
+    public IList<SftpEntryViewModel> SelectedEntries { get; } = new List<SftpEntryViewModel>();
+
     [RelayCommand]
     private async Task Delete(SftpEntryViewModel? entry)
     {
-        entry ??= SelectedEntry;
-        if (entry is null || entry.IsParent || _client is null) return;
+        if (_client is null) return;
+
+        // Act on the whole multi-selection when present; otherwise fall back to the
+        // single row passed in (toolbar/menu) or the current SelectedEntry.
+        var targets = SelectedEntries
+            .Where(e => e is { IsParent: false })
+            .ToList();
+        if (targets.Count == 0)
+        {
+            entry ??= SelectedEntry;
+            if (entry is { IsParent: false }) targets.Add(entry);
+        }
+        if (targets.Count == 0) return;
+
         if (!await EnsureConnectedAsync()) return;
         IsBusy = true;
         try
         {
             await Task.Run(() =>
             {
-                if (entry.IsDirectory) _client.DeleteDirectory(entry.FullPath);
-                else _client.DeleteFile(entry.FullPath);
+                foreach (var target in targets)
+                {
+                    if (target.IsDirectory) DeleteDirectoryRecursive(target.FullPath);
+                    else _client.DeleteFile(target.FullPath);
+                }
             });
             await LoadDirectory(CurrentPath);
         }
         catch (Exception ex) { StatusText = "Delete failed: " + ex.Message; }
         finally { IsBusy = false; }
+    }
+
+    /// <summary>Removes a remote directory and everything inside it; SSH.NET's
+    /// DeleteDirectory refuses non-empty folders, so empty it first.</summary>
+    private void DeleteDirectoryRecursive(string remote)
+    {
+        foreach (var item in _client!.ListDirectory(remote))
+        {
+            if (item.Name is "." or "..") continue;
+            if (item.IsDirectory) DeleteDirectoryRecursive(item.FullName);
+            else _client.DeleteFile(item.FullName);
+        }
+        _client.DeleteDirectory(remote);
     }
 
     [RelayCommand]

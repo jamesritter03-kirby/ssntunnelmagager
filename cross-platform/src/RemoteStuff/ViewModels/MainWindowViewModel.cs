@@ -746,6 +746,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             SelectedRow = SidebarSections
                 .SelectMany(s => s.Rows)
                 .FirstOrDefault(r => r.Profile.Id == id);
+
+        // Freshly built rows need the current workspace's source accent re-applied.
+        RefreshWorkspaceSourceHighlight();
     }
 
     private void AddSection(string title, string glyph, IEnumerable<SshProfile> profiles)
@@ -2907,6 +2910,44 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         CurrentWorkspace?.SourceProfileId is { } id
             ? _store.Profiles.FirstOrDefault(p => p.Id == id)
             : null;
+
+    /// <summary>True when the current workspace was launched from a profile, so the
+    /// tab strip can show a "from …" chip naming where the user actually is.</summary>
+    public bool ShowWorkspaceSourceProfile => CurrentWorkspaceProfile is not null;
+
+    /// <summary>Chip label naming the profile that launched the current workspace.</summary>
+    public string WorkspaceSourceProfileLabel =>
+        CurrentWorkspaceProfile is { } p ? $"from {p.Name}" : "";
+
+    /// <summary>Accent tint for the "from …" chip, matching the workspace pill colour.</summary>
+    public Avalonia.Media.IBrush WorkspaceSourceAccentBrush =>
+        !string.IsNullOrWhiteSpace(CurrentWorkspace?.Color)
+        && Avalonia.Media.Color.TryParse(CurrentWorkspace!.Color, out var c)
+            ? new Avalonia.Media.SolidColorBrush(c)
+            : new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(0x4C, 0x8B, 0xF5));
+
+    /// <summary>Tint the sidebar row of the current workspace's source profile and
+    /// notify the "from …" chip. Called on workspace switch, sidebar rebuild, and
+    /// when the current workspace is recoloured.</summary>
+    private void RefreshWorkspaceSourceHighlight()
+    {
+        var sourceId = CurrentWorkspace?.SourceProfileId;
+        var color = CurrentWorkspace?.Color ?? "";
+        foreach (var row in AllRows)
+            row.SetWorkspaceSource(sourceId is { } id && row.Profile.Id == id, color);
+
+        OnPropertyChanged(nameof(ShowWorkspaceSourceProfile));
+        OnPropertyChanged(nameof(WorkspaceSourceProfileLabel));
+        OnPropertyChanged(nameof(WorkspaceSourceAccentBrush));
+    }
+
+    partial void OnCurrentWorkspaceChanged(WorkspaceViewModel? value) => RefreshWorkspaceSourceHighlight();
+
+    /// <summary>Re-tint the source highlight when the current workspace is recoloured.</summary>
+    public void OnWorkspaceColorChanged(WorkspaceViewModel ws)
+    {
+        if (ws == CurrentWorkspace) RefreshWorkspaceSourceHighlight();
+    }
 
     /// <summary>True when the current workspace was launched from a (non-local)
     /// profile, so the New menu can offer quick "same server" actions.</summary>

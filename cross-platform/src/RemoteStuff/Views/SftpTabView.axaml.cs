@@ -38,7 +38,19 @@ public partial class SftpTabView : UserControl
             DragDrop.SetAllowDrop(list, true);
             list.AddHandler(DragDrop.DragOverEvent, OnDragOver);
             list.AddHandler(DragDrop.DropEvent, OnDrop);
+            list.SelectionChanged += OnListSelectionChanged;
         }
+    }
+
+    // Mirror the ListBox's multi-selection into the view model so commands like Delete
+    // can act on every highlighted row (SelectedItems isn't directly bindable).
+    private void OnListSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || sender is not ListBox list) return;
+        _vm.SelectedEntries.Clear();
+        if (list.SelectedItems is { } items)
+            foreach (var item in items.OfType<SftpEntryViewModel>())
+                _vm.SelectedEntries.Add(item);
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);

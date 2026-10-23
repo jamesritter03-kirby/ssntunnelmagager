@@ -55,7 +55,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             ? new SolidColorBrush(c)
             : Brushes.Transparent;
 
-    partial void OnColorChanged(string value) => OnPropertyChanged(nameof(PillBrush));
+    partial void OnColorChanged(string value)
+    {
+        OnPropertyChanged(nameof(PillBrush));
+        _owner.OnWorkspaceColorChanged(this);
+    }
 
     public System.Collections.Generic.IReadOnlyList<TabColorMenuItem> WorkspaceColorMenuItems =>
         _colorMenuItems ??= BuildColorMenu();

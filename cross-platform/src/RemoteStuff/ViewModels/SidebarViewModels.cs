@@ -91,6 +91,38 @@ public sealed partial class ProfileRowViewModel : ObservableObject
     /// <summary>Grey dot: offline, or not connected with no online info to show.</summary>
     public bool ShowOfflineDot => !ShowConnectedDot && !ShowOnlineDisconnectedDot;
 
+    /// <summary>True when this profile launched the workspace the user is currently
+    /// viewing. Drives a left accent bar that's visually distinct from the ListBox
+    /// selection highlight, so "I'm running this" doesn't read as "I'm editing this".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WorkspaceAccentBrush))]
+    [NotifyPropertyChangedFor(nameof(WorkspaceAccentTip))]
+    private bool _isWorkspaceSource;
+
+    /// <summary>Hex tint of the current workspace, so the accent bar matches its pill.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WorkspaceAccentBrush))]
+    private string _workspaceColor = "";
+
+    /// <summary>Left accent bar colour: the workspace tint (falling back to the app accent)
+    /// while this row is the current workspace's source, transparent otherwise.</summary>
+    public Avalonia.Media.IBrush WorkspaceAccentBrush =>
+        IsWorkspaceSource ? AccentFromHex(WorkspaceColor) : Avalonia.Media.Brushes.Transparent;
+
+    public string WorkspaceAccentTip => IsWorkspaceSource ? "Launched the current workspace" : "";
+
+    private static Avalonia.Media.IBrush AccentFromHex(string hex) =>
+        !string.IsNullOrWhiteSpace(hex) && Avalonia.Media.Color.TryParse(hex, out var c)
+            ? new Avalonia.Media.SolidColorBrush(c)
+            : new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(0x4C, 0x8B, 0xF5));
+
+    /// <summary>Flag/tint this row as the source of the current workspace (or clear it).</summary>
+    public void SetWorkspaceSource(bool isSource, string color)
+    {
+        WorkspaceColor = color ?? "";
+        IsWorkspaceSource = isSource;
+    }
+
     /// <summary>Ticked in multi-select mode (drives bulk compare/delete). Kept in sync with
     /// the owner's checked set so it survives sidebar rebuilds.</summary>
     [ObservableProperty] private bool _isChecked;
