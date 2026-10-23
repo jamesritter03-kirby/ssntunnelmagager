@@ -620,8 +620,11 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
                 return c != 0 ? c : string.Compare(a.Item1.Id, b.Item1.Id, StringComparison.OrdinalIgnoreCase);
             });
 
-            // With any filter active, hide accounts that have no visible networks.
-            if (anyFilter && nets.Count == 0)
+            // Only a text search hides an account with no matching networks. The online-only
+            // / member-of toggles must NOT drop an account header — otherwise a transient
+            // empty result (a slow account fetch, or all devices briefly offline) makes the
+            // whole account blink out and back on every refresh.
+            if (filtering && nets.Count == 0)
                 continue;
             desired.Add((account, nets));
         }

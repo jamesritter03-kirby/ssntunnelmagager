@@ -128,6 +128,10 @@ public sealed class ZeroTierService
             var token = _secrets.Get(account.Id);
             if (string.IsNullOrEmpty(token)) continue;
 
+            // Where this account's rows start, so a mid-way failure can be rolled back.
+            int netStart = networks.Count;
+            int memStart = members.Count;
+
             try
             {
                 var accountNetworks = new List<ZeroTierNetwork>();
@@ -183,7 +187,13 @@ public sealed class ZeroTierService
             }
             catch
             {
-                // Skip an unreachable / mis-configured account; others still load.
+                // A transient fetch failure (slow/unreachable controller, timeout) must not
+                // make the whole account vanish on refresh: discard this attempt's partial
+                // rows and carry over the account's previously-loaded state until next cycle.
+                if (networks.Count > netStart) networks.RemoveRange(netStart, networks.Count - netStart);
+                if (members.Count > memStart) members.RemoveRange(memStart, members.Count - memStart);
+                networks.AddRange(_networks.Where(n => n.AccountId == account.Id));
+                members.AddRange(_members.Where(m => m.AccountId == account.Id));
             }
         }
 
