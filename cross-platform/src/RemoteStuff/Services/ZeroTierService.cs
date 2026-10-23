@@ -145,19 +145,17 @@ public sealed class ZeroTierService
             var token = _secrets.Get(account.Id);
             if (string.IsNullOrEmpty(token)) continue;
 
-            // Where this account's rows start, so a mid-way failure can be rolled back.
             int netStart = networks.Count;
             int memStart = members.Count;
-            // The account's last-known rows, carried over when this cycle failed to read its
-            // network list — so any failure (4xx/5xx/timeout/garbled body) keeps the networks
-            // on screen instead of blanking them, while a successful (even smaller) read wins.
             var prevNets = _networks.Where(n => n.AccountId == account.Id).ToList();
             var prevMems = _members.Where(m => m.AccountId == account.Id).ToList();
-            // True once we successfully read a network list (/network or /org/{id}/network).
-            bool gotNetworkListing = false;
-            void CarryOverIfLost()
+
+            bool personalOk = false;   // /network returned an array (even if empty)
+            bool orgNetOk = false;     // at least one /org/{id}/network returned an array
+            int lastFailStatus = 0;    // last non-404 failure status, for the diagnostic
+
+            void CarryOver()
             {
-                if (prevNets.Count <= networks.Count - netStart) return;
                 if (networks.Count > netStart) networks.RemoveRange(netStart, networks.Count - netStart);
                 if (members.Count > memStart) members.RemoveRange(memStart, members.Count - memStart);
                 networks.AddRange(prevNets);
@@ -168,31 +166,32 @@ public sealed class ZeroTierService
             {
                 var accountNetworks = new List<ZeroTierNetwork>();
 
-                // Personal / Central route first.
+                // Personal / Central route.
                 var personal = await GetArrayAsync(account.BaseUrl, token, "/network");
-                if (personal is not null)
+                if (personal.Ok)
                 {
-                    gotNetworkListing = true;
-                    foreach (var e in personal.Value.EnumerateArray())
+                    personalOk = true;
+                    foreach (var e in personal.Array!.Value.EnumerateArray())
                     {
                         var n = ZeroTierNetwork.FromJson(e);
                         n.AccountId = account.Id;
                         accountNetworks.Add(n);
                     }
                 }
+                else if (personal.Status != 404) lastFailStatus = personal.Status;
 
                 // Self-hosted org-scoped tokens: enumerate orgs then their networks.
                 var orgs = await GetArrayAsync(account.BaseUrl, token, "/org");
-                if (orgs is not null)
+                if (orgs.Ok)
                 {
-                    foreach (var orgEl in orgs.Value.EnumerateArray())
+                    foreach (var orgEl in orgs.Array!.Value.EnumerateArray())
                     {
                         var orgId = orgEl.GetStringOr("id");
                         if (string.IsNullOrEmpty(orgId)) continue;
-                        var orgNetworks = await GetArrayAsync(account.BaseUrl, token, $"/org/{orgId}/network");
-                        if (orgNetworks is null) continue;
-                        gotNetworkListing = true;
-                        foreach (var e in orgNetworks.Value.EnumerateArray())
+                        var orgNet = await GetArrayAsync(account.BaseUrl, token, $"/org/{orgId}/network");
+                        if (!orgNet.Ok) { if (orgNet.Status != 404) lastFailStatus = orgNet.Status; continue; }
+                        orgNetOk = true;
+                        foreach (var e in orgNet.Array!.Value.EnumerateArray())
                         {
                             var n = ZeroTierNetwork.FromJson(e);
                             n.AccountId = account.Id;
@@ -202,6 +201,7 @@ public sealed class ZeroTierService
                         }
                     }
                 }
+                else if (orgs.Status != 404) lastFailStatus = orgs.Status;
 
                 foreach (var n in accountNetworks)
                 {
@@ -210,8 +210,8 @@ public sealed class ZeroTierService
                         ? $"/network/{n.Id}/member"
                         : $"/org/{n.OrgId}/network/{n.Id}/member";
                     var mem = await GetArrayAsync(account.BaseUrl, token, path);
-                    if (mem is null) continue;
-                    foreach (var e in mem.Value.EnumerateArray())
+                    if (!mem.Ok) continue;
+                    foreach (var e in mem.Array!.Value.EnumerateArray())
                     {
                         var m = ZeroTierMember.FromJson(e);
                         if (string.IsNullOrEmpty(m.NetworkId)) m.NetworkId = n.Id;
@@ -221,13 +221,32 @@ public sealed class ZeroTierService
                     }
                 }
 
-                // If we never managed to read a network list this cycle, keep last-known rows.
-                if (!gotNetworkListing) CarryOverIfLost();
+                // Carry over last-known networks only when the route that actually provides
+                // THIS account's networks failed this cycle. An org-scoped account's /network
+                // is legitimately empty, so its empty-success must not count as "loaded"; and a
+                // genuine successful read (even a smaller one, e.g. a deleted network) wins.
+                bool prevHadOrg = prevNets.Any(n => n.OrgId != null);
+                bool prevHadPersonal = prevNets.Any(n => n.OrgId == null);
+                bool primaryOk = prevNets.Count == 0
+                    ? (personalOk || orgNetOk)
+                    : (!prevHadOrg || orgNetOk) && (!prevHadPersonal || personalOk);
+
+                if (!primaryOk && prevNets.Count > networks.Count - netStart)
+                {
+                    CarryOver();
+                    _accountDiag[account.Id] = lastFailStatus != 0
+                        ? $"Showing {prevNets.Count} last-known network(s) — controller returned HTTP {lastFailStatus}"
+                        : $"Showing {prevNets.Count} last-known network(s) — controller didn't return them (timeout/empty)";
+                }
+                else
+                {
+                    _accountDiag[account.Id] = $"{networks.Count - netStart} network(s) loaded";
+                }
             }
             catch
             {
-                // A hard failure mid-fetch: keep last-known rows rather than dropping networks.
-                CarryOverIfLost();
+                if (prevNets.Count > networks.Count - netStart) CarryOver();
+                _accountDiag[account.Id] = $"Showing {prevNets.Count} last-known network(s) — refresh error";
             }
         }
 
@@ -311,6 +330,13 @@ public sealed class ZeroTierService
 
     // networkId (lowercased) -> live join status on this device (e.g. "OK").
     private Dictionary<string, string> _localStatus = new();
+
+    // accountId -> one-line summary of the last refresh (shown on the account header).
+    private readonly Dictionary<Guid, string> _accountDiag = new();
+
+    /// <summary>A short human summary of the account's last refresh (networks read, or
+    /// "kept last-known" with the failing status), for the account header tooltip.</summary>
+    public string? DiagnosticFor(Guid accountId) => _accountDiag.TryGetValue(accountId, out var s) ? s : null;
 
     /// <summary>True when the local ZeroTier service responded during the last refresh.
     /// When false, member-of filtering cannot work and should be skipped gracefully.</summary>
@@ -524,19 +550,31 @@ public sealed class ZeroTierService
         return authFail!;
     }
 
-    private static async Task<JsonElement?> GetArrayAsync(string baseUrl, string token, string path)
+    /// <summary>Result of a list fetch: the HTTP status (0 = timeout/network error) and the
+    /// parsed array when the call succeeded with an array body.</summary>
+    private readonly record struct ArrayResult(int Status, JsonElement? Array)
     {
-        using var resp = await SendAsync(baseUrl, token, HttpMethod.Get, path, null);
-        if (!resp.IsSuccessStatusCode) return null;
-        var json = await resp.Content.ReadAsStringAsync();
+        public bool Ok => Array is not null;
+    }
+
+    private static async Task<ArrayResult> GetArrayAsync(string baseUrl, string token, string path)
+    {
         try
         {
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
-            // Clone so the element outlives the disposed document.
-            return doc.RootElement.Clone();
+            using var resp = await SendAsync(baseUrl, token, HttpMethod.Get, path, null);
+            int status = (int)resp.StatusCode;
+            if (!resp.IsSuccessStatusCode) return new ArrayResult(status, null);
+            var json = await resp.Content.ReadAsStringAsync();
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) return new ArrayResult(status, null);
+                // Clone so the element outlives the disposed document.
+                return new ArrayResult(status, doc.RootElement.Clone());
+            }
+            catch { return new ArrayResult(status, null); }
         }
-        catch { return null; }
+        catch { return new ArrayResult(0, null); }  // timeout / network error
     }
 
     /// <summary>Read a single member and return its authorized flag, or null if the

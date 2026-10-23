@@ -174,7 +174,8 @@
                             <Button Command="{Binding ToggleCollapseCommand}"
                                     Background="{DynamicResource AppPillBrush}" BorderThickness="0"
                                     Padding="8,6" HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Left" Cursor="Hand">
+                                    HorizontalContentAlignment="Left" Cursor="Hand"
+                                    ToolTip.Tip="{Binding Diagnostic}">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <TextBlock Text="{Binding ChevronGlyph}" FontSize="13"
                                                Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" Width="14" />
@@ -183,6 +184,9 @@
                                         <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="15" />
                                         <TextBlock Text="{Binding Subtitle}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="11" />
                                     </StackPanel>
+                                    <TextBlock Text="&#x26A0;" FontSize="13" Foreground="#E3B341" VerticalAlignment="Center"
+                                               IsVisible="{Binding ShowStaleWarning}"
+                                               ToolTip.Tip="{Binding Diagnostic}" />
                                 </StackPanel>
                             </Button>
 

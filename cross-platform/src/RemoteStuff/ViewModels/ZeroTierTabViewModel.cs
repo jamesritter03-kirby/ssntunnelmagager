@@ -279,6 +279,14 @@ public sealed partial class ZtAccountGroupViewModel : ObservableObject
     public string Server => Account.ServerDisplay;
     public string Subtitle => $"{Account.ServerDisplay}  ·  {Networks.Count} networks";
 
+    /// <summary>One-line summary of the account's last refresh (for the header tooltip),
+    /// and a flag when it's showing carried-over data so the row can warn.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowStaleWarning))]
+    private string? _diagnostic;
+
+    public bool ShowStaleWarning => Diagnostic?.StartsWith("Showing", StringComparison.Ordinal) == true;
+
     [ObservableProperty] private bool _isExpanded = true;
 
     public string ChevronGlyph => IsExpanded ? "\u25BE" : "\u25B8";
@@ -640,12 +648,14 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
                 {
                     ReconcileNetworks(g.Networks, d.Nets, filtering);
                     g.Update(d.Account);
+                    g.Diagnostic = _service.DiagnosticFor(d.Account.Id);
                     g.IsExpanded = filtering || !_collapsedAccounts.Contains(d.Account.Id);
                 },
                 d =>
                 {
                     var g = new ZtAccountGroupViewModel(d.Account);
                     ReconcileNetworks(g.Networks, d.Nets, filtering);
+                    g.Diagnostic = _service.DiagnosticFor(d.Account.Id);
                     g.IsExpanded = filtering || !_collapsedAccounts.Contains(d.Account.Id);
                     TrackAccountExpansion(g);
                     return g;
