@@ -598,11 +598,13 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
 
                 // With any filter active, keep a network only if it still has visible
                 // devices, its own name/id matched, or it qualifies for the member-of
-                // filter (this device has joined it).
+                // filter (this device has joined it). A joined network stays even when
+                // online-only hides all its devices, so its account header doesn't flicker
+                // in and out as devices cross the online/offline threshold between refreshes.
                 bool keep = !anyFilter
                     || members.Count > 0
                     || (networkMatches && !onlineOnly)
-                    || (memberOfOnly && !onlineOnly && !filtering);
+                    || (memberOfOnly && !filtering);
                 if (!keep) continue;
 
                 nets.Add((n, local, members));
