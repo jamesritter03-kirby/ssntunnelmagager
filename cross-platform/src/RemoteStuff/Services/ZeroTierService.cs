@@ -117,6 +117,9 @@ public sealed class ZeroTierService
         _secrets.Set(id, null);
         _networks.RemoveAll(n => n.AccountId == id);
         _members.RemoveAll(m => m.AccountId == id);
+        _emptyStreak.Remove(id);
+        _accountDiag.Remove(id);
+        ResetMissingStreaks(id);
         Updated?.Invoke();
     }
 
@@ -268,6 +271,7 @@ public sealed class ZeroTierService
                 {
                     // The authoritative route failed — keep last-known networks.
                     CarryOver();
+                    ResetMissingStreaks(account.Id);
                     _accountDiag[account.Id] = lastFailStatus != 0
                         ? $"Showing {prevNets.Count} last-known network(s) — controller returned HTTP {lastFailStatus}"
                         : $"Showing {prevNets.Count} last-known network(s) — controller didn't return them (timeout)";
@@ -279,12 +283,44 @@ public sealed class ZeroTierService
                     // for a few cycles so the account doesn't blink empty on a glitch.
                     _emptyStreak[account.Id] = _emptyStreak.GetValueOrDefault(account.Id) + 1;
                     CarryOver();
+                    ResetMissingStreaks(account.Id);
                     _accountDiag[account.Id] = $"Showing {prevNets.Count} last-known network(s) — controller returned 0 this refresh";
                 }
                 else
                 {
                     _emptyStreak[account.Id] = fetched == 0 ? _emptyStreak.GetValueOrDefault(account.Id) : 0;
-                    _accountDiag[account.Id] = $"{networks.Count - netStart} network(s) loaded";
+
+                    // Partial-loss grace: the route succeeded but omitted SOME previously-known
+                    // networks (ZTNET can return a 200 that drops a few networks for one cycle).
+                    // Re-add each missing network (and its last-known members) for a few cycles so
+                    // individual networks don't blink out of an otherwise-healthy account; a network
+                    // absent past the grace window is accepted as genuinely removed.
+                    int carried = 0;
+                    if (routeOk && fetched > 0 && prevNets.Count > 0)
+                    {
+                        var present = new HashSet<string>(
+                            networks.Skip(netStart).Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
+                        foreach (var pn in prevNets)
+                        {
+                            var key = (account.Id, pn.Id);
+                            if (present.Contains(pn.Id)) { _missingStreak.Remove(key); continue; }
+
+                            int streak = _missingStreak.GetValueOrDefault(key);
+                            if (streak < MissingGrace)
+                            {
+                                _missingStreak[key] = streak + 1;
+                                networks.Add(pn);
+                                members.AddRange(prevMems.Where(m =>
+                                    string.Equals(m.NetworkId, pn.Id, StringComparison.OrdinalIgnoreCase)));
+                                carried++;
+                            }
+                            else _missingStreak.Remove(key);
+                        }
+                    }
+
+                    _accountDiag[account.Id] = carried > 0
+                        ? $"{fetched} network(s) loaded · {carried} kept last-known (absent this refresh)"
+                        : $"{networks.Count - netStart} network(s) loaded";
                 }
             }
             catch
@@ -383,6 +419,19 @@ public sealed class ZeroTierService
     // 200 [] mid-session); after that a real emptying is accepted.
     private readonly Dictionary<Guid, int> _emptyStreak = new();
     private const int EmptyGrace = 3;
+
+    // (accountId, networkId) -> consecutive refreshes a previously-known network was absent from
+    // an otherwise-successful route result. Up to MissingGrace of these re-add the network from
+    // last-known data (ZTNET occasionally returns a partial 200 that omits some networks for a
+    // cycle); after that the network is accepted as genuinely removed.
+    private readonly Dictionary<(Guid Account, string Network), int> _missingStreak = new();
+    private const int MissingGrace = 3;
+
+    private void ResetMissingStreaks(Guid accountId)
+    {
+        foreach (var key in _missingStreak.Keys.Where(k => k.Account == accountId).ToList())
+            _missingStreak.Remove(key);
+    }
 
     /// <summary>A short human summary of the account's last refresh (networks read, or
     /// "kept last-known" with the failing status), for the account header tooltip.</summary>

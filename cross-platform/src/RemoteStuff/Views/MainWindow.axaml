@@ -475,6 +475,19 @@
                                               ToolTip.Tip="Show only online profiles" />
                             </StackPanel>
                         </Border>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
+                                    HorizontalAlignment="Right" Margin="6,0" VerticalAlignment="Center">
+                            <Button Content="{controls:Icon Kind=chevrons-down, Size=13}" Padding="6,3" MinHeight="0"
+                                    Background="Transparent" BorderThickness="0"
+                                    Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                    Command="{Binding ExpandAllGroupsCommand}"
+                                    ToolTip.Tip="Expand all groups" />
+                            <Button Content="{controls:Icon Kind=chevrons-up, Size=13}" Padding="6,3" MinHeight="0"
+                                    Background="Transparent" BorderThickness="0"
+                                    Foreground="{DynamicResource AppSecondaryTextBrush}"
+                                    Command="{Binding CollapseAllGroupsCommand}"
+                                    ToolTip.Tip="Collapse all groups" />
+                        </StackPanel>
                         <ToggleButton Grid.Column="2" Content="Select" FontSize="11" Padding="9,3" MinHeight="0"
                                       IsChecked="{Binding IsSelectionMode, Mode=TwoWay}"
                                       ToolTip.Tip="Select multiple profiles to compare or delete" />
@@ -772,17 +785,6 @@
                 <Border Grid.Row="1" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="0,0,0,1"
                         IsVisible="{Binding HasWorkspaceTabs}">
                     <DockPanel Margin="8,4" LastChildFill="True">
-                        <Border DockPanel.Dock="Left" IsVisible="{Binding ShowWorkspaceSourceProfile}"
-                                BorderBrush="{Binding WorkspaceSourceAccentBrush}" BorderThickness="1"
-                                CornerRadius="10" Padding="8,2" Margin="0,0,8,0" VerticalAlignment="Center"
-                                ToolTip.Tip="This workspace was launched from this profile">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Ellipse Width="8" Height="8" VerticalAlignment="Center"
-                                         Fill="{Binding WorkspaceSourceAccentBrush}" />
-                                <TextBlock Text="{Binding WorkspaceSourceProfileLabel}" VerticalAlignment="Center"
-                                           FontSize="11" Foreground="{DynamicResource AppSecondaryTextBrush}" />
-                            </StackPanel>
-                        </Border>
                         <Button Padding="8,3" DockPanel.Dock="Right" Margin="6,0,0,0"
                                 ToolTip.Tip="Add a tab to this workspace">
                             <Button.Content>
