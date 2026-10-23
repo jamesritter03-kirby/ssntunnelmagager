@@ -81,17 +81,33 @@ public sealed class ZeroTierService
         catch { /* best effort */ }
     }
 
-    public ZeroTierAccount AddAccount(string label, string baseUrl, string token)
+    public ZeroTierAccount AddAccount(string label, string baseUrl, string token,
+        ZtNetworkSource source = ZtNetworkSource.Auto)
     {
         var account = new ZeroTierAccount
         {
             Label = label,
-            BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? ZeroTierAccount.CentralBaseUrl : baseUrl.Trim()
+            BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? ZeroTierAccount.CentralBaseUrl : baseUrl.Trim(),
+            NetworkSource = source
         };
         _accounts.Add(account);
         SaveAccounts();
         _secrets.Set(account.Id, token);
         return account;
+    }
+
+    /// <summary>Update an existing account's label / base URL / network source (and token
+    /// when a non-empty one is supplied). Returns false if the id isn't found.</summary>
+    public bool UpdateAccount(Guid id, string label, string baseUrl, ZtNetworkSource source, string? token)
+    {
+        var account = _accounts.FirstOrDefault(a => a.Id == id);
+        if (account is null) return false;
+        account.Label = label;
+        account.BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? ZeroTierAccount.CentralBaseUrl : baseUrl.Trim();
+        account.NetworkSource = source;
+        SaveAccounts();
+        if (!string.IsNullOrWhiteSpace(token)) _secrets.Set(account.Id, token.Trim());
+        return true;
     }
 
     public void RemoveAccount(Guid id)
@@ -150,8 +166,14 @@ public sealed class ZeroTierService
             var prevNets = _networks.Where(n => n.AccountId == account.Id).ToList();
             var prevMems = _members.Where(m => m.AccountId == account.Id).ToList();
 
+            // Which routes to read, per the account's declared source (Auto tries both).
+            bool usePersonal = account.NetworkSource is ZtNetworkSource.Auto or ZtNetworkSource.Personal;
+            bool useOrg = account.NetworkSource is ZtNetworkSource.Auto or ZtNetworkSource.Organization;
+
             bool personalOk = false;   // /network returned an array (even if empty)
+            bool orgListOk = false;    // /org returned an array
             bool orgNetOk = false;     // at least one /org/{id}/network returned an array
+            bool anyOrgNetFailed = false;
             int lastFailStatus = 0;    // last non-404 failure status, for the diagnostic
 
             void CarryOver()
@@ -167,41 +189,48 @@ public sealed class ZeroTierService
                 var accountNetworks = new List<ZeroTierNetwork>();
 
                 // Personal / Central route.
-                var personal = await GetArrayAsync(account.BaseUrl, token, "/network");
-                if (personal.Ok)
+                if (usePersonal)
                 {
-                    personalOk = true;
-                    foreach (var e in personal.Array!.Value.EnumerateArray())
+                    var personal = await GetArrayAsync(account.BaseUrl, token, "/network");
+                    if (personal.Ok)
                     {
-                        var n = ZeroTierNetwork.FromJson(e);
-                        n.AccountId = account.Id;
-                        accountNetworks.Add(n);
-                    }
-                }
-                else if (personal.Status != 404) lastFailStatus = personal.Status;
-
-                // Self-hosted org-scoped tokens: enumerate orgs then their networks.
-                var orgs = await GetArrayAsync(account.BaseUrl, token, "/org");
-                if (orgs.Ok)
-                {
-                    foreach (var orgEl in orgs.Array!.Value.EnumerateArray())
-                    {
-                        var orgId = orgEl.GetStringOr("id");
-                        if (string.IsNullOrEmpty(orgId)) continue;
-                        var orgNet = await GetArrayAsync(account.BaseUrl, token, $"/org/{orgId}/network");
-                        if (!orgNet.Ok) { if (orgNet.Status != 404) lastFailStatus = orgNet.Status; continue; }
-                        orgNetOk = true;
-                        foreach (var e in orgNet.Array!.Value.EnumerateArray())
+                        personalOk = true;
+                        foreach (var e in personal.Array!.Value.EnumerateArray())
                         {
                             var n = ZeroTierNetwork.FromJson(e);
                             n.AccountId = account.Id;
-                            n.OrgId = orgId;
-                            if (accountNetworks.All(x => x.Id != n.Id))
-                                accountNetworks.Add(n);
+                            accountNetworks.Add(n);
                         }
                     }
+                    else if (personal.Status != 404) lastFailStatus = personal.Status;
                 }
-                else if (orgs.Status != 404) lastFailStatus = orgs.Status;
+
+                // Self-hosted org-scoped tokens: enumerate orgs then their networks.
+                if (useOrg)
+                {
+                    var orgs = await GetArrayAsync(account.BaseUrl, token, "/org");
+                    if (orgs.Ok)
+                    {
+                        orgListOk = true;
+                        foreach (var orgEl in orgs.Array!.Value.EnumerateArray())
+                        {
+                            var orgId = orgEl.GetStringOr("id");
+                            if (string.IsNullOrEmpty(orgId)) continue;
+                            var orgNet = await GetArrayAsync(account.BaseUrl, token, $"/org/{orgId}/network");
+                            if (!orgNet.Ok) { anyOrgNetFailed = true; if (orgNet.Status != 404) lastFailStatus = orgNet.Status; continue; }
+                            orgNetOk = true;
+                            foreach (var e in orgNet.Array!.Value.EnumerateArray())
+                            {
+                                var n = ZeroTierNetwork.FromJson(e);
+                                n.AccountId = account.Id;
+                                n.OrgId = orgId;
+                                if (accountNetworks.All(x => x.Id != n.Id))
+                                    accountNetworks.Add(n);
+                            }
+                        }
+                    }
+                    else if (orgs.Status != 404) lastFailStatus = orgs.Status;
+                }
 
                 foreach (var n in accountNetworks)
                 {
@@ -221,25 +250,40 @@ public sealed class ZeroTierService
                     }
                 }
 
-                // Carry over last-known networks only when the route that actually provides
-                // THIS account's networks failed this cycle. An org-scoped account's /network
-                // is legitimately empty, so its empty-success must not count as "loaded"; and a
-                // genuine successful read (even a smaller one, e.g. a deleted network) wins.
+                int fetched = networks.Count - netStart;
+
+                // Did the route that should carry THIS account's networks succeed this cycle?
                 bool prevHadOrg = prevNets.Any(n => n.OrgId != null);
                 bool prevHadPersonal = prevNets.Any(n => n.OrgId == null);
-                bool primaryOk = prevNets.Count == 0
-                    ? (personalOk || orgNetOk)
-                    : (!prevHadOrg || orgNetOk) && (!prevHadPersonal || personalOk);
-
-                if (!primaryOk && prevNets.Count > networks.Count - netStart)
+                bool routeOk = account.NetworkSource switch
                 {
+                    ZtNetworkSource.Personal => personalOk,
+                    ZtNetworkSource.Organization => orgListOk && !anyOrgNetFailed,
+                    _ => prevNets.Count == 0
+                        ? (personalOk || orgNetOk)
+                        : (!prevHadOrg || orgNetOk) && (!prevHadPersonal || personalOk),
+                };
+
+                if (!routeOk && prevNets.Count > fetched)
+                {
+                    // The authoritative route failed — keep last-known networks.
                     CarryOver();
                     _accountDiag[account.Id] = lastFailStatus != 0
                         ? $"Showing {prevNets.Count} last-known network(s) — controller returned HTTP {lastFailStatus}"
-                        : $"Showing {prevNets.Count} last-known network(s) — controller didn't return them (timeout/empty)";
+                        : $"Showing {prevNets.Count} last-known network(s) — controller didn't return them (timeout)";
+                }
+                else if (routeOk && fetched == 0 && prevNets.Count > 0 && _emptyStreak.GetValueOrDefault(account.Id) < EmptyGrace)
+                {
+                    // The route succeeded but returned zero where it had networks. Controllers
+                    // (seen with ZTNET) occasionally reply 200 [] mid-session; keep last-known
+                    // for a few cycles so the account doesn't blink empty on a glitch.
+                    _emptyStreak[account.Id] = _emptyStreak.GetValueOrDefault(account.Id) + 1;
+                    CarryOver();
+                    _accountDiag[account.Id] = $"Showing {prevNets.Count} last-known network(s) — controller returned 0 this refresh";
                 }
                 else
                 {
+                    _emptyStreak[account.Id] = fetched == 0 ? _emptyStreak.GetValueOrDefault(account.Id) : 0;
                     _accountDiag[account.Id] = $"{networks.Count - netStart} network(s) loaded";
                 }
             }
@@ -333,6 +377,12 @@ public sealed class ZeroTierService
 
     // accountId -> one-line summary of the last refresh (shown on the account header).
     private readonly Dictionary<Guid, string> _accountDiag = new();
+
+    // accountId -> consecutive refreshes the authoritative route returned 0 networks where it
+    // had some. Up to EmptyGrace of these keep last-known data (controllers occasionally reply
+    // 200 [] mid-session); after that a real emptying is accepted.
+    private readonly Dictionary<Guid, int> _emptyStreak = new();
+    private const int EmptyGrace = 3;
 
     /// <summary>A short human summary of the account's last refresh (networks read, or
     /// "kept last-known" with the failing status), for the account header tooltip.</summary>

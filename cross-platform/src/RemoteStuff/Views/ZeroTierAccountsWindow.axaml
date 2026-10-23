@@ -22,8 +22,8 @@
         <Border Grid.Row="1" Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppDividerBrush}" BorderThickness="1"
                 CornerRadius="6" Padding="12" Margin="0,12">
             <StackPanel Spacing="8">
-                <TextBlock Text="Add an account" FontWeight="SemiBold" Foreground="{DynamicResource AppTextBrush}" />
-                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto">
+                <TextBlock Text="{Binding AccountFormTitle}" FontWeight="SemiBold" Foreground="{DynamicResource AppTextBrush}" />
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Label" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppSecondaryTextBrush}" Margin="0,0,8,6" />
                     <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding NewLabel, Mode=TwoWay}"
@@ -34,13 +34,23 @@
                     <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding NewBaseUrl, Mode=TwoWay}"
                              Watermark="https://api.zerotier.com/api/v1" Margin="0,0,0,6" />
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="API token" VerticalAlignment="Center"
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Network source" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppSecondaryTextBrush}" Margin="0,0,8,6" />
+                    <ComboBox Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" Margin="0,0,0,6"
+                              ItemsSource="{Binding NetworkSourceOptions}"
+                              SelectedItem="{Binding NewNetworkSource, Mode=TwoWay}"
+                              ToolTip.Tip="Central = Personal. For a self-hosted controller whose networks live in an organization (e.g. ZTNET), choose Organization so it reads the right endpoint." />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="API token" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppSecondaryTextBrush}" Margin="0,0,8,0" />
-                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding NewToken, Mode=TwoWay}"
-                             Watermark="Personal API token" PasswordChar="•" />
+                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding NewToken, Mode=TwoWay}"
+                             Watermark="{Binding AccountTokenWatermark}" PasswordChar="•" />
                 </Grid>
-                <Button Content="Add account" HorizontalAlignment="Right"
-                        Command="{Binding AddAccountCommand}" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                    <Button Content="Cancel" IsVisible="{Binding IsEditingAccount}"
+                            Command="{Binding CancelEditAccountCommand}" />
+                    <Button Content="{Binding AccountFormButton}" Command="{Binding AddAccountCommand}" />
+                </StackPanel>
             </StackPanel>
         </Border>
 
@@ -61,11 +71,15 @@
                                         <StackPanel Grid.Column="0" Spacing="2">
                                             <TextBlock Text="{Binding DisplayLabel}" FontWeight="SemiBold" />
                                             <TextBlock Text="{Binding ServerDisplay}" Foreground="#999" FontSize="11" />
+                                            <TextBlock Text="{Binding NetworkSource, StringFormat='Source: {0}'}" Foreground="#777" FontSize="10" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                             <Button Content="Open in browser" ToolTip.Tip="Open this account's web dashboard in your browser"
                                                     IsVisible="{Binding WebUrl, Converter={x:Static conv:ObjectConverters.IsNotNull}}"
                                                     Command="{Binding $parent[ItemsControl].((vm:ZeroTierTabViewModel)DataContext).OpenAccountDashboardCommand}"
+                                                    CommandParameter="{Binding}" />
+                                            <Button Content="Edit"
+                                                    Command="{Binding $parent[ItemsControl].((vm:ZeroTierTabViewModel)DataContext).EditAccountCommand}"
                                                     CommandParameter="{Binding}" />
                                             <Button Content="Remove"
                                                     Command="{Binding $parent[ItemsControl].((vm:ZeroTierTabViewModel)DataContext).RemoveAccountCommand}"

@@ -312,6 +312,25 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
     [ObservableProperty] private string _newBaseUrl = ZeroTierAccount.CentralBaseUrl;
     [ObservableProperty] private string _newToken = "";
 
+    /// <summary>Network-source choices for the add/edit form.</summary>
+    public IReadOnlyList<ZtNetworkSource> NetworkSourceOptions { get; } = Enum.GetValues<ZtNetworkSource>();
+
+    /// <summary>Chosen network source for the account being added/edited.</summary>
+    [ObservableProperty] private ZtNetworkSource _newNetworkSource = ZtNetworkSource.Auto;
+
+    /// <summary>Id of the account currently being edited (null = the form adds a new one).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditingAccount))]
+    [NotifyPropertyChangedFor(nameof(AccountFormTitle))]
+    [NotifyPropertyChangedFor(nameof(AccountFormButton))]
+    [NotifyPropertyChangedFor(nameof(AccountTokenWatermark))]
+    private Guid? _editingAccountId;
+
+    public bool IsEditingAccount => EditingAccountId is not null;
+    public string AccountFormTitle => IsEditingAccount ? "Edit account" : "Add an account";
+    public string AccountFormButton => IsEditingAccount ? "Save changes" : "Add account";
+    public string AccountTokenWatermark => IsEditingAccount ? "Leave blank to keep current token" : "API token";
+
     /// <summary>Free-text filter over networks and devices (name, IP, or node ID).</summary>
     [ObservableProperty] private string _filterText = "";
 
@@ -806,18 +825,30 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
     [RelayCommand]
     private async Task AddAccount()
     {
+        var label = string.IsNullOrWhiteSpace(NewLabel) ? "ZeroTier" : NewLabel.Trim();
+        var baseUrl = NewBaseUrl;
+        var token = NewToken.Trim();
+
+        if (EditingAccountId is { } editId)
+        {
+            // Editing: a blank token keeps the existing one.
+            _service.UpdateAccount(editId, label, baseUrl, NewNetworkSource, string.IsNullOrEmpty(token) ? null : token);
+            CancelEditAccount();
+            ReloadAccounts();
+            await Refresh();
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(NewToken))
         {
             StatusText = "Enter an API token.";
             return;
         }
-        var label = string.IsNullOrWhiteSpace(NewLabel) ? "ZeroTier" : NewLabel.Trim();
-        var baseUrl = NewBaseUrl;
-        var token = NewToken.Trim();
-        _service.AddAccount(label, baseUrl, token);
+        _service.AddAccount(label, baseUrl, token, NewNetworkSource);
         NewLabel = "";
         NewToken = "";
         NewBaseUrl = ZeroTierAccount.CentralBaseUrl;
+        NewNetworkSource = ZtNetworkSource.Auto;
         ReloadAccounts();
         await Refresh();
 
@@ -827,6 +858,29 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         if (problem is not null)
             // Post after the queued Rebuild (fired by Refresh's Updated event) so it isn't clobbered.
             Dispatcher.UIThread.Post(() => StatusText = $"“{label}”: {problem}");
+    }
+
+    /// <summary>Load an existing account into the form for editing.</summary>
+    [RelayCommand]
+    private void EditAccount(ZeroTierAccount? account)
+    {
+        if (account is null) return;
+        NewLabel = account.Label;
+        NewBaseUrl = account.BaseUrl;
+        NewNetworkSource = account.NetworkSource;
+        NewToken = "";
+        EditingAccountId = account.Id;
+    }
+
+    /// <summary>Leave edit mode and reset the form back to "add".</summary>
+    [RelayCommand]
+    private void CancelEditAccount()
+    {
+        EditingAccountId = null;
+        NewLabel = "";
+        NewToken = "";
+        NewBaseUrl = ZeroTierAccount.CentralBaseUrl;
+        NewNetworkSource = ZtNetworkSource.Auto;
     }
 
     [RelayCommand]

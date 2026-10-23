@@ -6,6 +6,18 @@ using System.Text.Json.Serialization;
 
 namespace RemoteStuff.Models;
 
+/// <summary>Which API route an account's networks come from. Declaring this avoids the
+/// app probing the wrong route (whose empty-but-successful reply would blank the account).</summary>
+public enum ZtNetworkSource
+{
+    /// <summary>Try the personal route, then organizations (legacy auto-detect).</summary>
+    Auto,
+    /// <summary>Personal networks only — <c>/network</c>.</summary>
+    Personal,
+    /// <summary>Organization networks only — <c>/org/{id}/network</c>.</summary>
+    Organization,
+}
+
 /// <summary>One ZeroTier account (Central or a self-hosted ZTNET controller).</summary>
 public sealed class ZeroTierAccount
 {
@@ -14,6 +26,9 @@ public sealed class ZeroTierAccount
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Label { get; set; } = "";
     public string BaseUrl { get; set; } = CentralBaseUrl;
+
+    /// <summary>Which route the account's networks are read from. Default auto-detects.</summary>
+    public ZtNetworkSource NetworkSource { get; set; } = ZtNetworkSource.Auto;
 
     [JsonIgnore] public bool IsCentral => BaseUrl == CentralBaseUrl;
 
