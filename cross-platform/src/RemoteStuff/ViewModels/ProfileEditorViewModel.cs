@@ -224,6 +224,19 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
 
     public ObservableCollection<ForwardRowViewModel> Forwards { get; } = new();
     public ObservableCollection<SnippetRowViewModel> Snippets { get; } = new();
+
+    /// <summary>The shared, app-wide snippet library (the command palette's reusable
+    /// commands) that profile snippets can be copied from.</summary>
+    public ObservableCollection<CustomCommand> SnippetLibrary => CustomCommandStore.Shared.Commands;
+
+    /// <summary>True when the shared library has at least one entry to pick from.</summary>
+    public bool HasSnippetLibrary => SnippetLibrary.Count > 0;
+
+    /// <summary>The library entry chosen in the "add from library" picker.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddFromLibraryCommand))]
+    private CustomCommand? _selectedLibrarySnippet;
+
     public ObservableCollection<EnvVarRowViewModel> EnvVars { get; } = new();
     public ObservableCollection<LinkRowViewModel> Links { get; } = new();
     public ObservableCollection<SftpBookmarkRowViewModel> SftpBookmarks { get; } = new();
@@ -448,6 +461,35 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
 
     [RelayCommand]
     private void RemoveSnippet(SnippetRowViewModel row) => Snippets.Remove(row);
+
+    private bool CanAddFromLibrary() => SelectedLibrarySnippet is not null;
+
+    /// <summary>Copy the chosen library snippet into this profile's list. The copy is
+    /// independent — later edits to the library don't change the profile's snippet.</summary>
+    [RelayCommand(CanExecute = nameof(CanAddFromLibrary))]
+    private void AddFromLibrary()
+    {
+        if (SelectedLibrarySnippet is not { } lib) return;
+        AddSnippetRow(new SnippetRowViewModel(new CommandSnippet
+        {
+            Label = string.IsNullOrWhiteSpace(lib.Name) ? lib.Command : lib.Name,
+            Command = lib.Command
+        }));
+    }
+
+    /// <summary>Save a profile snippet into the shared library so other profiles can reuse it.</summary>
+    [RelayCommand]
+    private void SaveSnippetToLibrary(SnippetRowViewModel row)
+    {
+        if (row is null || string.IsNullOrWhiteSpace(row.Command)) return;
+        var command = row.Command.Trim();
+        var name = string.IsNullOrWhiteSpace(row.Label) ? command : row.Label.Trim();
+        if (SnippetLibrary.Any(c => string.Equals(c.Command, command, StringComparison.Ordinal)
+                                    && string.Equals(c.Name, name, StringComparison.Ordinal)))
+            return;
+        CustomCommandStore.Shared.Add(new CustomCommand { Name = name, Command = command });
+        OnPropertyChanged(nameof(HasSnippetLibrary));
+    }
 
     [RelayCommand]
     private void AddEnvVar() => EnvVars.Add(new EnvVarRowViewModel(new EnvVar()));

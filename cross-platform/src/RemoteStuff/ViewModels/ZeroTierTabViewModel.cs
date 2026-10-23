@@ -26,7 +26,7 @@ public sealed partial class ZtMemberRowViewModel : ObservableObject
 {
     private readonly ZeroTierService _service;
     private readonly ZeroTierTabViewModel _owner;
-    public ZeroTierMember Member { get; }
+    public ZeroTierMember Member { get; private set; }
 
     public ZtMemberRowViewModel(ZeroTierMember member, ZeroTierService service, ZeroTierTabViewModel owner)
     {
@@ -46,6 +46,19 @@ public sealed partial class ZtMemberRowViewModel : ObservableObject
     /// dot tracks the 5-minute last-seen window in lockstep with the sidebar.</summary>
     public void RaiseOnlineChanged()
     {
+        OnPropertyChanged(nameof(IsOnline));
+        OnPropertyChanged(nameof(StatusText));
+    }
+
+    /// <summary>Swap in a freshly-fetched model for the same node and refresh display,
+    /// so a periodic refresh reuses this row instead of recreating it (no flicker).</summary>
+    public void Update(ZeroTierMember member)
+    {
+        Member = member;
+        Authorized = member.Authorized;
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Ip));
+        OnPropertyChanged(nameof(NodeId));
         OnPropertyChanged(nameof(IsOnline));
         OnPropertyChanged(nameof(StatusText));
     }
@@ -170,16 +183,30 @@ public sealed partial class ZtMemberRowViewModel : ObservableObject
 /// <summary>One network section with its member rows.</summary>
 public sealed partial class ZtNetworkRowViewModel : ObservableObject
 {
-    public ZeroTierNetwork Network { get; }
+    public ZeroTierNetwork Network { get; private set; }
     public ObservableCollection<ZtMemberRowViewModel> Members { get; } = new();
 
     /// <summary>This device's live join status for the network (e.g. "OK"), or null.</summary>
-    public string? LocalStatus { get; }
+    public string? LocalStatus { get; private set; }
 
     public ZtNetworkRowViewModel(ZeroTierNetwork network, string? localStatus)
     {
         Network = network;
         LocalStatus = localStatus;
+    }
+
+    /// <summary>Swap in freshly-fetched network data (same id) and refresh display; the
+    /// Members collection is reconciled by the owner so rows are reused, not recreated.</summary>
+    public void Update(ZeroTierNetwork network, string? localStatus)
+    {
+        Network = network;
+        LocalStatus = localStatus;
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(DeviceCountText));
+        OnPropertyChanged(nameof(IsLocallyJoined));
+        OnPropertyChanged(nameof(IsLocallyConnected));
+        OnPropertyChanged(nameof(LocalStatusText));
+        OnPropertyChanged(nameof(LocalStatusBrush));
     }
 
     public string Name => Network.DisplayName;
@@ -234,10 +261,19 @@ public sealed partial class ZtNetworkRowViewModel : ObservableObject
 /// <summary>A ZeroTier account with the networks that belong to it.</summary>
 public sealed partial class ZtAccountGroupViewModel : ObservableObject
 {
-    public ZeroTierAccount Account { get; }
+    public ZeroTierAccount Account { get; private set; }
     public ObservableCollection<ZtNetworkRowViewModel> Networks { get; } = new();
 
     public ZtAccountGroupViewModel(ZeroTierAccount account) => Account = account;
+
+    /// <summary>Swap in a freshly-fetched account (same id) and refresh display.</summary>
+    public void Update(ZeroTierAccount account)
+    {
+        Account = account;
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Server));
+        OnPropertyChanged(nameof(Subtitle));
+    }
 
     public string Name => Account.DisplayLabel;
     public string Server => Account.ServerDisplay;
@@ -352,18 +388,18 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
     private void ToggleSortDirection() => SortAscending = !SortAscending;
 
     /// <summary>Order the devices of one network by the current sort choice.</summary>
-    private void SortMembers(List<ZtMemberRowViewModel> members)
+    private void SortMemberModels(List<ZeroTierMember> members)
     {
-        Comparison<ZtMemberRowViewModel> cmp = (a, b) =>
+        Comparison<ZeroTierMember> cmp = (a, b) =>
         {
             int key = SortMode switch
             {
-                ZtSort.Ip => CompareIp(a.Ip, b.Ip),
+                ZtSort.Ip => CompareIp(a.PrimaryIp, b.PrimaryIp),
                 ZtSort.Status => b.IsOnline.CompareTo(a.IsOnline), // online first
-                _ => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
+                _ => string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase)
             };
             if (SortMode == ZtSort.Name || key == 0)
-                key = string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+                key = string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
             return SortAscending ? key : -key;
         };
         members.Sort(cmp);
@@ -482,6 +518,11 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
     private readonly HashSet<Guid> _collapsedAccounts = new();
     private readonly HashSet<string> _collapsedNetworks = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>True while a rebuild is re-applying expand state to reused rows, so the
+    /// tracking handlers below don't mistake it for a user toggle and clobber the saved
+    /// collapse sets (e.g. a filter force-opening a row the user had collapsed).</summary>
+    private bool _applyingExpansion;
+
     /// <summary>Keep <see cref="_collapsedAccounts"/> in sync with a group's live
     /// expand state. Subscribed after the initial value is set so a filter-forced
     /// expansion never erases the user's saved collapse preference.</summary>
@@ -489,6 +530,7 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
     {
         group.PropertyChanged += (_, e) =>
         {
+            if (_applyingExpansion) return;
             if (e.PropertyName != nameof(ZtAccountGroupViewModel.IsExpanded)) return;
             if (group.IsExpanded) _collapsedAccounts.Remove(group.Account.Id);
             else _collapsedAccounts.Add(group.Account.Id);
@@ -501,6 +543,7 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
     {
         row.PropertyChanged += (_, e) =>
         {
+            if (_applyingExpansion) return;
             if (e.PropertyName != nameof(ZtNetworkRowViewModel.IsExpanded)) return;
             if (row.IsExpanded) _collapsedNetworks.Remove(row.Network.Id);
             else _collapsedNetworks.Add(row.Network.Id);
@@ -516,26 +559,28 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         bool memberOfOnly = ShowMemberOfOnly && _service.LocalDaemonAvailable;
         bool anyFilter = filtering || onlineOnly || memberOfOnly;
 
-        // Restore each account/network's expand state from the persistent collapse sets
-        // (updated whenever the user toggles a row) so a periodic refresh — which rebuilds
-        // every row from scratch — doesn't spring collapsed items back open.
-        AccountGroups.Clear();
+        // Build the desired tree as plain model data (filter + sort applied). It's then
+        // reconciled into the live row collections so rows that didn't change keep their
+        // UI containers — a periodic refresh no longer clears and rebuilds the whole tree
+        // (which made every network/device briefly vanish and reappear).
+        var desired = new List<(ZeroTierAccount Account,
+            List<(ZeroTierNetwork Net, string? Local, List<ZeroTierMember> Members)> Nets)>();
         int networkCount = 0;
         foreach (var account in _service.Accounts)
         {
-            var group = new ZtAccountGroupViewModel(account);
+            var nets = new List<(ZeroTierNetwork, string?, List<ZeroTierMember>)>();
             foreach (var n in _service.Networks)
             {
                 if (n.AccountId != account.Id) continue;
 
                 bool networkMatches = !filtering || Contains(n.DisplayName, filter) || Contains(n.Id, filter);
-                var row = new ZtNetworkRowViewModel(n, _service.LocalStatusFor(n.Id));
+                var local = _service.LocalStatusFor(n.Id);
 
                 // Member-of filter: only keep networks this device has joined.
-                if (memberOfOnly && !row.IsLocallyJoined)
+                if (memberOfOnly && string.IsNullOrEmpty(local))
                     continue;
 
-                var memberRows = new List<ZtMemberRowViewModel>();
+                var members = new List<ZeroTierMember>();
                 foreach (var m in _service.MembersOf(n))
                 {
                     if (onlineOnly && !m.IsOnline)
@@ -544,38 +589,52 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
                         !Contains(m.DisplayName, filter) && !Contains(m.PrimaryIp, filter) &&
                         !Contains(m.NodeId, filter))
                         continue;
-                    memberRows.Add(new ZtMemberRowViewModel(m, _service, this));
+                    members.Add(m);
                 }
-                SortMembers(memberRows);
-                foreach (var mr in memberRows) row.Members.Add(mr);
+                SortMemberModels(members);
 
                 // With any filter active, keep a network only if it still has visible
                 // devices, its own name/id matched, or it qualifies for the member-of
                 // filter (this device has joined it).
                 bool keep = !anyFilter
-                    || row.Members.Count > 0
+                    || members.Count > 0
                     || (networkMatches && !onlineOnly)
                     || (memberOfOnly && !onlineOnly && !filtering);
                 if (!keep) continue;
 
-                // A text search forces networks open (so matches are visible);
-                // otherwise — including under the persistent online-only / member-of
-                // toggles — honour the user's last expand/collapse choice.
-                row.IsExpanded = filtering || !_collapsedNetworks.Contains(n.Id);
-                TrackNetworkExpansion(row);
-                group.Networks.Add(row);
+                nets.Add((n, local, members));
                 networkCount++;
             }
 
             // With any filter active, hide accounts that have no visible networks.
-            if (anyFilter && group.Networks.Count == 0)
+            if (anyFilter && nets.Count == 0)
                 continue;
-            // Only a text search forces accounts open; the persistent online-only /
-            // member-of toggles preserve the user's collapse choice across refreshes.
-            group.IsExpanded = filtering || !_collapsedAccounts.Contains(account.Id);
-            TrackAccountExpansion(group);
-            AccountGroups.Add(group);
+            desired.Add((account, nets));
         }
+
+        // Reconcile in place. Guard expand assignments so filter-forced opens don't erase
+        // the user's saved collapse choices via the tracking handlers.
+        _applyingExpansion = true;
+        try
+        {
+            Reconcile(AccountGroups, desired,
+                (g, d) => g.Account.Id == d.Account.Id,
+                (g, d) =>
+                {
+                    ReconcileNetworks(g.Networks, d.Nets, filtering);
+                    g.Update(d.Account);
+                    g.IsExpanded = filtering || !_collapsedAccounts.Contains(d.Account.Id);
+                },
+                d =>
+                {
+                    var g = new ZtAccountGroupViewModel(d.Account);
+                    ReconcileNetworks(g.Networks, d.Nets, filtering);
+                    g.IsExpanded = filtering || !_collapsedAccounts.Contains(d.Account.Id);
+                    TrackAccountExpansion(g);
+                    return g;
+                });
+        }
+        finally { _applyingExpansion = false; }
 
         if (!_service.HasAccounts)
             StatusText = "Add a ZeroTier account to begin.";
@@ -588,6 +647,76 @@ public sealed partial class ZeroTierTabViewModel : TabViewModel
         else
             StatusText = $"{AccountGroups.Count} accounts · {networkCount} networks";
         OnPropertyChanged(nameof(HasNetworks));
+    }
+
+    private void ReconcileNetworks(
+        ObservableCollection<ZtNetworkRowViewModel> target,
+        List<(ZeroTierNetwork Net, string? Local, List<ZeroTierMember> Members)> desired,
+        bool filtering)
+    {
+        Reconcile(target, desired,
+            (row, d) => string.Equals(row.Network.Id, d.Net.Id, StringComparison.OrdinalIgnoreCase),
+            (row, d) =>
+            {
+                ReconcileMembers(row.Members, d.Members);
+                row.Update(d.Net, d.Local);
+                row.IsExpanded = filtering || !_collapsedNetworks.Contains(d.Net.Id);
+            },
+            d =>
+            {
+                var row = new ZtNetworkRowViewModel(d.Net, d.Local);
+                foreach (var m in d.Members)
+                    row.Members.Add(new ZtMemberRowViewModel(m, _service, this));
+                row.IsExpanded = filtering || !_collapsedNetworks.Contains(d.Net.Id);
+                TrackNetworkExpansion(row);
+                return row;
+            });
+    }
+
+    private void ReconcileMembers(
+        ObservableCollection<ZtMemberRowViewModel> target,
+        List<ZeroTierMember> desired)
+    {
+        Reconcile(target, desired,
+            (row, m) => string.Equals(row.NodeId, m.NodeId, StringComparison.OrdinalIgnoreCase),
+            (row, m) => row.Update(m),
+            m => new ZtMemberRowViewModel(m, _service, this));
+    }
+
+    /// <summary>Update an observable collection to match a desired ordered list in place,
+    /// reusing rows matched by key (so their UI containers survive) and only
+    /// inserting/removing/moving what actually changed.</summary>
+    private static void Reconcile<TRow, TModel>(
+        ObservableCollection<TRow> target,
+        IReadOnlyList<TModel> desired,
+        Func<TRow, TModel, bool> matches,
+        Action<TRow, TModel> update,
+        Func<TModel, TRow> create)
+    {
+        for (int i = target.Count - 1; i >= 0; i--)
+        {
+            bool wanted = false;
+            foreach (var d in desired)
+                if (matches(target[i], d)) { wanted = true; break; }
+            if (!wanted) target.RemoveAt(i);
+        }
+
+        for (int i = 0; i < desired.Count; i++)
+        {
+            var d = desired[i];
+            int found = -1;
+            for (int j = i; j < target.Count; j++)
+                if (matches(target[j], d)) { found = j; break; }
+            if (found >= 0)
+            {
+                if (found != i) target.Move(found, i);
+                update(target[i], d);
+            }
+            else
+            {
+                target.Insert(i, create(d));
+            }
+        }
     }
 
     private static bool Contains(string? text, string filter) =>

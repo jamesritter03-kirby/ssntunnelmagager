@@ -4,6 +4,36 @@ How the in-app updater works and how to ship a new version. Read this first — 
 most common mistake is packing a build at a version that's **already published**, which
 makes the app report "no update available."
 
+## Two-machine workflow — DO THESE IN ORDER (prevents the recurring regressions)
+
+This project is developed on two computers (a Windows box and a Mac). Two regressions
+keep happening when the order below is not followed:
+
+- **Version drift** — a publish bumped `<Version>` and uploaded to the feed, but the bump
+  was never committed/pushed. The other machine then starts from a stale version number.
+- **Shipped binary missing commits** — binaries were packed *before* pulling the other
+  machine's commits, so a published build silently lacked already-merged fixes (e.g. the
+  ZeroTier auto-refresh timer "disappearing again").
+
+The fix is strict ordering. On **either** machine, every release:
+
+1. **Pull first:** `git pull --rebase`. Resolve conflicts; in a `<Version>` conflict keep
+   the **higher** number. Never build before this step.
+2. **Check the live feed max** (snippet in "The #1 gotcha" below). The live feed is the
+   source of truth for "what version is next."
+3. **Bump `<Version>`** in `src/RemoteStuff/RemoteStuff.csproj` to **strictly above** the
+   live feed max (across all channels — they share one csproj version).
+4. **Commit + push the bump and all code FIRST**, before building:
+   `git add -A && git commit -m "...<V>..." && git push`. Git ahead of the feed is safe;
+   the feed ahead of git is the drift that breaks the other machine.
+5. **Only now build → pack → upload** (per the per-platform steps below). Because you
+   pushed first, the binaries always match what's in git.
+6. **Verify** the live feed max == `<V>` on every channel you shipped.
+
+When you switch machines: just `git pull` before doing anything. Signing/notarization
+credentials and the `releases/` staging folder stay machine-local (the mandatory
+`vpk download` re-syncs `releases/` each publish).
+
 ## How updates work
 
 - The app (`RemoteStuff`) auto-updates via **Velopack**, reading its feed from a GitHub

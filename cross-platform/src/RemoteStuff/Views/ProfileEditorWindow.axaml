@@ -331,14 +331,33 @@
                             <TextBlock Text="Command snippets" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" VerticalAlignment="Center" />
                             <Button Grid.Column="1" Content="+ Add" Command="{Binding AddSnippetCommand}" />
                         </Grid>
+                        <!-- Pick from the shared library (the command palette's reusable commands). -->
+                        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasSnippetLibrary}">
+                            <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="0,0,4,0"
+                                      PlaceholderText="Choose from library…"
+                                      ItemsSource="{Binding SnippetLibrary}"
+                                      SelectedItem="{Binding SelectedLibrarySnippet, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="m:CustomCommand">
+                                        <TextBlock Text="{Binding DisplayName}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button Grid.Column="1" Content="Add from library" Command="{Binding AddFromLibraryCommand}"
+                                    ToolTip.Tip="Copy the chosen library snippet into this profile" />
+                        </Grid>
                         <ItemsControl ItemsSource="{Binding Snippets}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:SnippetRowViewModel">
-                                    <Grid ColumnDefinitions="160,*,Auto" Margin="0,4">
+                                    <Grid ColumnDefinitions="160,*,Auto,Auto" Margin="0,4">
                                         <TextBox Grid.Column="0" Text="{Binding Label}" Watermark="label" Margin="0,0,4,0" />
                                         <TextBox Grid.Column="1" Text="{Binding Command}" Watermark="command text"
                                                  FontFamily="Menlo, Consolas, monospace" Margin="0,0,4,0" />
-                                        <Button Grid.Column="2" Content="Remove"
+                                        <Button Grid.Column="2" Content="Save to library" Margin="0,0,4,0"
+                                                Command="{Binding $parent[ItemsControl].((vm:ProfileEditorViewModel)DataContext).SaveSnippetToLibraryCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="Add this snippet to the shared library so other profiles can reuse it" />
+                                        <Button Grid.Column="3" Content="Remove"
                                                 Command="{Binding $parent[ItemsControl].((vm:ProfileEditorViewModel)DataContext).RemoveSnippetCommand}"
                                                 CommandParameter="{Binding}" />
                                     </Grid>
