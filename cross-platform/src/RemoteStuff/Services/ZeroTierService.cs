@@ -120,6 +120,23 @@ public sealed class ZeroTierService
 
     public async Task RefreshAsync()
     {
+        // Serialize refreshes: the ZeroTier tab and the sidebar panel each run their own
+        // timer against this shared service, and concurrent calls can race the _networks swap
+        // (and hammer a slow controller into failing), blanking an account. Skip duplicates —
+        // the single in-flight refresh updates both via the Updated event.
+        if (_isRefreshing) return;
+        _isRefreshing = true;
+        try
+        {
+            await RefreshCoreAsync();
+        }
+        finally { _isRefreshing = false; }
+    }
+
+    private bool _isRefreshing;
+
+    private async Task RefreshCoreAsync()
+    {
         var networks = new List<ZeroTierNetwork>();
         var members = new List<ZeroTierMember>();
 
@@ -131,14 +148,13 @@ public sealed class ZeroTierService
             // Where this account's rows start, so a mid-way failure can be rolled back.
             int netStart = networks.Count;
             int memStart = members.Count;
-            // The account's last-known rows, carried over only if a failure leaves us with
-            // FEWER networks than before — so a glitch on a route this account doesn't use
-            // (e.g. a self-hosted account's /network 5xx while /org loads fine) never wipes
-            // freshly-loaded data, while a real loss keeps the networks on screen.
+            // The account's last-known rows, carried over when this cycle failed to read its
+            // network list — so any failure (4xx/5xx/timeout/garbled body) keeps the networks
+            // on screen instead of blanking them, while a successful (even smaller) read wins.
             var prevNets = _networks.Where(n => n.AccountId == account.Id).ToList();
             var prevMems = _members.Where(m => m.AccountId == account.Id).ToList();
-            bool transientFail = false;
-            void MarkFail() => transientFail = true;
+            // True once we successfully read a network list (/network or /org/{id}/network).
+            bool gotNetworkListing = false;
             void CarryOverIfLost()
             {
                 if (prevNets.Count <= networks.Count - netStart) return;
@@ -153,25 +169,29 @@ public sealed class ZeroTierService
                 var accountNetworks = new List<ZeroTierNetwork>();
 
                 // Personal / Central route first.
-                var personal = await GetArrayAsync(account.BaseUrl, token, "/network", MarkFail);
+                var personal = await GetArrayAsync(account.BaseUrl, token, "/network");
                 if (personal is not null)
+                {
+                    gotNetworkListing = true;
                     foreach (var e in personal.Value.EnumerateArray())
                     {
                         var n = ZeroTierNetwork.FromJson(e);
                         n.AccountId = account.Id;
                         accountNetworks.Add(n);
                     }
+                }
 
                 // Self-hosted org-scoped tokens: enumerate orgs then their networks.
-                var orgs = await GetArrayAsync(account.BaseUrl, token, "/org", MarkFail);
+                var orgs = await GetArrayAsync(account.BaseUrl, token, "/org");
                 if (orgs is not null)
                 {
                     foreach (var orgEl in orgs.Value.EnumerateArray())
                     {
                         var orgId = orgEl.GetStringOr("id");
                         if (string.IsNullOrEmpty(orgId)) continue;
-                        var orgNetworks = await GetArrayAsync(account.BaseUrl, token, $"/org/{orgId}/network", MarkFail);
+                        var orgNetworks = await GetArrayAsync(account.BaseUrl, token, $"/org/{orgId}/network");
                         if (orgNetworks is null) continue;
+                        gotNetworkListing = true;
                         foreach (var e in orgNetworks.Value.EnumerateArray())
                         {
                             var n = ZeroTierNetwork.FromJson(e);
@@ -201,9 +221,8 @@ public sealed class ZeroTierService
                     }
                 }
 
-                // A transient listing failure (controller 5xx'd / timed out) can leave this
-                // cycle short of networks; only then fall back to the account's last-known rows.
-                if (transientFail) CarryOverIfLost();
+                // If we never managed to read a network list this cycle, keep last-known rows.
+                if (!gotNetworkListing) CarryOverIfLost();
             }
             catch
             {
@@ -505,31 +524,19 @@ public sealed class ZeroTierService
         return authFail!;
     }
 
-    private static async Task<JsonElement?> GetArrayAsync(string baseUrl, string token, string path, Action? onTransientFail = null)
+    private static async Task<JsonElement?> GetArrayAsync(string baseUrl, string token, string path)
     {
-        HttpResponseMessage resp;
-        try { resp = await SendAsync(baseUrl, token, HttpMethod.Get, path, null); }
-        catch { onTransientFail?.Invoke(); return null; }  // timeout / network error
-        using (resp)
+        using var resp = await SendAsync(baseUrl, token, HttpMethod.Get, path, null);
+        if (!resp.IsSuccessStatusCode) return null;
+        var json = await resp.Content.ReadAsStringAsync();
+        try
         {
-            if (!resp.IsSuccessStatusCode)
-            {
-                // 5xx / 408 / 429 are worth keeping last-known data for; a definitive 4xx
-                // (e.g. a Central account's 404 on /org) means "no data here", not a glitch.
-                int code = (int)resp.StatusCode;
-                if (code is 408 or 429 || code >= 500) onTransientFail?.Invoke();
-                return null;
-            }
-            var json = await resp.Content.ReadAsStringAsync();
-            try
-            {
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
-                // Clone so the element outlives the disposed document.
-                return doc.RootElement.Clone();
-            }
-            catch { return null; }
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
+            // Clone so the element outlives the disposed document.
+            return doc.RootElement.Clone();
         }
+        catch { return null; }
     }
 
     /// <summary>Read a single member and return its authorized flag, or null if the
