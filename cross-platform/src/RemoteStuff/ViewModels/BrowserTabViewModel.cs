@@ -637,6 +637,21 @@ public sealed partial class BrowserTabViewModel : TabViewModel
         // A bare token with a dot (or localhost) is treated as a host; else search.
         if (t.Contains(' ') || (!t.Contains('.') && !t.StartsWith("localhost")))
             return "https://duckduckgo.com/?q=" + Uri.EscapeDataString(t);
-        return "https://" + t;
+        // Local addresses (localhost / IP literals) rarely serve HTTPS — default
+        // them to http; use https only for named internet hosts.
+        return (IsLocalHost(t) ? "http://" : "https://") + t;
+    }
+
+    /// <summary>True when the host (optionally with a <c>:port</c>/path) is <c>localhost</c>
+    /// or a bare IPv4 address — these default to plain http rather than https.</summary>
+    private static bool IsLocalHost(string text)
+    {
+        var host = text.Split('/', 2)[0].Split(':', 2)[0];
+        if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase)) return true;
+        var parts = host.Split('.');
+        if (parts.Length != 4) return false;
+        foreach (var p in parts)
+            if (!byte.TryParse(p, out _)) return false;
+        return true;
     }
 }

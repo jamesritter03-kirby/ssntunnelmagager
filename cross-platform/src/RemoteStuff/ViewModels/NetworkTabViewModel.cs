@@ -7,6 +7,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -59,6 +61,8 @@ public sealed partial class NetworkTabViewModel : TabViewModel
 
         [NotifyPropertyChangedFor(nameof(Display))]
         [ObservableProperty] private string _hostName = "";
+
+        [ObservableProperty] private string _mac = "";
 
         public string Display => string.IsNullOrEmpty(HostName) ? Ip : $"{Ip}  ({HostName})";
     }
@@ -793,6 +797,7 @@ public sealed partial class NetworkTabViewModel : TabViewModel
                         var hit = new ScanHit { Ip = ip, LatencyMs = reply.RoundtripTime };
                         await Dispatcher.UIThread.InvokeAsync(() => InsertSorted(hit));
                         _ = ResolveHostAsync(hit);
+                        _ = ResolveMacAsync(hit);
                     }
                 }
                 catch { /* host unreachable */ }
@@ -845,6 +850,40 @@ public sealed partial class NetworkTabViewModel : TabViewModel
                 await Dispatcher.UIThread.InvokeAsync(() => hit.HostName = entry.HostName);
         }
         catch { /* no reverse DNS */ }
+    }
+
+    /// <summary>Look the host's hardware (MAC) address up in the OS ARP cache, which the
+    /// successful ping just populated. Uses <c>arp</c> on every platform and normalizes the
+    /// result to colon-separated upper-case.</summary>
+    private static async Task ResolveMacAsync(ScanHit hit)
+    {
+        try
+        {
+            var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+            var output = isWindows
+                ? await RunAsync("arp", $"-a {hit.Ip}")
+                : await RunAsync("arp", $"-n {hit.Ip}");
+
+            var mac = ExtractMac(output, hit.Ip);
+            if (!string.IsNullOrEmpty(mac))
+                await Dispatcher.UIThread.InvokeAsync(() => hit.Mac = mac);
+        }
+        catch { /* arp unavailable or no entry */ }
+    }
+
+    /// <summary>Pull a MAC address out of <c>arp</c> output for the given IP. Accepts both
+    /// Windows (<c>aa-bb-…</c>) and Unix (<c>aa:bb:…</c>) separators; skips incomplete
+    /// entries. Returns an empty string when none is found.</summary>
+    private static string ExtractMac(string output, string ip)
+    {
+        foreach (var raw in output.Replace("\r", "").Split('\n'))
+        {
+            if (!raw.Contains(ip)) continue;
+            var m = Regex.Match(raw, @"([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}");
+            if (m.Success)
+                return m.Value.Replace('-', ':').ToUpperInvariant();
+        }
+        return "";
     }
 
     private static int LastOctet(string ip)
