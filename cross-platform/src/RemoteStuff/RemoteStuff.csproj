@@ -10,7 +10,7 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyName>RemoteStuff</AssemblyName>
     <RootNamespace>RemoteStuff</RootNamespace>
-    <Version>1.9.142</Version>
+    <Version>1.9.143</Version>
     <Product>Remote Stuff CP</Product>
     <RuntimeIdentifiers>osx-arm64;osx-x64;linux-x64;linux-arm64;win-x64;win-arm64</RuntimeIdentifiers>
   </PropertyGroup>
@@ -32,6 +32,9 @@
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <!-- Key Vault auth: Azure Key Vault (escrowed OS/app-stack passwords + SSH user-CA). -->
+    <PackageReference Include="Azure.Identity" Version="1.13.1" />
+    <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.7.0" />
     <PackageReference Include="AvaloniaEdit.TextMate" Version="11.2.0" />
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.2.0" />
     <PackageReference Include="MQTTnet" Version="4.3.7.1207" />

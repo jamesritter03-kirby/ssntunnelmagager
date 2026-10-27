@@ -62,6 +62,38 @@
                        Foreground="{DynamicResource AppSecondaryTextBrush}" />
         </StackPanel>
 
+        <StackPanel Spacing="6">
+            <TextBlock Text="Key Vault" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            <TextBlock Text="Azure Key Vault holding escrowed device credentials and the SSH user-CA. Set per environment (dev vs prod use different vaults/subscriptions)."
+                       FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            <TextBlock Text="Vault URI" FontSize="11" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            <TextBox Text="{Binding KeyVaultUri}" Watermark="https://my-vault.vault.azure.net/" />
+            <TextBlock Text="Subscription (id or name)" FontSize="11" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            <TextBox Text="{Binding KeyVaultSubscriptionId}" />
+            <Grid ColumnDefinitions="*,*">
+                <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
+                    <TextBlock Text="Cert validity (-V)" FontSize="11" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                    <TextBox Text="{Binding KeyVaultCertValidity}" Watermark="+1d" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="4">
+                    <TextBlock Text="Cert principals" FontSize="11" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                    <TextBox Text="{Binding KeyVaultCertPrincipals}" Watermark="snsadmin" />
+                </StackPanel>
+            </Grid>
+            <TextBlock Text="CA private-key secret name" FontSize="11" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+            <TextBox Text="{Binding KeyVaultCaPrivateSecretName}" Watermark="ssh-user-ca-private" />
+            <Grid ColumnDefinitions="*,*">
+                <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
+                    <TextBlock Text="OS password secret prefix" FontSize="11" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                    <TextBox Text="{Binding KeyVaultOsSecretPrefix}" Watermark="os-snsadmin-" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="4">
+                    <TextBlock Text="App-stack secret prefix" FontSize="11" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                    <TextBox Text="{Binding KeyVaultAppStackSecretPrefix}" Watermark="app-stack-" />
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+
         <Border Height="1" Background="{DynamicResource AppSecondaryTextBrush}" Opacity="0.15" Margin="0,4" />
         <TextBlock Text="{Binding AppVersion}" FontSize="11"
                    Foreground="{DynamicResource AppSecondaryTextBrush}" />

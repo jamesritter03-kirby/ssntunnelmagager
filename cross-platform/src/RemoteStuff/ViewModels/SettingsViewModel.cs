@@ -21,6 +21,15 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private TerminalTheme _defaultTerminalTheme;
     [ObservableProperty] private string _appTheme = "Dark";
 
+    // --- Key Vault (escrowed credentials + SSH user-CA) ---
+    [ObservableProperty] private string _keyVaultUri = "";
+    [ObservableProperty] private string _keyVaultSubscriptionId = "";
+    [ObservableProperty] private string _keyVaultCaPrivateSecretName = "";
+    [ObservableProperty] private string _keyVaultCertValidity = "";
+    [ObservableProperty] private string _keyVaultCertPrincipals = "";
+    [ObservableProperty] private string _keyVaultOsSecretPrefix = "";
+    [ObservableProperty] private string _keyVaultAppStackSecretPrefix = "";
+
     /// <summary>Theme choices shown in the picker.</summary>
     public System.Collections.Generic.IReadOnlyList<string> Themes { get; } = new[] { "Dark", "Light" };
 
@@ -53,6 +62,13 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _defaultTerminalFontSize = settings.DefaultTerminalFontSize;
         _defaultTerminalTheme = TerminalTheme.ById(settings.DefaultTerminalTheme);
         _appTheme = settings.AppTheme;
+        _keyVaultUri = settings.KeyVaultUri;
+        _keyVaultSubscriptionId = settings.KeyVaultSubscriptionId;
+        _keyVaultCaPrivateSecretName = settings.KeyVaultCaPrivateSecretName;
+        _keyVaultCertValidity = settings.KeyVaultCertValidity;
+        _keyVaultCertPrincipals = settings.KeyVaultCertPrincipals;
+        _keyVaultOsSecretPrefix = settings.KeyVaultOsSecretPrefix;
+        _keyVaultAppStackSecretPrefix = settings.KeyVaultAppStackSecretPrefix;
     }
 
     /// <summary>Preview the theme immediately as the user changes the picker.</summary>
@@ -73,6 +89,13 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _settings.DefaultTerminalFontSize = DefaultTerminalFontSize;
         _settings.DefaultTerminalTheme = DefaultTerminalTheme?.Id ?? "";
         _settings.AppTheme = AppTheme;
+        _settings.KeyVaultUri = KeyVaultUri?.Trim() ?? "";
+        _settings.KeyVaultSubscriptionId = KeyVaultSubscriptionId?.Trim() ?? "";
+        _settings.KeyVaultCaPrivateSecretName = KeyVaultCaPrivateSecretName?.Trim() ?? "";
+        _settings.KeyVaultCertValidity = KeyVaultCertValidity?.Trim() ?? "";
+        _settings.KeyVaultCertPrincipals = KeyVaultCertPrincipals?.Trim() ?? "";
+        _settings.KeyVaultOsSecretPrefix = KeyVaultOsSecretPrefix?.Trim() ?? "";
+        _settings.KeyVaultAppStackSecretPrefix = KeyVaultAppStackSecretPrefix?.Trim() ?? "";
         _settings.Save();
     }
 }

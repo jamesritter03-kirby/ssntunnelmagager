@@ -39,6 +39,13 @@ final class AppSettings: ObservableObject {
     private let resumeLastSessionKey = "resumeLastSession"
     private let terminalRightClickKey = "terminalRightClickBehavior"
     private let deselectAfterCopyKey = "deselectTerminalAfterCopy"
+    private let keyVaultUriKey = "keyVaultUri"
+    private let keyVaultSubscriptionKey = "keyVaultSubscriptionId"
+    private let keyVaultCaPrivateSecretKey = "keyVaultCaPrivateSecretName"
+    private let keyVaultCertValidityKey = "keyVaultCertValidity"
+    private let keyVaultCertPrincipalsKey = "keyVaultCertPrincipals"
+    private let keyVaultOsSecretPrefixKey = "keyVaultOsSecretPrefix"
+    private let keyVaultAppStackSecretPrefixKey = "keyVaultAppStackSecretPrefix"
 
     /// Avoids re-entrancy when we correct `launchAtLogin` back to the system value.
     private var isSyncing = false
@@ -91,6 +98,28 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    // --- Key Vault (escrowed credentials + SSH user-CA) ---
+    // Per-environment config: dev vs prod use different vaults/subscriptions, so
+    // these are editable and never hardcoded elsewhere.
+
+    /// Azure Key Vault base URI holding the escrowed credentials / CA.
+    @Published var keyVaultUri: String { didSet { defaults.set(keyVaultUri, forKey: keyVaultUriKey) } }
+    /// Azure subscription id (or name) the vault lives in.
+    @Published var keyVaultSubscriptionId: String { didSet { defaults.set(keyVaultSubscriptionId, forKey: keyVaultSubscriptionKey) } }
+    /// Key Vault secret name of the SSH user-CA private key used to sign certs.
+    @Published var keyVaultCaPrivateSecretName: String { didSet { defaults.set(keyVaultCaPrivateSecretName, forKey: keyVaultCaPrivateSecretKey) } }
+    /// Validity window passed to `ssh-keygen -V` when signing a cert.
+    @Published var keyVaultCertValidity: String { didSet { defaults.set(keyVaultCertValidity, forKey: keyVaultCertValidityKey) } }
+    /// Comma-separated principals embedded in signed certs.
+    @Published var keyVaultCertPrincipals: String { didSet { defaults.set(keyVaultCertPrincipals, forKey: keyVaultCertPrincipalsKey) } }
+    /// Secret-name prefix for the per-device break-glass OS password.
+    @Published var keyVaultOsSecretPrefix: String { didSet { defaults.set(keyVaultOsSecretPrefix, forKey: keyVaultOsSecretPrefixKey) } }
+    /// Secret-name prefix for the per-device app-stack password.
+    @Published var keyVaultAppStackSecretPrefix: String { didSet { defaults.set(keyVaultAppStackSecretPrefix, forKey: keyVaultAppStackSecretPrefixKey) } }
+
+    /// True when a vault URI is configured, so the editor shows the auth tools.
+    var keyVaultConfigured: Bool { !keyVaultUri.trimmingCharacters(in: .whitespaces).isEmpty }
+
     private init() {
         startInMenuBarOnly = defaults.bool(forKey: menuBarOnlyKey)
         resumeLastSession = defaults.object(forKey: resumeLastSessionKey) as? Bool ?? true
@@ -102,6 +131,13 @@ final class AppSettings: ObservableObject {
         defaultEditorThemeID = defaults.string(forKey: defaultEditorThemeKey) ?? EditorTheme.defaultID
         let storedFont = defaults.object(forKey: defaultFontSizeKey) as? Double ?? TerminalFontMetrics.default
         defaultFontSize = TerminalFontMetrics.clamp(storedFont)
+        keyVaultUri = defaults.string(forKey: keyVaultUriKey) ?? "https://s2l-dev-escrow-kv.vault.azure.net/"
+        keyVaultSubscriptionId = defaults.string(forKey: keyVaultSubscriptionKey) ?? "kc-kds-s2labs-dev-001"
+        keyVaultCaPrivateSecretName = defaults.string(forKey: keyVaultCaPrivateSecretKey) ?? "ssh-user-ca-private"
+        keyVaultCertValidity = defaults.string(forKey: keyVaultCertValidityKey) ?? "+1d"
+        keyVaultCertPrincipals = defaults.string(forKey: keyVaultCertPrincipalsKey) ?? "snsadmin"
+        keyVaultOsSecretPrefix = defaults.string(forKey: keyVaultOsSecretPrefixKey) ?? "os-snsadmin-"
+        keyVaultAppStackSecretPrefix = defaults.string(forKey: keyVaultAppStackSecretPrefixKey) ?? "app-stack-"
         // Reflect the real system state (property observers don't fire in init).
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
     }

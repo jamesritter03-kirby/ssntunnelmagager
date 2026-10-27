@@ -283,6 +283,12 @@ public sealed class SshProfile
     /// Such a launcher re-points its saved workspace template's ad-hoc tabs at this
     /// profile's own host, so relaunching moves the whole workspace to that server.</summary>
     public bool IsWorkspaceLauncher { get; set; }
+
+    /// <summary>Optional device "unit" (hostname) used to look up this device's
+    /// escrowed Key Vault secrets (<c>os-snsadmin-&lt;unit&gt;</c> / <c>app-stack-&lt;unit&gt;</c>).
+    /// Blank falls back to the connection host. See S2LABS-AUTH-INTEGRATION.md.</summary>
+    public string KeyVaultUnit { get; set; } = "";
+
     // --- Derived / display helpers (not serialized) ---
 
     /// <summary>

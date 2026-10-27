@@ -108,6 +108,33 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                TextField("https://my-vault.vault.azure.net/", text: $settings.keyVaultUri)
+                    .autocorrectionDisabled()
+                TextField("Subscription (id or name)", text: $settings.keyVaultSubscriptionId)
+                    .autocorrectionDisabled()
+                TextField("CA private-key secret name", text: $settings.keyVaultCaPrivateSecretName)
+                    .autocorrectionDisabled()
+                HStack {
+                    TextField("Cert validity (-V)", text: $settings.keyVaultCertValidity)
+                        .autocorrectionDisabled()
+                    TextField("Cert principals", text: $settings.keyVaultCertPrincipals)
+                        .autocorrectionDisabled()
+                }
+                HStack {
+                    TextField("OS secret prefix", text: $settings.keyVaultOsSecretPrefix)
+                        .autocorrectionDisabled()
+                    TextField("App-stack secret prefix", text: $settings.keyVaultAppStackSecretPrefix)
+                        .autocorrectionDisabled()
+                }
+            } header: {
+                Text("Key Vault")
+            } footer: {
+                Text("Azure Key Vault holding escrowed device credentials and the SSH user-CA. Set per environment (dev vs prod use different vaults/subscriptions). The profile editor's Key Vault tools use `az login`, so sign in with the Azure CLI first.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460, height: 480)

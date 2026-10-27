@@ -14,6 +14,9 @@ struct ProfileEditorView: View {
     @State private var serviceNewPasswords: [UUID: String] = [:]
     /// Forward ids whose saved service password should be removed on save.
     @State private var serviceRemovePasswords: Set<UUID> = []
+    /// Key Vault tool status line + in-flight guard.
+    @State private var keyVaultStatus: String = ""
+    @State private var keyVaultBusy = false
     private let isNew: Bool
 
     /// When this editor was opened by **Duplicate**, the name of the profile the
@@ -85,6 +88,7 @@ struct ProfileEditorView: View {
                 } else {
                     connectionSection
                     authenticationSection
+                    keyVaultSection
                     forwardsSection
                     optionsSection
                     advancedSection
@@ -322,6 +326,113 @@ struct ProfileEditorView: View {
             Label("Connection", systemImage: "network")
         } footer: {
             Text("The server you’re connecting to. A jump host first hops through a bastion (ssh -J).")
+        }
+    }
+
+    @ViewBuilder
+    private var keyVaultSection: some View {
+        if AppSettings.shared.keyVaultConfigured {
+            Section {
+                labeledField("Device unit", systemImage: "number",
+                             placeholder: "blank uses the host name",
+                             text: $profile.keyVaultUnit, disableAutocorrect: true)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Button("Get / refresh certificate") {
+                            runKeyVault { await KeyVaultService.refreshCertificate(identityFile: profile.identityFile, unit: KeyVaultService.deriveUnit(for: profile)) }
+                        }
+                        Button("Reveal break-glass password") {
+                            runKeyVault {
+                                let r = await KeyVaultService.getBreakGlassPassword(unit: KeyVaultService.deriveUnit(for: profile))
+                                if r.ok, let pw = r.value {
+                                    await MainActor.run { newPassword = pw; removePassword = false }
+                                    return KeyVaultService.Result.success(r.message + " Filled into the Password field (save to keep it).")
+                                }
+                                return r
+                            }
+                        }
+                    }
+                    HStack {
+                        Button("Fill service passwords") { fillServicePasswordsFromVault() }
+                        Button("Provision device\u{2026}") { provisionDevice() }
+                    }
+                    if !keyVaultStatus.isEmpty {
+                        Text(keyVaultStatus).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .disabled(keyVaultBusy)
+            } header: {
+                Label("Key Vault", systemImage: "lock.shield")
+            } footer: {
+                Text("Fetch escrowed device credentials and sign a short-lived SSH certificate from the configured Azure Key Vault. Requires `az login`.")
+            }
+        }
+    }
+
+    /// Run a Key Vault operation, serializing on `keyVaultBusy` and surfacing the result.
+    private func runKeyVault(_ op: @escaping () async -> KeyVaultService.Result) {
+        guard !keyVaultBusy else { return }
+        keyVaultBusy = true
+        keyVaultStatus = "Working\u{2026}"
+        Task {
+            let result = await op()
+            await MainActor.run {
+                keyVaultStatus = result.message
+                keyVaultBusy = false
+            }
+        }
+    }
+
+    /// Fill every MQTT/Redis forward's service password from `app-stack-<unit>`.
+    private func fillServicePasswordsFromVault() {
+        let targets = profile.forwards.filter { $0.category == .mqtt || $0.category == .redis }
+        if targets.isEmpty { keyVaultStatus = "No MQTT/Redis forwards to fill."; return }
+        runKeyVault {
+            let r = await KeyVaultService.getAppStackPassword(unit: KeyVaultService.deriveUnit(for: profile))
+            if r.ok, let pw = r.value {
+                await MainActor.run { for f in targets { serviceNewPasswords[f.id] = pw } }
+                return KeyVaultService.Result.success("\(r.message) Filled \(targets.count) forward(s).")
+            }
+            return r
+        }
+    }
+
+    /// Push an operator-supplied escrow.env to the device and optionally upgrade.
+    private func provisionDevice() {
+        if profile.host.trimmingCharacters(in: .whitespaces).isEmpty {
+            keyVaultStatus = "Set a host before provisioning."
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.title = "Choose the escrow.env to push"
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url,
+              let contents = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let choice = provisionConfirm(fileName: url.lastPathComponent, host: profile.host)
+        if choice == .cancel { return }
+        runKeyVault {
+            await KeyVaultService.provisionDevice(profile: profile, escrowEnvContents: contents,
+                                                  triggerUpgrade: choice == .pushUpgrade,
+                                                  upgradeCommand: "sudo s2labs-upgrade")
+        }
+    }
+
+    private enum ProvisionChoice { case pushUpgrade, pushOnly, cancel }
+
+    /// Confirm the provision action, offering "Push + upgrade", "Push only", or Cancel.
+    private func provisionConfirm(fileName: String, host: String) -> ProvisionChoice {
+        let alert = NSAlert()
+        alert.messageText = "Provision device"
+        alert.informativeText = "Push \(fileName) to /etc/s2labs/escrow.env on \(host).\n\nAlso trigger the package upgrade now?"
+        alert.addButton(withTitle: "Push + upgrade")
+        alert.addButton(withTitle: "Push only")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .pushUpgrade
+        case .alertSecondButtonReturn: return .pushOnly
+        default: return .cancel
         }
     }
 

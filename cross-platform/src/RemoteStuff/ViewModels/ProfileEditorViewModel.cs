@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RemoteStuff.Models;
@@ -150,6 +151,8 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
 {
     private readonly SshProfile _original;
     private readonly Action<SshProfile, bool> _onSave;
+    private readonly KeyVaultService? _keyVault;
+    private readonly SecretStore? _secrets;
 
     public bool IsNew { get; }
     public string WindowTitle => IsNew ? "New Profile" : "Edit Profile";
@@ -185,6 +188,20 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
     [ObservableProperty] private string _password = "";
     [ObservableProperty] private bool _clearSavedPassword;
     [ObservableProperty] private string _commandPreview = "";
+
+    // --- Key Vault (escrowed credentials + SSH user-CA) ---
+    [ObservableProperty] private string _keyVaultUnit = "";
+    [ObservableProperty] private string _keyVaultStatus = "";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCertificateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RevealBreakGlassPasswordCommand))]
+    [NotifyCanExecuteChangedFor(nameof(FillServicePasswordsFromVaultCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ProvisionDeviceCommand))]
+    private bool _keyVaultBusy;
+
+    /// <summary>True when a Key Vault is configured, so the editor shows the auth tools.</summary>
+    public bool HasKeyVault => _keyVault is not null;
 
     [ObservableProperty] private string _icon;
     [ObservableProperty] private string _tabColor;
@@ -314,13 +331,16 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
     public IReadOnlyList<StrictHostKeyChecking> HostKeyOptions { get; } = Enum.GetValues<StrictHostKeyChecking>();
 
     public ProfileEditorViewModel(SshProfile profile, bool isNew, Action<SshProfile, bool> onSave, bool hasSavedPassword = false,
-        IReadOnlyList<string>? savedWorkspaceNames = null, Func<string, bool>? createWorkspaceTemplate = null)
+        IReadOnlyList<string>? savedWorkspaceNames = null, Func<string, bool>? createWorkspaceTemplate = null,
+        KeyVaultService? keyVault = null, SecretStore? secrets = null)
     {
         _original = profile;
         IsNew = isNew;
         _onSave = onSave;
         HasSavedPassword = hasSavedPassword;
         _createWorkspaceTemplate = createWorkspaceTemplate;
+        _keyVault = keyVault;
+        _secrets = secrets;
 
         _name = profile.Name;
         _isLocal = profile.IsLocal;
@@ -330,6 +350,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         _username = profile.Username;
         _identityFile = profile.IdentityFile;
         _jumpHost = profile.JumpHost;
+        _keyVaultUnit = profile.KeyVaultUnit;
         _openShell = profile.OpenShell;
         _compression = profile.Compression;
         _keepAlive = profile.KeepAlive;
@@ -533,6 +554,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         p.Username = Username?.Trim() ?? "";
         p.IdentityFile = IdentityFile?.Trim() ?? "";
         p.JumpHost = JumpHost?.Trim() ?? "";
+        p.KeyVaultUnit = KeyVaultUnit?.Trim() ?? "";
         p.OpenShell = OpenShell;
         p.Compression = Compression;
         p.KeepAlive = KeepAlive;
@@ -586,4 +608,103 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
 
     [RelayCommand]
     private void Cancel() => CloseRequested?.Invoke();
+
+    // ---- Key Vault auth tools -------------------------------------------
+
+    private bool CanUseVault() => _keyVault is not null && !KeyVaultBusy;
+
+    /// <summary>The device unit used for secret lookups: the typed override, else the host.</summary>
+    private string EffectiveUnit() => KeyVaultService.DeriveUnit(BuildProfile());
+
+    /// <summary>Phase A: sign this key's public half with the CA and write the cert beside it.</summary>
+    [RelayCommand(CanExecute = nameof(CanUseVault))]
+    private async Task RefreshCertificateAsync()
+    {
+        if (_keyVault is null) return;
+        KeyVaultBusy = true;
+        KeyVaultStatus = "Signing certificate…";
+        try
+        {
+            var result = await _keyVault.RefreshCertificateAsync(IdentityFile ?? "", EffectiveUnit());
+            KeyVaultStatus = result.Message;
+        }
+        finally { KeyVaultBusy = false; }
+    }
+
+    /// <summary>Phase B: read the per-device break-glass OS password into the Password field.</summary>
+    [RelayCommand(CanExecute = nameof(CanUseVault))]
+    private async Task RevealBreakGlassPasswordAsync()
+    {
+        if (_keyVault is null) return;
+        KeyVaultBusy = true;
+        KeyVaultStatus = "Fetching break-glass password…";
+        try
+        {
+            var result = await _keyVault.GetBreakGlassPasswordAsync(EffectiveUnit());
+            if (result.Ok && result.Value is { } pw)
+            {
+                Password = pw;
+                KeyVaultStatus = result.Message + " Filled into the Password field (save to keep it).";
+            }
+            else KeyVaultStatus = result.Message;
+        }
+        finally { KeyVaultBusy = false; }
+    }
+
+    /// <summary>Phase B: fill every MQTT/Redis forward's service password from app-stack-&lt;unit&gt;.</summary>
+    [RelayCommand(CanExecute = nameof(CanUseVault))]
+    private async Task FillServicePasswordsFromVaultAsync()
+    {
+        if (_keyVault is null) return;
+        var targets = Forwards.Where(f => f.Category is ForwardCategory.Mqtt or ForwardCategory.Redis).ToList();
+        if (targets.Count == 0)
+        {
+            KeyVaultStatus = "No MQTT/Redis forwards to fill.";
+            return;
+        }
+        KeyVaultBusy = true;
+        KeyVaultStatus = "Fetching app-stack password…";
+        try
+        {
+            var result = await _keyVault.GetAppStackPasswordAsync(EffectiveUnit());
+            if (result.Ok && result.Value is { } pw)
+            {
+                foreach (var f in targets) f.ServicePassword = pw;
+                KeyVaultStatus = $"{result.Message} Filled {targets.Count} forward(s).";
+            }
+            else KeyVaultStatus = result.Message;
+        }
+        finally { KeyVaultBusy = false; }
+    }
+
+    /// <summary>Phase C: push an operator-supplied escrow.env to the device and optionally upgrade.</summary>
+    [RelayCommand(CanExecute = nameof(CanUseVault))]
+    private async Task ProvisionDeviceAsync()
+    {
+        if (_keyVault is null) return;
+        if (string.IsNullOrWhiteSpace(Host))
+        {
+            KeyVaultStatus = "Set a host before provisioning.";
+            return;
+        }
+        var envPath = await DialogService.OpenFileAsync("Choose the escrow.env to push");
+        if (string.IsNullOrEmpty(envPath)) return;
+
+        var upgrade = await DialogService.ConfirmAsync("Provision device",
+            $"Push {System.IO.Path.GetFileName(envPath)} to /etc/s2labs/escrow.env on {Host}.\n\nAlso trigger the package upgrade now?",
+            "Push + upgrade", "Push only");
+
+        string contents;
+        try { contents = await System.IO.File.ReadAllTextAsync(envPath); }
+        catch (Exception ex) { KeyVaultStatus = $"Could not read {envPath}: {ex.Message}"; return; }
+
+        KeyVaultBusy = true;
+        KeyVaultStatus = "Provisioning device…";
+        try
+        {
+            var result = await _keyVault.ProvisionDeviceAsync(BuildProfile(), contents, upgrade, "sudo s2labs-upgrade");
+            KeyVaultStatus = result.Message;
+        }
+        finally { KeyVaultBusy = false; }
+    }
 }

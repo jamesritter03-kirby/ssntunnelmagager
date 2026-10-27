@@ -83,6 +83,39 @@ public sealed class AppSettings
     /// preventing a leftover that breaks networking.</summary>
     public bool RouterSharingActive { get; set; }
 
+    // --- Key Vault edge-device auth (Azure Key Vault escrow + SSH user-CA) ---
+    // Per-environment config: dev defaults are shown; prod uses a different
+    // subscription + vault, so these are editable and NEVER hardcoded elsewhere.
+
+    /// <summary>Azure Key Vault base URI holding the escrowed credentials / CA.</summary>
+    public string KeyVaultUri { get; set; } = "https://s2l-dev-escrow-kv.vault.azure.net/";
+
+    /// <summary>Azure subscription id (or name) the vault lives in. Used to scope the
+    /// Azure CLI / interactive sign-in so the right tenant is selected.</summary>
+    public string KeyVaultSubscriptionId { get; set; } = "kc-kds-s2labs-dev-001";
+
+    /// <summary>Key Vault secret name of the SSH user-CA private key used to sign
+    /// operator certificates (dev shortcut; prod should use a signing service).</summary>
+    public string KeyVaultCaPrivateSecretName { get; set; } = "ssh-user-ca-private";
+
+    /// <summary>Key Vault secret name of the SSH user-CA public key.</summary>
+    public string KeyVaultCaPublicSecretName { get; set; } = "ssh-user-ca-public";
+
+    /// <summary>Validity window passed to <c>ssh-keygen -V</c> when signing a cert.</summary>
+    public string KeyVaultCertValidity { get; set; } = "+1d";
+
+    /// <summary>Comma-separated principals embedded in signed certs (the device-side
+    /// account(s) the cert is allowed to log in as).</summary>
+    public string KeyVaultCertPrincipals { get; set; } = "snsadmin";
+
+    /// <summary>Secret-name prefix for the per-device break-glass OS password
+    /// (<c>&lt;prefix&gt;&lt;unit&gt;</c>, e.g. <c>os-snsadmin-myhost</c>).</summary>
+    public string KeyVaultOsSecretPrefix { get; set; } = "os-snsadmin-";
+
+    /// <summary>Secret-name prefix for the per-device app-stack (MQTT/Redis/Node-RED)
+    /// password (<c>&lt;prefix&gt;&lt;unit&gt;</c>, e.g. <c>app-stack-myhost</c>).</summary>
+    public string KeyVaultAppStackSecretPrefix { get; set; } = "app-stack-";
+
     public AppSettings()
     {
         var baseDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -137,6 +170,14 @@ public sealed class AppSettings
                     if (!string.IsNullOrWhiteSpace(loaded.RouterDhcpEnd)) RouterDhcpEnd = loaded.RouterDhcpEnd;
                     RouterAutoStart = loaded.RouterAutoStart;
                     RouterSharingActive = loaded.RouterSharingActive;
+                    if (!string.IsNullOrWhiteSpace(loaded.KeyVaultUri)) KeyVaultUri = loaded.KeyVaultUri;
+                    if (!string.IsNullOrWhiteSpace(loaded.KeyVaultSubscriptionId)) KeyVaultSubscriptionId = loaded.KeyVaultSubscriptionId;
+                    if (!string.IsNullOrWhiteSpace(loaded.KeyVaultCaPrivateSecretName)) KeyVaultCaPrivateSecretName = loaded.KeyVaultCaPrivateSecretName;
+                    if (!string.IsNullOrWhiteSpace(loaded.KeyVaultCaPublicSecretName)) KeyVaultCaPublicSecretName = loaded.KeyVaultCaPublicSecretName;
+                    if (!string.IsNullOrWhiteSpace(loaded.KeyVaultCertValidity)) KeyVaultCertValidity = loaded.KeyVaultCertValidity;
+                    if (!string.IsNullOrWhiteSpace(loaded.KeyVaultCertPrincipals)) KeyVaultCertPrincipals = loaded.KeyVaultCertPrincipals;
+                    if (!string.IsNullOrWhiteSpace(loaded.KeyVaultOsSecretPrefix)) KeyVaultOsSecretPrefix = loaded.KeyVaultOsSecretPrefix;
+                    if (!string.IsNullOrWhiteSpace(loaded.KeyVaultAppStackSecretPrefix)) KeyVaultAppStackSecretPrefix = loaded.KeyVaultAppStackSecretPrefix;
                 }
             }
         }
@@ -177,6 +218,14 @@ public sealed class AppSettings
         public string RouterDhcpEnd { get; set; } = "10.1.1.254";
         public bool RouterAutoStart { get; set; }
         public bool RouterSharingActive { get; set; }
+        public string KeyVaultUri { get; set; } = "";
+        public string KeyVaultSubscriptionId { get; set; } = "";
+        public string KeyVaultCaPrivateSecretName { get; set; } = "";
+        public string KeyVaultCaPublicSecretName { get; set; } = "";
+        public string KeyVaultCertValidity { get; set; } = "";
+        public string KeyVaultCertPrincipals { get; set; } = "";
+        public string KeyVaultOsSecretPrefix { get; set; } = "";
+        public string KeyVaultAppStackSecretPrefix { get; set; } = "";
     }
 
     public void Save()

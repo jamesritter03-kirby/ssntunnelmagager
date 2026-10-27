@@ -72,6 +72,32 @@
                         <TextBox Text="{Binding JumpHost}" Watermark="user@bastion" />
                     </StackPanel>
 
+                    <!-- Key Vault (escrowed credentials + SSH user-CA). Hidden when no vault is configured. -->
+                    <Border IsVisible="{Binding HasKeyVault}"
+                            Background="{DynamicResource AppInsetBrush}" BorderBrush="{DynamicResource AppDividerBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="12">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Key Vault" FontWeight="Bold" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Device unit (optional — blank uses the host name)"
+                                           Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                                <TextBox Text="{Binding KeyVaultUnit}" Watermark="e.g. epc01" />
+                            </StackPanel>
+                            <WrapPanel Orientation="Horizontal">
+                                <Button Content="Get / refresh certificate" Margin="0,0,8,4"
+                                        Command="{Binding RefreshCertificateCommand}" />
+                                <Button Content="Reveal break-glass password" Margin="0,0,8,4"
+                                        Command="{Binding RevealBreakGlassPasswordCommand}" />
+                                <Button Content="Fill service passwords" Margin="0,0,8,4"
+                                        Command="{Binding FillServicePasswordsFromVaultCommand}" />
+                                <Button Content="Provision device…" Margin="0,0,8,4"
+                                        Command="{Binding ProvisionDeviceCommand}" />
+                            </WrapPanel>
+                            <TextBlock Text="{Binding KeyVaultStatus}" IsVisible="{Binding KeyVaultStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       TextWrapping="Wrap" Foreground="{DynamicResource AppSecondaryTextBrush}" />
+                        </StackPanel>
+                    </Border>
+
                     <WrapPanel Orientation="Horizontal">
                         <CheckBox Content="Open shell" IsChecked="{Binding OpenShell}" Margin="0,0,16,0" />
                         <CheckBox Content="Compression (-C)" IsChecked="{Binding Compression}" Margin="0,0,16,0" />

@@ -17,6 +17,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private readonly SecretStore _secrets;
     private readonly MikroTikRouterStore _mikroTikRouters;
     private readonly ZeroTierService _zeroTier;
+    private readonly KeyVaultService _keyVault;
     public AppSettings Settings { get; }
 
     public ObservableCollection<SshProfile> Profiles { get; } = new();
@@ -210,7 +211,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case ZtDeviceAction.NewProfile:
             {
                 var profile = new SshProfile { Name = name, Host = host, Username = user };
-                var editor = new ProfileEditorViewModel(profile, isNew: true, Save, hasSavedPassword: false, SavedWorkspaceNames(), CreateEmptyWorkspaceTemplate);
+                var editor = new ProfileEditorViewModel(profile, isNew: true, Save, hasSavedPassword: false, SavedWorkspaceNames(), CreateEmptyWorkspaceTemplate, _keyVault, _secrets);
                 EditProfileRequested?.Invoke(editor);
                 break;
             }
@@ -562,6 +563,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _secrets = secrets;
         _mikroTikRouters = new MikroTikRouterStore(secrets);
         Settings = settings;
+        _keyVault = new KeyVaultService(settings);
         _expandedSidebarWidth = Math.Clamp(settings.SidebarWidth, 200, 560);
         _zeroTier = new ZeroTierService(secrets);
         _zeroTier.Updated += () => Avalonia.Threading.Dispatcher.UIThread.Post(RecomputeConnections);
@@ -1026,7 +1028,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void NewProfile()
     {
-        var editor = new ProfileEditorViewModel(new SshProfile(), isNew: true, Save, hasSavedPassword: false, SavedWorkspaceNames(), CreateEmptyWorkspaceTemplate);
+        var editor = new ProfileEditorViewModel(new SshProfile(), isNew: true, Save, hasSavedPassword: false, SavedWorkspaceNames(), CreateEmptyWorkspaceTemplate, _keyVault, _secrets);
         EditProfileRequested?.Invoke(editor);
     }
 
@@ -1050,7 +1052,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void EditProfile()
     {
         if (SelectedProfile is not { } p) return;
-        var editor = new ProfileEditorViewModel(p.Clone(), isNew: false, Save, _secrets.Has(p.Id), SavedWorkspaceNames(), CreateEmptyWorkspaceTemplate);
+        var editor = new ProfileEditorViewModel(p.Clone(), isNew: false, Save, _secrets.Has(p.Id), SavedWorkspaceNames(), CreateEmptyWorkspaceTemplate, _keyVault, _secrets);
         EditProfileRequested?.Invoke(editor);
     }
 
