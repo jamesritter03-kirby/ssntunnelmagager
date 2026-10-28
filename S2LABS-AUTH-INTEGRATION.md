@@ -6,44 +6,47 @@
 > **No secrets are stored in this file.** Client secrets live only in Key Vault /
 > the operator's Azure session.
 
-## ✅ Implementation status (2026-10-27)
+## START HERE — current state (updated 2026-10-28) + first task
 
-All phases are now implemented in **both** apps under a generic **"Key Vault"**
-label (not S2 Labs–branded), with vault coordinates configurable per environment.
+Device side is **live on the dev channel** (platform 1.9.170): SSH user-CA trust,
+per-device escrowed passwords, and the Debian **APT feed is now GPG-signed**.
+Cert login is **proven end-to-end** on the EPC (an operator logged in with a
+CA-signed cert, password auth disabled). So the hard part is done on the devices —
+this app just needs to make cert issuance + break-glass retrieval one-click.
 
-**Configure once:** open **Preferences → Key Vault** and set the Vault URI +
-subscription (defaults point at the dev vault). Secret names / cert validity /
-principals / secret prefixes are all editable there too.
+**Recommended first implementation: Phase A — "Get SSH Certificate".** Cert login
+already works if a `<key>-cert.pub` sits next to the operator's key; the only
+missing piece is refreshing that short-lived cert. The exact manual flow the app
+should wrap (dev):
 
-**Per device:** in the profile editor a **Key Vault** section appears (only when a
-vault URI is set). Optional **Device unit** overrides the hostname used for secret
-lookups (blank = the host's first DNS label). Buttons:
-- **Get / refresh certificate** (Phase A) — signs `<identityFile>.pub` with the CA
-  fetched from the vault via `ssh-keygen -s`, writing `<identityFile>-cert.pub`
-  beside the key so OpenSSH presents it automatically. *Dev shortcut; swap for a
-  signing service before prod.*
-- **Reveal break-glass password** (Phase B) — reads `os-snsadmin-<unit>` into the
-  Password field (save to keep it).
-- **Fill service passwords** (Phase B) — reads `app-stack-<unit>` into every
-  MQTT/Redis forward's service-password field.
-- **Provision device…** (Phase C) — pushes an operator-chosen `escrow.env` to
-  `/etc/s2labs/escrow.env` and optionally triggers `sudo s2labs-upgrade`.
+```sh
+# 1. operator fetches the CA private key from Key Vault (needs get-secret access)
+az keyvault secret download --vault-name s2l-dev-escrow-kv --name ssh-user-ca-private --file "$TMP/s2l_user_ca"
+chmod 600 "$TMP/s2l_user_ca"
+# 2. sign the operator's existing public key: principal snsadmin, 1-day validity
+ssh-keygen -s "$TMP/s2l_user_ca" -I "<operator>@s2l" -n snsadmin -V +1d ~/.ssh/id_rsa.pub
+#    -> writes ~/.ssh/id_rsa-cert.pub ; OpenSSH auto-presents it on connect
+# 3. wipe the CA key copy immediately after signing
+shred -u "$TMP/s2l_user_ca" 2>/dev/null || rm -f "$TMP/s2l_user_ca"
+```
+After this, a normal connection (`ssh -i ~/.ssh/id_rsa snsadmin@<ip>`) logs in via
+the cert — the app already builds exactly this command.
 
-**Auth:** C# uses `Azure.Identity` (Azure CLI → interactive browser fallback);
-Swift shells out to the `az` CLI (`az login` first). Access-policy vaults need the
-operator's object-id to have a get/list secret policy.
+**Phase B — Key Vault reads** (break-glass + service passwords):
+```sh
+# OS break-glass password (recovery only)
+az keyvault secret show --vault-name s2l-dev-escrow-kv --name os-snsadmin-<hostname> --query value -o tsv
+# MQTT/Redis/Node-RED app-stack password (auto-fill the mqtt/redis forward categories)
+az keyvault secret show --vault-name s2l-dev-escrow-kv --name app-stack-<hostname> --query value -o tsv
+```
+`<hostname>` = the device's OS hostname (its serial — stable, set at install). NOT
+the customer-editable Unit ID. The device console "Security" tab shows both.
 
-**Minimal (0-code) path still works:** put a CA-signed cert next to your key
-(`<key>-cert.pub`) and connect as usual — OpenSSH presents it automatically.
-
-**Verify before prod:** SSH.NET may not support OpenSSH certs, so cert-only SFTP
-could fail — terminals/tunnels via `ssh`/`ssh.exe` are fine. Keep a key/password
-path for SFTP.
-
-Code map: C# `Services/KeyVaultService.cs`, `AppSettings` `KeyVault*` props,
-`SshProfile.KeyVaultUnit`, `ProfileEditorViewModel`/`Window`, `SettingsViewModel`/
-`Window`. Swift `Models/KeyVaultService.swift`, `App/AppSettings.swift`,
-`SSHProfile.keyVaultUnit`, `Views/ProfileEditorView.swift`, `Views/SettingsView.swift`.
+**Security guardrail:** fetching the CA private key to the operator's machine is a
+**dev-only** shortcut. For **prod**, replace it with a small **signing service**
+(on the repo VM, managed identity) that signs the operator's pubkey after Azure
+login so the CA key never leaves the server. Design the "Get SSH Certificate"
+action around a pluggable signer (local-sign in dev, service-sign in prod).
 
 ## Background — what changed on the devices
 

@@ -337,10 +337,11 @@ struct SSHProfile: Codable, Identifiable, Hashable {
     var verbose: Bool = false
     /// Optional ProxyJump host (`-J`), e.g. `user@bastion`.
     var jumpHost: String = ""
-    /// Optional device "unit" (hostname) used to look up this device's escrowed
-    /// Key Vault secrets (`os-snsadmin-<unit>` / `app-stack-<unit>`). Blank falls
-    /// back to the connection host. See S2LABS-AUTH-INTEGRATION.md.
-    var keyVaultUnit: String = ""
+    /// The device's OS hostname (its serial — stable, set at install) used to look up
+    /// this device's escrowed Key Vault secrets (`os-snsadmin-<hostname>` /
+    /// `app-stack-<hostname>`). This is NOT the customer-editable Unit ID. Blank falls
+    /// back to the connection host's first DNS label. See S2LABS-AUTH-INTEGRATION.md.
+    var keyVaultHostname: String = ""
     /// Extra raw ssh options appended verbatim, e.g. `-o StrictHostKeyChecking=accept-new`.
     var extraOptions: String = ""
     /// Forward the SSH agent to the server (`ssh -A`) — lets a jump chain reuse
@@ -490,7 +491,7 @@ extension SSHProfile {
         case compression, keepAlive, verbose, jumpHost, extraOptions, theme, snippets
         case requireAuthForSavedPassword
         case fontSize
-        case keyVaultUnit
+        case keyVaultHostname
         case isLocal, startPath, icon
         case links
         case sftpBookmarks
@@ -502,6 +503,11 @@ extension SSHProfile {
         case strictHostKeyChecking, remoteCommand, environment
         case useMosh, runOnConnect, logSession, autoReconnect, autoConnectOnLaunch
         case isFavorite, group
+    }
+
+    /// Legacy keys kept only for decoding older saved profiles.
+    private enum LegacyCodingKeys: String, CodingKey {
+        case keyVaultUnit
     }
 
     init(from decoder: Decoder) throws {
@@ -521,7 +527,13 @@ extension SSHProfile {
         keepAlive = try c.decodeIfPresent(Bool.self, forKey: .keepAlive) ?? true
         verbose = try c.decodeIfPresent(Bool.self, forKey: .verbose) ?? false
         jumpHost = try c.decodeIfPresent(String.self, forKey: .jumpHost) ?? ""
-        keyVaultUnit = try c.decodeIfPresent(String.self, forKey: .keyVaultUnit) ?? ""
+        if let hostname = try c.decodeIfPresent(String.self, forKey: .keyVaultHostname) {
+            keyVaultHostname = hostname
+        } else {
+            // Back-compat: load the former `keyVaultUnit` key.
+            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            keyVaultHostname = try legacy.decodeIfPresent(String.self, forKey: .keyVaultUnit) ?? ""
+        }
         extraOptions = try c.decodeIfPresent(String.self, forKey: .extraOptions) ?? ""
         forwardAgent = try c.decodeIfPresent(Bool.self, forKey: .forwardAgent) ?? false
         addKeysToAgent = try c.decodeIfPresent(Bool.self, forKey: .addKeysToAgent) ?? false

@@ -109,11 +109,11 @@ public sealed class AppSettings
     public string KeyVaultCertPrincipals { get; set; } = "snsadmin";
 
     /// <summary>Secret-name prefix for the per-device break-glass OS password
-    /// (<c>&lt;prefix&gt;&lt;unit&gt;</c>, e.g. <c>os-snsadmin-myhost</c>).</summary>
+    /// (<c>&lt;prefix&gt;&lt;hostname&gt;</c>, e.g. <c>os-snsadmin-myhost</c>).</summary>
     public string KeyVaultOsSecretPrefix { get; set; } = "os-snsadmin-";
 
     /// <summary>Secret-name prefix for the per-device app-stack (MQTT/Redis/Node-RED)
-    /// password (<c>&lt;prefix&gt;&lt;unit&gt;</c>, e.g. <c>app-stack-myhost</c>).</summary>
+    /// password (<c>&lt;prefix&gt;&lt;hostname&gt;</c>, e.g. <c>app-stack-myhost</c>).</summary>
     public string KeyVaultAppStackSecretPrefix { get; set; } = "app-stack-";
 
     public AppSettings()

@@ -333,17 +333,17 @@ struct ProfileEditorView: View {
     private var keyVaultSection: some View {
         if AppSettings.shared.keyVaultConfigured {
             Section {
-                labeledField("Device unit", systemImage: "number",
-                             placeholder: "blank uses the host name",
-                             text: $profile.keyVaultUnit, disableAutocorrect: true)
+                labeledField("Device hostname / serial", systemImage: "number",
+                             placeholder: "blank uses the host name (OS hostname, not the Unit ID)",
+                             text: $profile.keyVaultHostname, disableAutocorrect: true)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Button("Get / refresh certificate") {
-                            runKeyVault { await KeyVaultService.refreshCertificate(identityFile: profile.identityFile, unit: KeyVaultService.deriveUnit(for: profile)) }
+                            runKeyVault { await KeyVaultService.refreshCertificate(identityFile: profile.identityFile, hostname: KeyVaultService.deriveHostname(for: profile)) }
                         }
                         Button("Reveal break-glass password") {
                             runKeyVault {
-                                let r = await KeyVaultService.getBreakGlassPassword(unit: KeyVaultService.deriveUnit(for: profile))
+                                let r = await KeyVaultService.getBreakGlassPassword(hostname: KeyVaultService.deriveHostname(for: profile))
                                 if r.ok, let pw = r.value {
                                     await MainActor.run { newPassword = pw; removePassword = false }
                                     return KeyVaultService.Result.success(r.message + " Filled into the Password field (save to keep it).")
@@ -384,12 +384,12 @@ struct ProfileEditorView: View {
         }
     }
 
-    /// Fill every MQTT/Redis forward's service password from `app-stack-<unit>`.
+    /// Fill every MQTT/Redis forward's service password from `app-stack-<hostname>`.
     private func fillServicePasswordsFromVault() {
         let targets = profile.forwards.filter { $0.category == .mqtt || $0.category == .redis }
         if targets.isEmpty { keyVaultStatus = "No MQTT/Redis forwards to fill."; return }
         runKeyVault {
-            let r = await KeyVaultService.getAppStackPassword(unit: KeyVaultService.deriveUnit(for: profile))
+            let r = await KeyVaultService.getAppStackPassword(hostname: KeyVaultService.deriveHostname(for: profile))
             if r.ok, let pw = r.value {
                 await MainActor.run { for f in targets { serviceNewPasswords[f.id] = pw } }
                 return KeyVaultService.Result.success("\(r.message) Filled \(targets.count) forward(s).")

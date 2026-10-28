@@ -284,10 +284,22 @@ public sealed class SshProfile
     /// profile's own host, so relaunching moves the whole workspace to that server.</summary>
     public bool IsWorkspaceLauncher { get; set; }
 
-    /// <summary>Optional device "unit" (hostname) used to look up this device's
-    /// escrowed Key Vault secrets (<c>os-snsadmin-&lt;unit&gt;</c> / <c>app-stack-&lt;unit&gt;</c>).
-    /// Blank falls back to the connection host. See S2LABS-AUTH-INTEGRATION.md.</summary>
-    public string KeyVaultUnit { get; set; } = "";
+    /// <summary>The device's OS hostname (its serial — stable, set at install), used to
+    /// look up this device's escrowed Key Vault secrets (<c>os-snsadmin-&lt;hostname&gt;</c> /
+    /// <c>app-stack-&lt;hostname&gt;</c>). This is NOT the customer-editable Unit ID; the device
+    /// console "Security" tab shows both. Blank falls back to the connection host's first DNS
+    /// label. See S2LABS-AUTH-INTEGRATION.md.</summary>
+    public string KeyVaultHostname { get; set; } = "";
+
+    /// <summary>Back-compat: load the former <c>keyVaultUnit</c> JSON key into
+    /// <see cref="KeyVaultHostname"/>. Never written back (getter returns null).</summary>
+    [JsonPropertyName("keyVaultUnit")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? KeyVaultUnitLegacy
+    {
+        get => null;
+        set { if (!string.IsNullOrEmpty(value) && string.IsNullOrEmpty(KeyVaultHostname)) KeyVaultHostname = value; }
+    }
 
     // --- Derived / display helpers (not serialized) ---
 

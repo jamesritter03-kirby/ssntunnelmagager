@@ -11,10 +11,13 @@ SFTP uses SSH.NET. Keep shared logic in services/models, UI thin, and mirror any
 change across BOTH front-ends.
 
 ## Active task — S2 Labs new-auth integration
-**Read `S2LABS-AUTH-INTEGRATION.md` at the repo root first** — it is the current
-plan for making this app log into S2 Labs edge devices with the new mechanisms
-(SSH user-CA certificates + Azure Key Vault escrow). Then confirm scope with the
-user before implementing.
+**Read `S2LABS-AUTH-INTEGRATION.md` at the repo root first** (see its "START HERE"
+section). It is the current plan for making this app log into S2 Labs edge devices
+with the new mechanisms (SSH user-CA certificates + Azure Key Vault escrow). The
+device side is already live on dev (platform 1.9.170) and cert login is proven, so
+confirm scope with the user, then implement — **start with Phase A, "Get SSH
+Certificate"** (refresh the operator's short-lived CA-signed cert), then Phase B
+(Key Vault reads for break-glass + MQTT/Redis passwords).
 
 Key points:
 - **Cert login already works with zero code change** — OpenSSH auto-presents

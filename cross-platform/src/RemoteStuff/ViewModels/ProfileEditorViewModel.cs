@@ -190,7 +190,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
     [ObservableProperty] private string _commandPreview = "";
 
     // --- Key Vault (escrowed credentials + SSH user-CA) ---
-    [ObservableProperty] private string _keyVaultUnit = "";
+    [ObservableProperty] private string _keyVaultHostname = "";
     [ObservableProperty] private string _keyVaultStatus = "";
 
     [ObservableProperty]
@@ -350,7 +350,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         _username = profile.Username;
         _identityFile = profile.IdentityFile;
         _jumpHost = profile.JumpHost;
-        _keyVaultUnit = profile.KeyVaultUnit;
+        _keyVaultHostname = profile.KeyVaultHostname;
         _openShell = profile.OpenShell;
         _compression = profile.Compression;
         _keepAlive = profile.KeepAlive;
@@ -554,7 +554,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         p.Username = Username?.Trim() ?? "";
         p.IdentityFile = IdentityFile?.Trim() ?? "";
         p.JumpHost = JumpHost?.Trim() ?? "";
-        p.KeyVaultUnit = KeyVaultUnit?.Trim() ?? "";
+        p.KeyVaultHostname = KeyVaultHostname?.Trim() ?? "";
         p.OpenShell = OpenShell;
         p.Compression = Compression;
         p.KeepAlive = KeepAlive;
@@ -613,8 +613,8 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
 
     private bool CanUseVault() => _keyVault is not null && !KeyVaultBusy;
 
-    /// <summary>The device unit used for secret lookups: the typed override, else the host.</summary>
-    private string EffectiveUnit() => KeyVaultService.DeriveUnit(BuildProfile());
+    /// <summary>The device hostname used for secret lookups: the typed override, else the host.</summary>
+    private string EffectiveHostname() => KeyVaultService.DeriveHostname(BuildProfile());
 
     /// <summary>Phase A: sign this key's public half with the CA and write the cert beside it.</summary>
     [RelayCommand(CanExecute = nameof(CanUseVault))]
@@ -625,7 +625,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         KeyVaultStatus = "Signing certificate…";
         try
         {
-            var result = await _keyVault.RefreshCertificateAsync(IdentityFile ?? "", EffectiveUnit());
+            var result = await _keyVault.RefreshCertificateAsync(IdentityFile ?? "", EffectiveHostname());
             KeyVaultStatus = result.Message;
         }
         finally { KeyVaultBusy = false; }
@@ -640,7 +640,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         KeyVaultStatus = "Fetching break-glass password…";
         try
         {
-            var result = await _keyVault.GetBreakGlassPasswordAsync(EffectiveUnit());
+            var result = await _keyVault.GetBreakGlassPasswordAsync(EffectiveHostname());
             if (result.Ok && result.Value is { } pw)
             {
                 Password = pw;
@@ -651,7 +651,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         finally { KeyVaultBusy = false; }
     }
 
-    /// <summary>Phase B: fill every MQTT/Redis forward's service password from app-stack-&lt;unit&gt;.</summary>
+    /// <summary>Phase B: fill every MQTT/Redis forward's service password from app-stack-&lt;hostname&gt;.</summary>
     [RelayCommand(CanExecute = nameof(CanUseVault))]
     private async Task FillServicePasswordsFromVaultAsync()
     {
@@ -666,7 +666,7 @@ public sealed partial class ProfileEditorViewModel : ViewModelBase
         KeyVaultStatus = "Fetching app-stack password…";
         try
         {
-            var result = await _keyVault.GetAppStackPasswordAsync(EffectiveUnit());
+            var result = await _keyVault.GetAppStackPasswordAsync(EffectiveHostname());
             if (result.Ok && result.Value is { } pw)
             {
                 foreach (var f in targets) f.ServicePassword = pw;

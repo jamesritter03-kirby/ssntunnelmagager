@@ -17,10 +17,11 @@ enum KeyVaultService {
         static func success(_ m: String, value: String? = nil) -> Result { Result(ok: true, message: m, value: value) }
     }
 
-    /// The device "unit" used to build escrow secret names: the profile's explicit
-    /// `keyVaultUnit` override, else the host's first DNS label, lower-cased.
-    static func deriveUnit(for profile: SSHProfile) -> String {
-        let override = profile.keyVaultUnit.trimmingCharacters(in: .whitespaces)
+    /// The device's OS hostname (its serial) used to build escrow secret names: the
+    /// profile's explicit `keyVaultHostname`, else the host's first DNS label, lower-cased.
+    /// This is the device hostname, NOT the customer-editable Unit ID.
+    static func deriveHostname(for profile: SSHProfile) -> String {
+        let override = profile.keyVaultHostname.trimmingCharacters(in: .whitespaces)
         if !override.isEmpty { return override.lowercased() }
         let host = profile.host.trimmingCharacters(in: .whitespaces)
         if let dot = host.firstIndex(of: ".") { return String(host[..<dot]).lowercased() }
@@ -66,17 +67,17 @@ enum KeyVaultService {
         return (nil, "Reading '\(name)' failed: \(err.trimmingCharacters(in: .whitespacesAndNewlines))")
     }
 
-    /// Read the per-device break-glass OS password (`os-snsadmin-<unit>`).
-    static func getBreakGlassPassword(unit: String) async -> Result {
-        let name = AppSettings.shared.keyVaultOsSecretPrefix + unit
+    /// Read the per-device break-glass OS password (`os-snsadmin-<hostname>`).
+    static func getBreakGlassPassword(hostname: String) async -> Result {
+        let name = AppSettings.shared.keyVaultOsSecretPrefix + hostname
         let (value, error) = await getSecret(name)
         guard let value else { return .fail(error) }
         return .success("Retrieved \(name).", value: value)
     }
 
-    /// Read the per-device app-stack password (`app-stack-<unit>`).
-    static func getAppStackPassword(unit: String) async -> Result {
-        let name = AppSettings.shared.keyVaultAppStackSecretPrefix + unit
+    /// Read the per-device app-stack password (`app-stack-<hostname>`).
+    static func getAppStackPassword(hostname: String) async -> Result {
+        let name = AppSettings.shared.keyVaultAppStackSecretPrefix + hostname
         let (value, error) = await getSecret(name)
         guard let value else { return .fail(error) }
         return .success("Retrieved \(name).", value: value)
@@ -88,7 +89,7 @@ enum KeyVaultService {
     /// private key from the vault and sign `<identityFile>.pub` with `ssh-keygen -s`,
     /// writing `<identityFile>-cert.pub` so OpenSSH presents it automatically.
     /// Dev shortcut — production should use a signing service so the CA never leaves it.
-    static func refreshCertificate(identityFile: String, unit: String) async -> Result {
+    static func refreshCertificate(identityFile: String, hostname: String) async -> Result {
         let key = SSHCommandBuilder.expandPath(identityFile.trimmingCharacters(in: .whitespaces))
         if key.isEmpty {
             return .fail("Set an identity file (private key) first — the certificate is signed for its public key.")
@@ -118,7 +119,7 @@ enum KeyVaultService {
         let validity = s.keyVaultCertValidity.trimmingCharacters(in: .whitespaces).isEmpty
             ? "+1d" : s.keyVaultCertValidity.trimmingCharacters(in: .whitespaces)
         let user = NSUserName()
-        let identityComment = unit.isEmpty ? user : "\(user)@\(unit)"
+        let identityComment = hostname.isEmpty ? user : "\(user)@\(hostname)"
 
         let (code, out, err) = await runProcess(tool: "ssh-keygen",
             args: ["-s", caPath, "-I", identityComment, "-n", principals, "-V", validity, pub])

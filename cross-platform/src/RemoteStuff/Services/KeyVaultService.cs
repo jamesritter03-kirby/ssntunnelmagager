@@ -39,20 +39,21 @@ public sealed class KeyVaultService
     }
 
     /// <summary>
-    /// The device "unit" used to build escrow secret names: the profile's explicit
-    /// <see cref="SshProfile.KeyVaultUnit"/> override, else the connection host's
-    /// first DNS label (e.g. <c>epc01</c> from <c>epc01.lan</c>), lower-cased.
+    /// The device's OS hostname (its serial) used to build escrow secret names: the
+    /// profile's explicit <see cref="SshProfile.KeyVaultHostname"/>, else the connection
+    /// host's first DNS label (e.g. <c>epc01</c> from <c>epc01.lan</c>), lower-cased.
+    /// This is the device hostname, NOT the customer-editable Unit ID.
     /// </summary>
-    public static string DeriveUnit(SshProfile profile)
+    public static string DeriveHostname(SshProfile profile)
     {
-        var unit = profile.KeyVaultUnit?.Trim();
-        if (string.IsNullOrEmpty(unit))
+        var name = profile.KeyVaultHostname?.Trim();
+        if (string.IsNullOrEmpty(name))
         {
             var host = profile.Host?.Trim() ?? "";
             var dot = host.IndexOf('.');
-            unit = dot > 0 ? host[..dot] : host;
+            name = dot > 0 ? host[..dot] : host;
         }
-        return unit.ToLowerInvariant();
+        return name.ToLowerInvariant();
     }
 
     private bool TryBuildClient(out SecretClient? client, out string error)
@@ -118,18 +119,18 @@ public sealed class KeyVaultService
 
     // ---- Phase B: escrowed password reads ----------------------------------
 
-    /// <summary>Read the per-device break-glass OS password (<c>os-snsadmin-&lt;unit&gt;</c>).</summary>
-    public async Task<Result> GetBreakGlassPasswordAsync(string unit, CancellationToken ct = default)
+    /// <summary>Read the per-device break-glass OS password (<c>os-snsadmin-&lt;hostname&gt;</c>).</summary>
+    public async Task<Result> GetBreakGlassPasswordAsync(string hostname, CancellationToken ct = default)
     {
-        var secretName = (_settings.KeyVaultOsSecretPrefix ?? "") + unit;
+        var secretName = (_settings.KeyVaultOsSecretPrefix ?? "") + hostname;
         var (value, error) = await TryGetSecretAsync(secretName, ct).ConfigureAwait(false);
         return value is null ? Result.Fail(error) : Result.Success($"Retrieved {secretName}.", value);
     }
 
-    /// <summary>Read the per-device app-stack password (<c>app-stack-&lt;unit&gt;</c>).</summary>
-    public async Task<Result> GetAppStackPasswordAsync(string unit, CancellationToken ct = default)
+    /// <summary>Read the per-device app-stack password (<c>app-stack-&lt;hostname&gt;</c>).</summary>
+    public async Task<Result> GetAppStackPasswordAsync(string hostname, CancellationToken ct = default)
     {
-        var secretName = (_settings.KeyVaultAppStackSecretPrefix ?? "") + unit;
+        var secretName = (_settings.KeyVaultAppStackSecretPrefix ?? "") + hostname;
         var (value, error) = await TryGetSecretAsync(secretName, ct).ConfigureAwait(false);
         return value is null ? Result.Fail(error) : Result.Success($"Retrieved {secretName}.", value);
     }
@@ -145,7 +146,7 @@ public sealed class KeyVaultService
     /// This is the DEV shortcut. In production the CA key must never leave a signing
     /// service — swap this for a call to that service once it exists.
     /// </summary>
-    public async Task<Result> RefreshCertificateAsync(string identityFile, string unit, CancellationToken ct = default)
+    public async Task<Result> RefreshCertificateAsync(string identityFile, string hostname, CancellationToken ct = default)
     {
         identityFile = SshCommandBuilder.ExpandPath(identityFile?.Trim() ?? "");
         if (string.IsNullOrEmpty(identityFile))
@@ -180,7 +181,7 @@ public sealed class KeyVaultService
             var validity = string.IsNullOrWhiteSpace(_settings.KeyVaultCertValidity)
                 ? "+1d"
                 : _settings.KeyVaultCertValidity.Trim();
-            var identityComment = string.IsNullOrEmpty(unit) ? Environment.UserName : $"{Environment.UserName}@{unit}";
+            var identityComment = string.IsNullOrEmpty(hostname) ? Environment.UserName : $"{Environment.UserName}@{hostname}";
 
             // ssh-keygen -s ca -I <id> -n <principals> -V <validity> <pubkey>
             // writes <pubkey without .pub>-cert.pub beside the key.
